@@ -32,13 +32,13 @@
       </el-row>
     </el-card>
 
-    <!-- 请假登记（管理员） -->
-    <el-card shadow="never" class="mt-12" v-if="authStore.isAdmin">
+    <!-- 请假登记 -->
+    <el-card shadow="never" class="mt-12">
       <template #header>
-        <span class="card-title">登记请假</span>
+        <span class="card-title">{{ authStore.isAdmin ? '登记请假' : '我的请假申请' }}</span>
       </template>
       <el-form :model="form" inline label-width="70px">
-        <el-form-item label="人员">
+        <el-form-item label="人员" v-if="authStore.isAdmin">
           <el-select v-model="form.user_id" filterable placeholder="选择人员" style="width:160px">
             <el-option v-for="a in assignees" :key="a.id" :label="a.real_name" :value="a.id" />
           </el-select>
@@ -93,10 +93,10 @@
         <el-table-column prop="end_date" label="结束日期" width="110" />
         <el-table-column prop="days" label="天数" width="80" />
         <el-table-column prop="reason" label="事由" min-width="150" show-overflow-tooltip />
-        <el-table-column label="操作" width="150" v-if="authStore.isAdmin" fixed="right">
+        <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openPrint(row)">打印假条</el-button>
-            <el-button link type="danger" size="small" @click="removeLeave(row)">删除</el-button>
+            <el-button v-if="authStore.isAdmin" link type="danger" size="small" @click="removeLeave(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -188,11 +188,17 @@ const calcDays = () => {
 }
 
 const saveLeave = async () => {
-  if (!form.user_id) return ElMessage.warning('请选择人员')
+  if (!authStore.isAdmin && !form.leave_type) return ElMessage.warning('请选择请假类型')
+  if (authStore.isAdmin && !form.user_id) return ElMessage.warning('请选择人员')
   if (!form.leave_type) return ElMessage.warning('请选择请假类型')
   if (!form.end_date) form.end_date = form.start_date
   try {
-    await request.post('/leave-records', form)
+    const payload = { ...form }
+    if (!authStore.isAdmin) {
+      // 普通用户只能为自己请假，由后端强制绑定当前账号
+      payload.user_id = authStore.user?.id
+    }
+    await request.post('/leave-records', payload)
     ElMessage.success('请假登记成功')
     Object.assign(form, { user_id: null, leave_type: 'annual', start_date: dayjs().format('YYYY-MM-DD'), end_date: '', days: 1, reason: '' })
     loadData()

@@ -198,20 +198,29 @@ func AttendanceDates(w http.ResponseWriter, r *http.Request) {
 }
 
 // MarkUsers 管理员点到人员列表（全部启用人员 + 当日状态）
+// MarkUsers 点到用户列表（含当日已有考勤状态与请假状态）
 func MarkUsers(w http.ResponseWriter, r *http.Request) {
 	date := r.URL.Query().Get("date")
 	if date == "" {
 		date = time.Now().Format("2006-01-02")
 	}
 
+	// 查询所有启用用户，LEFT JOIN 当天考勤记录和当天有效的请假记录
+	// 若用户当天已请假（请假区间覆盖该日），自动标记为请假状态并带上请假类型
+	// 用 GROUP BY u.id 去重：同一用户可能有多条覆盖该日的请假记录
 	query := `SELECT u.id, u.real_name, d.name,
-			COALESCE(a.status, 0) as status, COALESCE(a.leave_type, '') as leave_type, COALESCE(a.remark, '') as remark
+			COALESCE(a.status, 0) as status, COALESCE(a.leave_type, '') as leave_type, COALESCE(a.remark, '') as remark,
+			CASE WHEN MAX(l.id) IS NOT NULL THEN 2 ELSE 0 END as auto_leave,
+			COALESCE(MAX(l.leave_type), '') as auto_leave_type
 		FROM users u
 		LEFT JOIN departments d ON u.department_id = d.id
 		LEFT JOIN attendances a ON a.user_id = u.id AND a.attend_date = ?
+		LEFT JOIN leave_records l ON l.user_id = u.id AND l.status = 1
+			AND l.start_date <= ? AND l.end_date >= ?
 		WHERE u.status = 1
+		GROUP BY u.id
 		ORDER BY u.id`
-	rows, err := database.DB.Query(query, date)
+	rows, err := database.DB.Query(query, date, date, date)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
@@ -228,10 +237,18 @@ func MarkUsers(w http.ResponseWriter, r *http.Request) {
 	list := []UserItem{}
 	for rows.Next() {
 		var u UserItem
-		var dept sql.NullString
-		rows.Scan(&u.ID, &u.RealName, &dept, &u.Status, &u.LeaveType, &u.Remark)
+		var dept, autoLeaveType sql.NullString
+		var autoLeave int
+		rows.Scan(&u.ID, &u.RealName, &dept, &u.Status, &u.LeaveType, &u.Remark, &autoLeave, &autoLeaveType)
 		if dept.Valid {
 			u.Department = dept.String
+		}
+		// 若当天无考勤记录（status=0）但有请假记录，自动标记为请假
+		if u.Status == 0 && autoLeave == 2 {
+			u.Status = 2
+			if autoLeaveType.Valid {
+				u.LeaveType = autoLeaveType.String
+			}
 		}
 		list = append(list, u)
 	}
@@ -241,18 +258,20 @@ func MarkUsers(w http.ResponseWriter, r *http.Request) {
 // 请假类型常量
 var LeaveTypes = []string{"annual", "sick", "personal", "marriage", "maternity", "bereavement", "other"}
 
-// CreateLeaveRecord 登记请假（管理员）
+// CreateLeaveRecord 登记请假
+// 管理员可为任意人员登记；普通用户只能为自己提交请假
 func CreateLeaveRecord(w http.ResponseWriter, r *http.Request) {
 	operatorID, _ := r.Context().Value(middleware.ContextUserID).(int64)
 	roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
-	if roleCode != "admin" {
-		middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "仅管理员可登记请假"})
-		return
-	}
+
 	var req models.LeaveRecord
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请求格式错误"})
 		return
+	}
+	// 非管理员只能为自己请假，防止代他人登记
+	if roleCode != "admin" {
+		req.UserID = operatorID
 	}
 	if req.UserID == 0 || req.LeaveType == "" || req.StartDate == "" {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请填写完整信息"})

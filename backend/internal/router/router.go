@@ -69,7 +69,7 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("GET /api/attendance/yearly", middleware.Auth(http.HandlerFunc(handlers.AttendanceYearly)))
 
 	// ---- 请假管理 ----
-	mux.Handle("POST /api/leave-records", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.CreateLeaveRecord))))
+	mux.Handle("POST /api/leave-records", middleware.Auth(http.HandlerFunc(handlers.CreateLeaveRecord)))
 	mux.Handle("GET /api/leave-records", middleware.Auth(http.HandlerFunc(handlers.ListLeaveRecords)))
 	mux.Handle("DELETE /api/leave-records/{id}", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.DeleteLeaveRecord))))
 	mux.Handle("GET /api/leave-stats", middleware.Auth(http.HandlerFunc(handlers.LeaveStats)))
