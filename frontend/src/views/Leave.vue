@@ -49,10 +49,10 @@
           </el-select>
         </el-form-item>
         <el-form-item label="开始">
-          <el-date-picker v-model="form.start_date" type="date" value-format="YYYY-MM-DD" style="width:150px" />
+          <el-date-picker v-model="form.start_date" type="date" value-format="YYYY-MM-DD" style="width:150px" @change="calcDays" />
         </el-form-item>
         <el-form-item label="结束">
-          <el-date-picker v-model="form.end_date" type="date" value-format="YYYY-MM-DD" style="width:150px" />
+          <el-date-picker v-model="form.end_date" type="date" value-format="YYYY-MM-DD" style="width:150px" @change="calcDays" />
         </el-form-item>
         <el-form-item label="天数">
           <el-input-number v-model="form.days" :min="0.5" :max="365" :step="0.5" style="width:100px" />
@@ -93,8 +93,9 @@
         <el-table-column prop="end_date" label="结束日期" width="110" />
         <el-table-column prop="days" label="天数" width="80" />
         <el-table-column prop="reason" label="事由" min-width="150" show-overflow-tooltip />
-        <el-table-column label="操作" width="80" v-if="authStore.isAdmin" fixed="right">
+        <el-table-column label="操作" width="150" v-if="authStore.isAdmin" fixed="right">
           <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="openPrint(row)">打印假条</el-button>
             <el-button link type="danger" size="small" @click="removeLeave(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -166,6 +167,26 @@ const loadAssignees = async () => {
   } catch (e) {}
 }
 
+// 根据起止日期自动计算天数（含首尾），支持半天（0.5）
+const calcDays = () => {
+  const s = form.start_date
+  const e = form.end_date
+  if (!s) return
+  if (!e) {
+    form.end_date = s
+    form.days = 1
+    return
+  }
+  const start = dayjs(s)
+  const end = dayjs(e)
+  if (end.isBefore(start)) {
+    ElMessage.warning('结束日期不能早于开始日期')
+    form.end_date = s
+    return
+  }
+  form.days = end.diff(start, 'day') + 1
+}
+
 const saveLeave = async () => {
   if (!form.user_id) return ElMessage.warning('请选择人员')
   if (!form.leave_type) return ElMessage.warning('请选择请假类型')
@@ -177,6 +198,11 @@ const saveLeave = async () => {
     loadData()
     loadStats()
   } catch (e) {}
+}
+
+const openPrint = (row) => {
+  sessionStorage.setItem('printLeave', JSON.stringify(row))
+  window.open(`/leave/print/${row.id}`, '_blank')
 }
 
 const removeLeave = async (row) => {

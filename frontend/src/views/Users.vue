@@ -9,6 +9,7 @@
           </el-input>
         </div>
         <el-button type="primary" @click="openCreate">新建用户</el-button>
+        <el-button type="warning" @click="openDept">部门管理</el-button>
       </div>
 
       <el-table :data="list" stripe v-loading="loading" empty-text="暂无用户">
@@ -69,6 +70,25 @@
         <el-button type="primary" @click="save">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 部门管理弹窗 -->
+    <el-dialog v-model="deptVisible" title="部门管理" width="560px">
+      <div class="dept-add-bar">
+        <el-input v-model="newDeptName" placeholder="输入新部门名称" clearable style="width: 220px"
+          @keyup.enter="addDept" />
+        <el-button type="primary" :icon="'Plus'" @click="addDept">添加部门</el-button>
+      </div>
+      <el-table :data="depts" stripe empty-text="暂无部门">
+        <el-table-column prop="id" label="ID" width="60" />
+        <el-table-column prop="name" label="部门名称" min-width="200" />
+        <el-table-column label="操作" width="180" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="editDept(row)">改名</el-button>
+            <el-button link type="danger" size="small" @click="removeDept(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
   </div>
 </template>
 
@@ -106,6 +126,7 @@ const loadOptions = async () => {
   try {
     const [d, r] = await Promise.all([request.get('/departments'), request.get('/roles')])
     departments.value = d.list || []
+    depts.value = d.list || []
     roles.value = r.list || []
   } catch (e) {}
 }
@@ -180,6 +201,60 @@ const removeUser = async (row) => {
   } catch (e) {}
 }
 
+const deptVisible = ref(false)
+const depts = ref([])
+const newDeptName = ref('')
+const editDeptId = ref(0)
+
+const openDept = () => {
+  editDeptId.value = 0
+  newDeptName.value = ''
+  loadDepts()
+  deptVisible.value = true
+}
+
+const loadDepts = async () => {
+  try {
+    const res = await request.get('/departments')
+    depts.value = res.list || []
+  } catch (e) {}
+}
+
+const addDept = async () => {
+  const name = newDeptName.value.trim()
+  if (!name) return ElMessage.warning('请输入部门名称')
+  try {
+    if (editDeptId.value) {
+      await request.put('/departments', { id: editDeptId.value, name })
+      ElMessage.success('部门已改名')
+    } else {
+      await request.post('/departments', { name })
+      ElMessage.success('部门已添加')
+    }
+    newDeptName.value = ''
+    editDeptId.value = 0
+    loadDepts()
+    loadOptions()
+  } catch (e) {}
+}
+
+const editDept = (row) => {
+  editDeptId.value = row.id
+  newDeptName.value = row.name
+}
+
+const removeDept = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确认删除部门「${row.name}」？`, '删除确认', { type: 'warning', confirmButtonText: '删除' })
+  } catch (e) { return }
+  try {
+    await request.delete(`/departments/${row.id}`)
+    ElMessage.success('部门已删除')
+    loadDepts()
+    loadOptions()
+  } catch (e) {}
+}
+
 onMounted(() => {
   loadData()
   loadOptions()
@@ -191,5 +266,10 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   margin-bottom: 16px;
+}
+.dept-add-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 </style>

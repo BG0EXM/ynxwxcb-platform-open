@@ -38,6 +38,12 @@ const routes = [
     meta: { title: '考勤统计' }
   },
   {
+    path: '/leave/print/:id',
+    name: 'leave-print',
+    component: () => import('../views/LeavePrint.vue'),
+    meta: { title: '打印请假条' }
+  },
+  {
     path: '/',
     component: () => import('../views/Layout.vue'),
     redirect: '/dashboard',
