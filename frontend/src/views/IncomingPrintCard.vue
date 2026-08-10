@@ -35,6 +35,10 @@
         </tbody>
       </table>
 
+      <div class="note">
+        <p>备注：本文件共 {{ doc.copies || 1 }} 份，传阅完毕后请及时签退归档。</p>
+      </div>
+
       <!-- 传阅登记表：序号/签字手写，签退列 -->
       <div class="circ-wrap">
         <table class="circ-table">
@@ -57,10 +61,6 @@
             </tr>
           </tbody>
         </table>
-      </div>
-
-      <div class="note">
-        <p>备注：本文件共 {{ doc.copies || 1 }} 份，传阅完毕后请及时签退归档。</p>
       </div>
 
       <div class="doc-footer">
@@ -194,7 +194,7 @@ onMounted(async () => {
   border-collapse: collapse;
   border: 1px solid #000;
   table-layout: fixed;
-  flex: 1;
+  height: 100%;
 }
 .circ-table th,
 .circ-table td {
@@ -216,9 +216,11 @@ onMounted(async () => {
   text-align: center;
 }
 .note {
-  margin-top: 14px;
+  margin-bottom: 10px;
   font-size: 13px;
   color: #333;
+  flex-shrink: 0;
+  padding: 2px;
 }
 .doc-footer {
   display: flex;
