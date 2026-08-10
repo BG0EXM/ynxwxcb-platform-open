@@ -327,6 +327,92 @@ func ListDepartments(w http.ResponseWriter, r *http.Request) {
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{"list": depts})
 }
 
+// CreateDepartment 添加部门（管理员）
+func CreateDepartment(w http.ResponseWriter, r *http.Request) {
+	var req models.Department
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请求格式错误"})
+		return
+	}
+	if req.Name == "" {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "部门名称不能为空"})
+		return
+	}
+	var cnt int
+	database.DB.QueryRow("SELECT COUNT(*) FROM departments WHERE name = ?", req.Name).Scan(&cnt)
+	if cnt > 0 {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "部门名称已存在"})
+		return
+	}
+	var maxSort int
+	database.DB.QueryRow("SELECT COALESCE(MAX(sort), 0) FROM departments").Scan(&maxSort)
+	res, err := database.DB.Exec("INSERT INTO departments (name, parent_id, sort) VALUES (?, ?, ?)",
+		req.Name, req.ParentID, maxSort+1)
+	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "添加失败"})
+		return
+	}
+	id, _ := res.LastInsertId()
+	middleware.JSON(w, http.StatusOK, map[string]interface{}{"id": id, "message": "添加成功"})
+}
+
+// UpdateDepartment 修改部门（管理员）
+func UpdateDepartment(w http.ResponseWriter, r *http.Request) {
+	var req models.Department
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请求格式错误"})
+		return
+	}
+	if req.ID == 0 {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少部门ID"})
+		return
+	}
+	if req.Name == "" {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "部门名称不能为空"})
+		return
+	}
+	var cnt int
+	database.DB.QueryRow("SELECT COUNT(*) FROM departments WHERE name = ? AND id != ?", req.Name, req.ID).Scan(&cnt)
+	if cnt > 0 {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "部门名称已存在"})
+		return
+	}
+	_, err := database.DB.Exec("UPDATE departments SET name = ? WHERE id = ?", req.Name, req.ID)
+	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "修改失败"})
+		return
+	}
+	middleware.JSON(w, http.StatusOK, map[string]string{"message": "修改成功"})
+}
+
+// DeleteDepartment 删除部门（管理员）
+// 若该部门下仍有用户或通讯录引用，则禁止删除，避免产生孤立数据
+func DeleteDepartment(w http.ResponseWriter, r *http.Request) {
+	id := pathID(r)
+	if id == 0 {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少部门ID"})
+		return
+	}
+	var userCnt int
+	database.DB.QueryRow("SELECT COUNT(*) FROM users WHERE department_id = ?", id).Scan(&userCnt)
+	if userCnt > 0 {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "该部门下仍有用户，请先调整用户部门后再删除"})
+		return
+	}
+	var contactCnt int
+	database.DB.QueryRow("SELECT COUNT(*) FROM contacts WHERE department_id = ?", id).Scan(&contactCnt)
+	if contactCnt > 0 {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "该部门下仍有通讯录联系人，请先调整后再删除"})
+		return
+	}
+	_, err := database.DB.Exec("DELETE FROM departments WHERE id = ?", id)
+	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+		return
+	}
+	middleware.JSON(w, http.StatusOK, map[string]string{"message": "删除成功"})
+}
+
 // DeleteUser 真删除用户（管理员）
 // 从数据库物理删除，释放 ID，同时清理该用户在其他表中的关联数据
 func DeleteUser(w http.ResponseWriter, r *http.Request) {

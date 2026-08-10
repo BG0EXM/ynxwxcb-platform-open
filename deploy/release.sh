@@ -28,7 +28,7 @@ cp "$ROOT/deploy/config.json.example" "$RELEASE_DIR/config.json"
 cp "$ROOT/deploy/backup.sh" "$RELEASE_DIR/"
 cp "$ROOT/deploy/systemd/ynxwxcb.service" "$RELEASE_DIR/"
 cp "$ROOT/deploy/nginx/ynxwxcb.conf" "$RELEASE_DIR/"
-cp "$ROOT/deploy/DEPLOY.md" "$RELEASE_DIR/README.md"
+cp "$ROOT/docs/DEPLOY.md" "$RELEASE_DIR/README.md"
 chmod +x "$RELEASE_DIR/ynxwxcb-server" "$RELEASE_DIR/backup.sh"
 
 echo "==> 打包"

@@ -30,6 +30,9 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("POST /api/users/reset-password", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.ResetPassword))))
 	mux.Handle("GET /api/roles", middleware.Auth(http.HandlerFunc(handlers.ListRoles)))
 	mux.Handle("GET /api/departments", middleware.Auth(http.HandlerFunc(handlers.ListDepartments)))
+	mux.Handle("POST /api/departments", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.CreateDepartment))))
+	mux.Handle("PUT /api/departments", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.UpdateDepartment))))
+	mux.Handle("DELETE /api/departments/{id}", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.DeleteDepartment))))
 	mux.Handle("GET /api/assignees", middleware.Auth(http.HandlerFunc(handlers.GetAssignees)))
 
 	// ---- 学习资料 ----
