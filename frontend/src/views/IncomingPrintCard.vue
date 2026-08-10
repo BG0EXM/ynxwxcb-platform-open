@@ -67,7 +67,7 @@
         <span class="footer-left">打印日期：{{ today }}</span>
         <span class="footer-right">
           <div>中共伊宁县委宣传部办公室</div>
-          <div>伊宁县委宣传部部务工作平台V1.3.1</div>
+          <div>伊宁县委宣传部部务工作平台V1.3.2</div>
         </span>
       </div>
     </div>
@@ -134,6 +134,8 @@ onMounted(async () => {
   box-shadow: 0 2px 12px rgba(0,0,0,.12);
   position: relative;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
 }
 .doc-header {
   text-align: center;
@@ -181,14 +183,18 @@ onMounted(async () => {
   background: #f5f5f5;
 }
 .circ-wrap {
-  /* 占满头部以下的剩余空间，让表格延伸到底部 */
-  min-height: 780px;
+  /* 弹性填充头部与页脚之间的剩余空间，让表格延伸到底部 */
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 200px;
 }
 .circ-table {
   width: 100%;
   border-collapse: collapse;
   border: 1px solid #000;
   table-layout: fixed;
+  flex: 1;
 }
 .circ-table th,
 .circ-table td {
@@ -215,15 +221,13 @@ onMounted(async () => {
   color: #333;
 }
 .doc-footer {
-  position: absolute;
-  bottom: 36px;
-  left: 56px;
-  right: 56px;
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
   font-size: 13px;
   color: #333;
+  padding-top: 14px;
+  flex-shrink: 0;
 }
 .footer-right {
   text-align: center;
@@ -242,16 +246,13 @@ onMounted(async () => {
   }
   .a4-page {
     width: 100%;
-    min-height: 100vh;
+    min-height: auto;
+    height: 1122px;   /* 固定 A4 高度，防止视口差异导致溢出 */
     box-shadow: none;
     padding: 36px 44px 50px;
   }
   .circ-wrap {
-    min-height: auto;
-  }
-  /* 打印时确保表格延伸到页面底部 */
-  .circ-table {
-    height: calc(100vh - 280px);
+    flex: 1;
   }
   .circ-table tbody tr {
     height: auto;
