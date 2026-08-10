@@ -89,10 +89,10 @@ const today = computed(() => {
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`
 })
 
-// 至少 16 行空白行，让表格填满 A4 纸；已有传阅人则填充姓名，其余留空手写
+// 至少 15 行空白行，让表格填满 A4 纸；已有传阅人则填充姓名，其余留空手写
 const rows = computed(() => {
   const list = []
-  const count = Math.max(16, circs.value.length)
+  const count = Math.max(15, circs.value.length)
   for (let i = 0; i < count; i++) {
     list.push({ user_name: circs.value[i] ? circs.value[i].user_name : '' })
   }
@@ -194,7 +194,6 @@ onMounted(async () => {
   border-collapse: collapse;
   border: 1px solid #000;
   table-layout: fixed;
-  height: 100%;
 }
 .circ-table th,
 .circ-table td {
