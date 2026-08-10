@@ -16,7 +16,7 @@
 |---|---|---|
 | 平台域名 | `bw.yourdomain.com` | 与 WordPress 主域名分开，或用全新域名 |
 | 后端端口 | `8080`（仅本机访问） | 不与 80/443 冲突，不外网开放 |
-| 安装目录 | `/opt/ynxcb/` | 独立目录，不影响 WordPress 的 `/www/...` 等目录 |
+| 安装目录 | `/opt/ynxwxcb/` | 独立目录，不影响 WordPress 的 `/www/...` 等目录 |
 | SSL 证书 | 平台子域名**单独申请** | 复用 WordPress 证书不可行（域名不同）；用 Let's Encrypt 或云厂商免费证书 |
 
 ## 二、部署步骤
@@ -24,23 +24,23 @@
 ### 1. 上传平台文件
 
 ```bash
-sudo mkdir -p /opt/ynxcb
-# 上传 ynxcb-server（二进制）、config.json、backup.sh、ynxcb.service 到 /opt/ynxcb/
-cd /opt/ynxcb
-sudo chmod +x ynxcb-server backup.sh
+sudo mkdir -p /opt/ynxwxcb
+# 上传 ynxwxcb-server（二进制）、config.json、backup.sh、ynxwxcb.service 到 /opt/ynxwxcb/
+cd /opt/ynxwxcb
+sudo chmod +x ynxwxcb-server backup.sh
 ```
 
 ### 2. 创建独立运行用户
 
 ```bash
-sudo useradd -r -s /usr/sbin/nologin ynxcb
-sudo chown -R ynxcb:ynxcb /opt/ynxcb
+sudo useradd -r -s /usr/sbin/nologin ynxwxcb
+sudo chown -R ynxwxcb:ynxwxcb /opt/ynxwxcb
 ```
 
 ### 3. 修改 config.json
 
 ```bash
-sudo nano /opt/ynxcb/config.json
+sudo nano /opt/ynxwxcb/config.json
 ```
 - `jwt.secret`：改为随机长字符串（`openssl rand -base64 48`）
 - `admin.password`：设置管理员初始密码
@@ -48,10 +48,10 @@ sudo nano /opt/ynxcb/config.json
 ### 4. 配置 systemd 服务
 
 ```bash
-sudo cp /opt/ynxcb/ynxcb.service /etc/systemd/system/
+sudo cp /opt/ynxwxcb/ynxwxcb.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now ynxcb
-sudo systemctl status ynxcb        # 确认 running
+sudo systemctl enable --now ynxwxcb
+sudo systemctl status ynxwxcb        # 确认 running
 ```
 
 > 平台进程独立运行，**与 WordPress 的 PHP-FPM/MySQL 服务无关**，不会影响它们。
@@ -61,8 +61,8 @@ sudo systemctl status ynxcb        # 确认 running
 **不要修改 WordPress 的 server 配置！** 在 `/etc/nginx/sites-available/` 新建平台专用配置：
 
 ```bash
-sudo cp /opt/ynxcb/ynxcb.conf /etc/nginx/sites-available/ynxcb.conf
-sudo nano /etc/nginx/sites-available/ynxcb.conf
+sudo cp /opt/ynxwxcb/ynxwxcb.conf /etc/nginx/sites-available/ynxwxcb.conf
+sudo nano /etc/nginx/sites-available/ynxwxcb.conf
 ```
 
 修改三处：
@@ -73,7 +73,7 @@ sudo nano /etc/nginx/sites-available/ynxcb.conf
 启用并测试：
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/ynxcb.conf /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/ynxwxcb.conf /etc/nginx/sites-enabled/
 sudo nginx -t        # 语法检查，务必看到 syntax is ok
 sudo systemctl reload nginx
 ```
@@ -106,7 +106,7 @@ sudo ufw status
 
 ```bash
 # 1. 平台进程
-systemctl status ynxcb
+systemctl status ynxwxcb
 
 # 2. 平台访问（浏览器）https://bw.yourdomain.com
 #    - 应看到登录页（注意强刷 Ctrl+F5）
@@ -118,7 +118,7 @@ systemctl status ynxcb
 ss -tlnp | grep -E ':(80|443|8080)'
 
 # 5. 平台日志无报错
-journalctl -u ynxcb -n 50
+journalctl -u ynxwxcb -n 50
 ```
 
 ## 四、备份策略（独立于 WordPress）
@@ -127,15 +127,15 @@ journalctl -u ynxcb -n 50
 
 ```bash
 # 手动备份
-sudo -u ynxcb /opt/ynxcb/backup.sh
+sudo -u ynxwxcb /opt/ynxwxcb/backup.sh
 
 # 定时备份（每天 2:00，仅平台数据）
 sudo crontab -e
 # 加入：
-0 2 * * * /opt/ynxcb/backup.sh >> /var/log/ynxcb-backup.log 2>&1
+0 2 * * * /opt/ynxwxcb/backup.sh >> /var/log/ynxwxcb-backup.log 2>&1
 ```
 
-- 平台备份文件：`/opt/ynxcb-backup/`（SQLite 数据库 + 上传附件）
+- 平台备份文件：`/opt/ynxwxcb-backup/`（SQLite 数据库 + 上传附件）
 - WordPress 备份：维持你现有方案，两套互不影响
 
 ## 五、注意事项
@@ -143,8 +143,8 @@ sudo crontab -e
 1. **不要修改 WordPress 相关配置**：本方案只新增 server 块，WordPress 的 PHP-FPM、MySQL、上传目录均不动
 2. **域名必须不同**：`server_name` 不可与 WordPress 重复，否则 Nginx 会按顺序匹配出错
 3. **资源预留**：2C2G 下运行 WordPress + 本平台总体内存压力可控（本平台约 60MB），但若 WordPress 常驻内存较高，建议 `free -m` 确认空闲内存，必要时给 WordPress 优化（如安装缓存插件）
-4. **升级平台**：只替换 `/opt/ynxcb/ynxcb-server` 二进制后重启服务，不影响 WordPress
-5. **回滚**：`systemctl disable --now ynxcb` + 删除 `/etc/nginx/sites-enabled/ynxcb.conf` 并 reload，即可完全移除平台，WordPress 不受影响
+4. **升级平台**：只替换 `/opt/ynxwxcb/ynxwxcb-server` 二进制后重启服务，不影响 WordPress
+5. **回滚**：`systemctl disable --now ynxwxcb` + 删除 `/etc/nginx/sites-enabled/ynxwxcb.conf` 并 reload，即可完全移除平台，WordPress 不受影响
 
 ## 六、默认账号
 

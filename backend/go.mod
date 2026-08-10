@@ -1,4 +1,4 @@
-module ynxcb-platform
+module ynxwxcb-platform
 
 go 1.25.0
 

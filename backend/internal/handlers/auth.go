@@ -8,11 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"ynxcb-platform/internal/auth"
-	"ynxcb-platform/internal/config"
-	"ynxcb-platform/internal/database"
-	"ynxcb-platform/internal/middleware"
-	"ynxcb-platform/internal/models"
+	"ynxwxcb-platform/internal/auth"
+	"ynxwxcb-platform/internal/config"
+	"ynxwxcb-platform/internal/database"
+	"ynxwxcb-platform/internal/middleware"
+	"ynxwxcb-platform/internal/models"
 )
 
 // 登录限流：每个用户名最多失败 5 次，锁定 10 分钟

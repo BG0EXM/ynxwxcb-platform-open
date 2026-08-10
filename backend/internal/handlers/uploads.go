@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"ynxcb-platform/internal/config"
-	"ynxcb-platform/internal/database"
-	"ynxcb-platform/internal/middleware"
-	"ynxcb-platform/internal/models"
+	"ynxwxcb-platform/internal/config"
+	"ynxwxcb-platform/internal/database"
+	"ynxwxcb-platform/internal/middleware"
+	"ynxwxcb-platform/internal/models"
 )
 
 // UploadFile 文件上传

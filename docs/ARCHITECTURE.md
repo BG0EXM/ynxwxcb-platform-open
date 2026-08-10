@@ -14,7 +14,7 @@
 Nginx (443, 反代 + 静态缓存)
    │  127.0.0.1:8080
    ▼
-Go 单二进制 (ynxcb-server, ~10MB)
+Go 单二进制 (ynxwxcb-server, ~10MB)
    ├─ Router (http.ServeMux, Go1.22 模式路由)
    ├─ Middleware: Auth(JWT) → RequireRole
    ├─ Handlers: 8 大业务域

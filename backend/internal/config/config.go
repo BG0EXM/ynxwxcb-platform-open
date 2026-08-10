@@ -31,7 +31,7 @@ type Config struct {
 func Default() *Config {
 	c := &Config{}
 	c.Server.Port = "8080"
-	c.Database.Path = "data/ynxcb.db"
+	c.Database.Path = "data/ynxwxcb.db"
 	c.JWT.Secret = "change-me-to-a-random-secret"
 	c.Upload.Dir = "data/uploads"
 	c.Upload.MaxMB = 50

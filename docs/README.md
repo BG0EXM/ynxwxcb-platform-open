@@ -11,7 +11,7 @@
 ## 项目结构
 
 ```
-ynxcb-platform/
+ynxwxcb-platform/
 ├── backend/                 # Go 后端
 │   ├── cmd/server/          # 入口
 │   ├── internal/
@@ -33,8 +33,8 @@ ynxcb-platform/
     ├── backup.sh            # 备份脚本
     ├── release.sh           # 发布包生成脚本
     ├── config.json.example  # 配置模板
-    ├── nginx/ynxcb.conf     # Nginx HTTPS 配置
-    └── systemd/ynxcb.service
+    ├── nginx/ynxwxcb.conf     # Nginx HTTPS 配置
+    └── systemd/ynxwxcb.service
 ```
 
 > 全部文档集中在 `docs/` 目录：[README](README.md)（本项目）· [DEPLOY](DEPLOY.md)（部署·Nginx）· [DEPLOY-CADDY](DEPLOY-CADDY.md)（部署·Caddy）· [DEPLOY-WORDPRESS-COEXIST](DEPLOY-WORDPRESS-COEXIST.md)（WordPress 共存）· [OFFLINE-DEPLOYMENT](OFFLINE-DEPLOYMENT.md)（离线部署）· [ARCHITECTURE](ARCHITECTURE.md)（架构梳理）
@@ -62,7 +62,7 @@ npm run build # 构建到 dist/
 在 Windows/Linux 上均可：
 ```bash
 cd backend
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ynxcb-server ./cmd/server
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ynxwxcb-server ./cmd/server
 ```
 
 ## 功能模块
@@ -92,7 +92,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ynxcb-server ./cmd/server
 ## 部署
 
 见 [DEPLOY.md](DEPLOY.md)。核心要点：
-- 单二进制部署到 `/opt/ynxcb`
+- 单二进制部署到 `/opt/ynxwxcb`
 - systemd 托管自动重启
 - Nginx 反代 HTTPS
 - crontab 每日备份

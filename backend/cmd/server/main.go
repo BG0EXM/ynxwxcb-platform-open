@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"os"
 
-	"ynxcb-platform/internal/auth"
-	"ynxcb-platform/internal/config"
-	"ynxcb-platform/internal/database"
-	"ynxcb-platform/internal/router"
+	"ynxwxcb-platform/internal/auth"
+	"ynxwxcb-platform/internal/config"
+	"ynxwxcb-platform/internal/database"
+	"ynxwxcb-platform/internal/router"
 )
 
 func main() {

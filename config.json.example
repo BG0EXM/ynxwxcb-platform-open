@@ -3,13 +3,13 @@
     "port": "8080"
   },
   "database": {
-    "path": "/opt/ynxcb/data/ynxcb.db"
+    "path": "/opt/ynxwxcb/data/ynxwxcb.db"
   },
   "jwt": {
     "secret": "PLEASE-CHANGE-THIS-TO-A-LONG-RANDOM-STRING-64-CHARACTERS-MINIMUM"
   },
   "upload": {
-    "dir": "/opt/ynxcb/data/uploads",
+    "dir": "/opt/ynxwxcb/data/uploads",
     "max_mb": 50
   },
   "admin": {

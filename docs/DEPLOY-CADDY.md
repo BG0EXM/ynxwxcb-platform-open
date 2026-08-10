@@ -8,17 +8,17 @@
 
 | 名称 | 说明 |
 |---|---|
-| `ynxcb-server` | 主程序（可执行文件） |
+| `ynxwxcb-server` | 主程序（可执行文件） |
 | `static/` 文件夹 | 前端网页页面 |
 
-> **`ynxcb-server` 和 `static/` 必须放在同一个目录**（后端在运行目录下找 static）。
+> **`ynxwxcb-server` 和 `static/` 必须放在同一个目录**（后端在运行目录下找 static）。
 > 本仓库的 `backend/static/` 已帮你准备好前端页面，直接用即可。
 
 ## 一、部署后的目录结构
 
 ```
-/opt/ynxcb/
-├── ynxcb-server          # 主程序（可执行文件）
+/opt/ynxwxcb/
+├── ynxwxcb-server          # 主程序（可执行文件）
 ├── static/               # 前端页面文件夹（与主程序同级）
 ├── config.json           # 配置文件
 ├── backup.sh             # 备份脚本
@@ -33,7 +33,7 @@
 
 ```bash
 cd backend
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ynxcb-server ./cmd/server
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ynxwxcb-server ./cmd/server
 ```
 
 （Windows 装 Go：https://go.dev/dl ；Linux：`sudo apt install golang`；不想装 Go 可用别人编译好的文件）
@@ -41,17 +41,17 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ynxcb-server ./cmd/server
 **第 2 步：上传两个东西到服务器同一目录**
 
 ```bash
-sudo mkdir -p /opt/ynxcb
-# 上传 ynxcb-server 和 static/（用仓库 backend/static/）到 /opt/ynxcb/
-cd /opt/ynxcb
-sudo chmod +x ynxcb-server
+sudo mkdir -p /opt/ynxwxcb
+# 上传 ynxwxcb-server 和 static/（用仓库 backend/static/）到 /opt/ynxwxcb/
+cd /opt/ynxwxcb
+sudo chmod +x ynxwxcb-server
 ```
 
 **第 3 步：创建运行用户 + 配置**
 
 ```bash
-sudo useradd -r -s /usr/sbin/nologin ynxcb
-sudo chown -R ynxcb:ynxcb /opt/ynxcb
+sudo useradd -r -s /usr/sbin/nologin ynxwxcb
+sudo chown -R ynxwxcb:ynxwxcb /opt/ynxwxcb
 sudo cp config.json.example config.json
 sudo nano config.json   # 改 jwt.secret 和 admin.password
 ```
@@ -59,10 +59,10 @@ sudo nano config.json   # 改 jwt.secret 和 admin.password
 **第 4 步：systemd 自启**
 
 ```bash
-sudo cp deploy/systemd/ynxcb.service /etc/systemd/system/
+sudo cp deploy/systemd/ynxwxcb.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now ynxcb
-sudo systemctl status ynxcb
+sudo systemctl enable --now ynxwxcb
+sudo systemctl status ynxwxcb
 ```
 
 ### 方式 B：服务器上直接编译（懂行的用）
@@ -105,11 +105,11 @@ sudo ufw allow 443/tcp
 ## 五、备份
 
 ```bash
-sudo -u ynxcb /opt/ynxcb/backup.sh
-# crontab: 0 2 * * * /opt/ynxcb/backup.sh >> /var/log/ynxcb-backup.log 2>&1
+sudo -u ynxwxcb /opt/ynxwxcb/backup.sh
+# crontab: 0 2 * * * /opt/ynxwxcb/backup.sh >> /var/log/ynxwxcb-backup.log 2>&1
 ```
 
-备份在 `/opt/ynxcb-backup/`，保留 14 天。建议定期同步到异机或对象存储。
+备份在 `/opt/ynxwxcb-backup/`，保留 14 天。建议定期同步到异机或对象存储。
 
 ## 六、默认账号
 
@@ -121,7 +121,7 @@ sudo -u ynxcb /opt/ynxcb/backup.sh
 
 **页面 404 或空白？**
 - 99% 是 `static/` 文件夹没放对或没传
-- 确认服务器上 `ynxcb-server` 和 `static/` 在**同一目录**
+- 确认服务器上 `ynxwxcb-server` 和 `static/` 在**同一目录**
 
 **525 / SSL 握手失败？**
 - 确认域名 DNS 已解析到服务器公网 IP
@@ -130,6 +130,6 @@ sudo -u ynxcb /opt/ynxcb/backup.sh
 
 **平台服务检查：**
 ```bash
-sudo systemctl status ynxcb
+sudo systemctl status ynxwxcb
 curl -I http://127.0.0.1:8080
 ```

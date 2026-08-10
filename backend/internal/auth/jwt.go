@@ -33,7 +33,7 @@ func GenerateToken(userID int64, username, realName, roleCode string) (string, e
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			Issuer:    "ynxcb-platform",
+			Issuer:    "ynxwxcb-platform",
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

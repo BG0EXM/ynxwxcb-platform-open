@@ -1,5 +1,5 @@
 # 编译产物（不提交，由各部署者构建）
-backend/ynxcb-server
+backend/ynxwxcb-server
 backend/config.json
 backend/data/
 frontend/node_modules/

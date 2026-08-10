@@ -8,17 +8,17 @@
 
 | 名称 | 说明 |
 |---|---|
-| `ynxcb-server` | 主程序（可执行文件） |
+| `ynxwxcb-server` | 主程序（可执行文件） |
 | `static/` 文件夹 | 前端网页页面 |
 
-> **`ynxcb-server` 和 `static/` 必须放在同一个目录**（后端在运行目录下找 static）。
+> **`ynxwxcb-server` 和 `static/` 必须放在同一个目录**（后端在运行目录下找 static）。
 > 本仓库的 `backend/static/` 已帮你准备好前端页面，直接用即可。
 
 ## 一、部署后的目录结构
 
 ```
-/opt/ynxcb/
-├── ynxcb-server          # 主程序（可执行文件）
+/opt/ynxwxcb/
+├── ynxwxcb-server          # 主程序（可执行文件）
 ├── static/               # 前端页面文件夹（与主程序同级）
 ├── config.json           # 配置文件
 ├── backup.sh             # 备份脚本
@@ -37,39 +37,39 @@
 
 ```bash
 cd backend
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ynxcb-server ./cmd/server
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ynxwxcb-server ./cmd/server
 ```
 
 - Windows 装 Go：https://go.dev/dl
 - Linux 装 Go：`sudo apt install golang`
-- 实在不想装 Go，可以让已编译好的人给你一份 `ynxcb-server` 文件
+- 实在不想装 Go，可以让已编译好的人给你一份 `ynxwxcb-server` 文件
 
 **第 2 步：上传到服务器**
 
-把这两样放进同一目录（如 `/opt/ynxcb/`）：
-- `ynxcb-server`（编译出的文件）
+把这两样放进同一目录（如 `/opt/ynxwxcb/`）：
+- `ynxwxcb-server`（编译出的文件）
 - `static/`（用仓库 `backend/static/` 里的，整个文件夹复制）
 
 ```bash
 # 在服务器上
-sudo mkdir -p /opt/ynxcb
-# 用 SFTP/SCP 上传 ynxcb-server 和 static/ 到 /opt/ynxcb/
-cd /opt/ynxcb
-sudo chmod +x ynxcb-server
+sudo mkdir -p /opt/ynxwxcb
+# 用 SFTP/SCP 上传 ynxwxcb-server 和 static/ 到 /opt/ynxwxcb/
+cd /opt/ynxwxcb
+sudo chmod +x ynxwxcb-server
 ```
 
 **第 3 步：创建运行用户（安全加固，可跳过）**
 
 ```bash
-sudo useradd -r -s /usr/sbin/nologin ynxcb
-sudo chown -R ynxcb:ynxcb /opt/ynxcb
+sudo useradd -r -s /usr/sbin/nologin ynxwxcb
+sudo chown -R ynxwxcb:ynxwxcb /opt/ynxwxcb
 ```
 
 **第 4 步：配置 config.json**
 
 ```bash
-sudo cp /opt/ynxcb/config.json.example /opt/ynxcb/config.json
-sudo nano /opt/ynxcb/config.json
+sudo cp /opt/ynxwxcb/config.json.example /opt/ynxwxcb/config.json
+sudo nano /opt/ynxwxcb/config.json
 ```
 
 修改：
@@ -84,8 +84,8 @@ sudo nano /opt/ynxcb/config.json
 # 1. 把整个项目源码传到服务器
 # 2. 编译
 cd backend
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ynxcb-server ./cmd/server
-# 3. 确保 static/ 和 ynxcb-server 同目录
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ynxwxcb-server ./cmd/server
+# 3. 确保 static/ 和 ynxwxcb-server 同目录
 # 4. 后续步骤同方式 A 的第 3、4 步
 ```
 
@@ -94,22 +94,22 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ynxcb-server ./cmd/server
 ## 三、配置 systemd 服务（开机自启）
 
 ```bash
-sudo cp /opt/ynxcb/deploy/systemd/ynxcb.service /etc/systemd/system/
+sudo cp /opt/ynxwxcb/deploy/systemd/ynxwxcb.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now ynxcb
-sudo systemctl status ynxcb
+sudo systemctl enable --now ynxwxcb
+sudo systemctl status ynxwxcb
 ```
 
-> 如果目录不是 `/opt/ynxcb`，需修改 `ynxcb.service` 里的路径。
+> 如果目录不是 `/opt/ynxwxcb`，需修改 `ynxwxcb.service` 里的路径。
 
 ## 四、反向代理 + HTTPS（Nginx）
 
-1. 把 `deploy/nginx/ynxcb.conf` 复制到服务器，修改域名和证书路径
+1. 把 `deploy/nginx/ynxwxcb.conf` 复制到服务器，修改域名和证书路径
 2. 启用：
 
 ```bash
-sudo cp /opt/ynxcb/deploy/nginx/ynxcb.conf /etc/nginx/sites-available/
-sudo ln -s /etc/nginx/sites-available/ynxcb.conf /etc/nginx/sites-enabled/
+sudo cp /opt/ynxwxcb/deploy/nginx/ynxwxcb.conf /etc/nginx/sites-available/
+sudo ln -s /etc/nginx/sites-available/ynxwxcb.conf /etc/nginx/sites-enabled/
 sudo nginx -t
 sudo systemctl reload nginx
 ```
@@ -130,42 +130,42 @@ sudo ufw enable
 
 ### 手动备份
 ```bash
-sudo -u ynxcb /opt/ynxcb/backup.sh
+sudo -u ynxwxcb /opt/ynxwxcb/backup.sh
 ```
 
 ### 定时备份（每天 2:00）
 ```bash
 sudo crontab -e
 # 加入：
-0 2 * * * /opt/ynxcb/backup.sh >> /var/log/ynxcb-backup.log 2>&1
+0 2 * * * /opt/ynxwxcb/backup.sh >> /var/log/ynxwxcb-backup.log 2>&1
 ```
 
-备份文件在 `/opt/ynxcb-backup/`，保留 14 天。**建议定期同步到另一台机器或对象存储。**
+备份文件在 `/opt/ynxwxcb-backup/`，保留 14 天。**建议定期同步到另一台机器或对象存储。**
 
 ### 恢复备份
 ```bash
-tar -xzf /opt/ynxcb-backup/ynxcb_xxx.tar.gz -C /tmp/restore
-sudo systemctl stop ynxcb
-sudo cp /tmp/restore/ynxcb_backup_*.db /opt/ynxcb/data/ynxcb.db
-sudo chown ynxcb:ynxcb /opt/ynxcb/data/ynxcb.db
-sudo systemctl start ynxcb
+tar -xzf /opt/ynxwxcb-backup/ynxwxcb_xxx.tar.gz -C /tmp/restore
+sudo systemctl stop ynxwxcb
+sudo cp /tmp/restore/ynxwxcb_backup_*.db /opt/ynxwxcb/data/ynxwxcb.db
+sudo chown ynxwxcb:ynxwxcb /opt/ynxwxcb/data/ynxwxcb.db
+sudo systemctl start ynxwxcb
 ```
 
 ## 七、日常维护
 
 ```bash
 # 查看日志
-sudo journalctl -u ynxcb -f
+sudo journalctl -u ynxwxcb -f
 
 # 升级版本（只替换主程序，static 不用动）
-sudo systemctl stop ynxcb
-# 上传新 ynxcb-server 覆盖 /opt/ynxcb/ynxcb-server
-sudo chmod +x /opt/ynxcb/ynxcb-server
-sudo systemctl start ynxcb
+sudo systemctl stop ynxwxcb
+# 上传新 ynxwxcb-server 覆盖 /opt/ynxwxcb/ynxwxcb-server
+sudo chmod +x /opt/ynxwxcb/ynxwxcb-server
+sudo systemctl start ynxwxcb
 
 # 磁盘检查
-df -h /opt/ynxcb
-du -sh /opt/ynxcb/data/uploads
+df -h /opt/ynxwxcb
+du -sh /opt/ynxwxcb/data/uploads
 ```
 
 ## 八、默认账号
@@ -179,7 +179,7 @@ du -sh /opt/ynxcb/data/uploads
 
 **页面 404 或空白？**
 - 99% 是 `static/` 文件夹没放对或没传
-- 确认服务器上 `ynxcb-server` 和 `static/` 在**同一目录**
+- 确认服务器上 `ynxwxcb-server` 和 `static/` 在**同一目录**
 
 **升级后页面没变？**
 - 浏览器强刷（Ctrl+F5）
@@ -192,4 +192,4 @@ du -sh /opt/ynxcb/data/uploads
 
 ## 十一、无互联网（内网/隔离网）部署
 
-平台运行时不依赖任何在线资源。在联网机器上完成编译后，把 `ynxcb-server` + `static/` 传到内网即可。详见 [OFFLINE-DEPLOYMENT.md](OFFLINE-DEPLOYMENT.md)。
+平台运行时不依赖任何在线资源。在联网机器上完成编译后，把 `ynxwxcb-server` + `static/` 传到内网即可。详见 [OFFLINE-DEPLOYMENT.md](OFFLINE-DEPLOYMENT.md)。

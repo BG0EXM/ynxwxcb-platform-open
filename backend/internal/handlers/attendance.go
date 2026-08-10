@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
-	"ynxcb-platform/internal/database"
-	"ynxcb-platform/internal/middleware"
-	"ynxcb-platform/internal/models"
+	"ynxwxcb-platform/internal/database"
+	"ynxwxcb-platform/internal/middleware"
+	"ynxwxcb-platform/internal/models"
 )
 
 // MarkAttendance 管理员晨会点到（单人或批量）

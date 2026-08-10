@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"ynxcb-platform/internal/auth"
+	"ynxwxcb-platform/internal/auth"
 )
 
 type contextKey string

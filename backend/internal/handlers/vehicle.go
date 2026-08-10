@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
-	"ynxcb-platform/internal/database"
-	"ynxcb-platform/internal/middleware"
-	"ynxcb-platform/internal/models"
+	"ynxwxcb-platform/internal/database"
+	"ynxwxcb-platform/internal/middleware"
+	"ynxwxcb-platform/internal/models"
 )
 
 func timeNow() time.Time { return time.Now() }

@@ -9,8 +9,8 @@ import (
 
 	"github.com/xuri/excelize/v2"
 
-	"ynxcb-platform/internal/database"
-	"ynxcb-platform/internal/middleware"
+	"ynxwxcb-platform/internal/database"
+	"ynxwxcb-platform/internal/middleware"
 )
 
 type sqlStr = sql.NullString

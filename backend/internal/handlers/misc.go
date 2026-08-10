@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"ynxcb-platform/internal/database"
-	"ynxcb-platform/internal/middleware"
-	"ynxcb-platform/internal/models"
+	"ynxwxcb-platform/internal/database"
+	"ynxwxcb-platform/internal/middleware"
+	"ynxwxcb-platform/internal/models"
 )
 
 // ListContacts 通讯录（分页）

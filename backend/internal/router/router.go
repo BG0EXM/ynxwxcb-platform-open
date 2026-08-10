@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"ynxcb-platform/internal/config"
-	"ynxcb-platform/internal/handlers"
-	"ynxcb-platform/internal/middleware"
+	"ynxwxcb-platform/internal/config"
+	"ynxwxcb-platform/internal/handlers"
+	"ynxwxcb-platform/internal/middleware"
 )
 
 func NewRouter(cfg *config.Config) *http.ServeMux {
