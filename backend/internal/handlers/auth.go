@@ -410,6 +410,8 @@ func DeleteDepartment(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
 		return
 	}
+	// 重置自增序列，使被删除的最大 ID 可被复用
+	resetAutoIncrement()
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "删除成功"})
 }
 
@@ -477,7 +479,7 @@ func DeleteUser(w http.ResponseWriter, r *http.Request) {
 
 // resetAutoIncrement 将自增序列重置为各表当前最大 ID，实现删除后 ID 复用
 func resetAutoIncrement() {
-	tables := []string{"users", "attendances", "leave_records", "vehicles", "vehicle_applies",
+	tables := []string{"users", "departments", "attendances", "leave_records", "vehicles", "vehicle_applies",
 		"contacts", "duty_schedules", "reports", "incoming_docs", "circulation_records",
 		"study_materials", "attachments"}
 	for _, t := range tables {
