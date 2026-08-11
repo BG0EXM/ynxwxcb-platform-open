@@ -36,8 +36,11 @@
                 @click="authStore.isAdmin && openEdit(cell.dateStr)">
                 <template v-if="cell.schedules.length">
                   <div v-for="s in cell.schedules" :key="s.id" class="duty-person">
-                    <span class="duty-name">{{ s.user_name }}</span>
-                    <el-tag v-if="s.is_dawangyuan === 1" size="small" type="danger" effect="plain">大院</el-tag>
+                    <div class="duty-person-line">
+                      <span class="duty-name">{{ s.user_name }}</span>
+                      <el-tag v-if="s.is_dawangyuan === 1" size="small" type="danger" effect="plain">大院</el-tag>
+                    </div>
+                    <div v-if="s.note" class="duty-note">{{ s.note }}</div>
                   </div>
                 </template>
                 <template v-else>
@@ -71,7 +74,11 @@
               <el-checkbox :model-value="row.is_dawangyuan === 1" @change="(v) => toggleDaWangYuan(row, v)" />
             </template>
           </el-table-column>
-          <el-table-column prop="note" label="备注" show-overflow-tooltip />
+          <el-table-column label="备注" min-width="140">
+            <template #default="{ row }">
+              <el-input v-model="row.note" size="small" placeholder="点击输入备注" @change="updateNote(row)" />
+            </template>
+          </el-table-column>
           <el-table-column label="操作" width="70">
             <template #default="{ row }">
               <el-button link type="danger" size="small" @click="removeOne(row)">删除</el-button>
@@ -203,6 +210,22 @@ const toggleDaWangYuan = async (row, val) => {
   } catch (e) {}
 }
 
+// 更新排班备注
+const updateNote = async (row) => {
+  if (!row.id) return
+  try {
+    await request.post('/duty-schedules', {
+      duty_date: row.duty_date,
+      user_id: row.user_id,
+      is_dawangyuan: row.is_dawangyuan || 0,
+      note: row.note || ''
+    })
+    ElMessage.success('备注已更新')
+    await loadData()
+    daySchedules.value = schedules.value.filter(s => s.duty_date === editDate.value)
+  } catch (e) {}
+}
+
 const removeOne = async (row) => {
   try {
     await ElMessageBox.confirm(`确认移除 ${editDate.value} 的「${row.user_name}」排班？`, '删除确认', { type: 'warning' })
@@ -317,9 +340,21 @@ const exportData = () => {
 }
 .duty-person {
   display: flex;
+  flex-direction: column;
+  padding: 2px 0;
+  margin-bottom: 4px;
+}
+.duty-person-line {
+  display: flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 0;
+}
+.duty-note {
+  font-size: 11px;
+  color: #909399;
+  line-height: 1.4;
+  margin-top: 2px;
+  word-break: break-all;
 }
 .duty-empty {
   color: #c0c4cc;

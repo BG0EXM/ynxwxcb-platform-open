@@ -92,6 +92,18 @@ type migration struct {
 // 所有迁移，按版本号升序排列；新增迁移只需追加新版本号条目
 var migrations = []migration{
 	{1, "初始化表结构与历史兼容迁移", migrateV1},
+	{2, "用车报备增加开车人字段", migrateV2},
+}
+
+// migrateV2 版本2：用车报备支持科室人开车（增加 driver_name 字段）
+func migrateV2() error {
+	if !hasColumn("vehicle_applies", "driver_name") {
+		_, err := DB.Exec("ALTER TABLE vehicle_applies ADD COLUMN driver_name TEXT")
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // migrateV1 版本1：历史兼容迁移
@@ -334,6 +346,7 @@ func createTables() error {
 			vehicle_id INTEGER,
 			reporter_id INTEGER,
 			user_name TEXT,
+			driver_name TEXT,
 			purpose TEXT,
 			destination TEXT,
 			use_date TEXT,

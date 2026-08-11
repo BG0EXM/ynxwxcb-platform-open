@@ -136,9 +136,9 @@ func CreateVehicleApply(w http.ResponseWriter, r *http.Request) {
 		req.Passengers = 1
 	}
 	res, err := database.DB.Exec(
-		`INSERT INTO vehicle_applies (vehicle_id, reporter_id, user_name, purpose, destination, use_date, use_time, passengers)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		req.VehicleID, reporterID, req.UserName, req.Purpose, req.Destination, req.UseDate, req.UseTime, req.Passengers)
+		`INSERT INTO vehicle_applies (vehicle_id, reporter_id, user_name, driver_name, purpose, destination, use_date, use_time, passengers)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		req.VehicleID, reporterID, req.UserName, req.DriverName, req.Purpose, req.Destination, req.UseDate, req.UseTime, req.Passengers)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "报备失败"})
 		return
@@ -175,7 +175,7 @@ func ListVehicleApplies(w http.ResponseWriter, r *http.Request) {
 	database.DB.QueryRow("SELECT COUNT(*) FROM vehicle_applies a"+where, args...).Scan(&total)
 
 	query := `SELECT a.id, a.vehicle_id, v.plate_no, v.brand, v.driver, a.reporter_id, u.real_name,
-		a.user_name, a.purpose, a.destination, a.use_date, a.use_time, a.passengers, a.created_at
+		a.user_name, a.driver_name, a.purpose, a.destination, a.use_date, a.use_time, a.passengers, a.created_at
 		FROM vehicle_applies a
 		LEFT JOIN vehicles v ON a.vehicle_id = v.id
 		LEFT JOIN users u ON a.reporter_id = u.id` + where +
@@ -192,9 +192,9 @@ func ListVehicleApplies(w http.ResponseWriter, r *http.Request) {
 	list := []models.VehicleApply{}
 	for rows.Next() {
 		var a models.VehicleApply
-		var plateNo, brand, driver, reporterName sql.NullString
+		var plateNo, brand, driver, reporterName, driverName sql.NullString
 		rows.Scan(&a.ID, &a.VehicleID, &plateNo, &brand, &driver, &a.ReporterID, &reporterName,
-			&a.UserName, &a.Purpose, &a.Destination, &a.UseDate, &a.UseTime, &a.Passengers, &a.CreatedAt)
+			&a.UserName, &driverName, &a.Purpose, &a.Destination, &a.UseDate, &a.UseTime, &a.Passengers, &a.CreatedAt)
 		if plateNo.Valid {
 			a.VehicleNo = plateNo.String
 		}
@@ -203,6 +203,9 @@ func ListVehicleApplies(w http.ResponseWriter, r *http.Request) {
 		}
 		if driver.Valid {
 			a.VehicleDriver = driver.String
+		}
+		if driverName.Valid {
+			a.DriverName = driverName.String
 		}
 		if reporterName.Valid {
 			a.Reporter = reporterName.String
@@ -220,16 +223,16 @@ func GetVehicleApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var a models.VehicleApply
-	var plateNo, brand, driver, reporterName sql.NullString
+	var plateNo, brand, driver, reporterName, driverName sql.NullString
 	err := database.DB.QueryRow(
 		`SELECT a.id, a.vehicle_id, v.plate_no, v.brand, v.driver, a.reporter_id, u.real_name,
-			a.user_name, a.purpose, a.destination, a.use_date, a.use_time, a.passengers, a.created_at
+			a.user_name, a.driver_name, a.purpose, a.destination, a.use_date, a.use_time, a.passengers, a.created_at
 		 FROM vehicle_applies a
 		 LEFT JOIN vehicles v ON a.vehicle_id = v.id
 		 LEFT JOIN users u ON a.reporter_id = u.id
 		 WHERE a.id = ?`, id).
 		Scan(&a.ID, &a.VehicleID, &plateNo, &brand, &driver, &a.ReporterID, &reporterName,
-			&a.UserName, &a.Purpose, &a.Destination, &a.UseDate, &a.UseTime, &a.Passengers, &a.CreatedAt)
+			&a.UserName, &driverName, &a.Purpose, &a.Destination, &a.UseDate, &a.UseTime, &a.Passengers, &a.CreatedAt)
 	if err != nil {
 		middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "报备不存在"})
 		return
@@ -242,6 +245,9 @@ func GetVehicleApply(w http.ResponseWriter, r *http.Request) {
 	}
 	if driver.Valid {
 		a.VehicleDriver = driver.String
+	}
+	if driverName.Valid {
+		a.DriverName = driverName.String
 	}
 	if reporterName.Valid {
 		a.Reporter = reporterName.String

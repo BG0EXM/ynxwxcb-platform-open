@@ -189,6 +189,7 @@ func DeleteDutySchedule(w http.ResponseWriter, r *http.Request) {
 func ListReports(w http.ResponseWriter, r *http.Request) {
 	reportType := r.URL.Query().Get("report_type")
 	status := r.URL.Query().Get("status")
+	year := r.URL.Query().Get("year")
 	userID, _ := r.Context().Value(middleware.ContextUserID).(int64)
 	roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
 
@@ -201,6 +202,11 @@ func ListReports(w http.ResponseWriter, r *http.Request) {
 	if status != "" {
 		where += ` AND r.status = ?`
 		args = append(args, status)
+	}
+	// 按年份筛选：period 形如 "2026年第31周" / "2026年8月" / "2026年度"
+	if year != "" {
+		where += ` AND r.period LIKE ?`
+		args = append(args, year+"%")
 	}
 	// 非管理员只看到自己提交的
 	if roleCode != "admin" {
@@ -260,6 +266,68 @@ func CreateReport(w http.ResponseWriter, r *http.Request) {
 	}
 	id, _ := res.LastInsertId()
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{"message": "提交成功", "id": id})
+}
+
+// UpdateReport 修改报表（提交人本人或管理员）
+func UpdateReport(w http.ResponseWriter, r *http.Request) {
+	userID, _ := r.Context().Value(middleware.ContextUserID).(int64)
+	roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
+	var req models.Report
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请求格式错误"})
+		return
+	}
+	if req.ID == 0 {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
+		return
+	}
+	if req.Title == "" {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "标题必填"})
+		return
+	}
+	// 权限校验：管理员可改任意，普通用户只能改自己提交的
+	if roleCode != "admin" {
+		var ownerID int64
+		err := database.DB.QueryRow("SELECT submitter_id FROM reports WHERE id = ?", req.ID).Scan(&ownerID)
+		if err != nil || ownerID != userID {
+			middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "无权修改该报表"})
+			return
+		}
+	}
+	_, err := database.DB.Exec(
+		`UPDATE reports SET report_type=?, title=?, content=?, period=?, status=? WHERE id=?`,
+		req.ReportType, req.Title, req.Content, req.Period, req.Status, req.ID)
+	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "修改失败"})
+		return
+	}
+	middleware.JSON(w, http.StatusOK, map[string]string{"message": "修改成功"})
+}
+
+// DeleteReport 删除报表（提交人本人或管理员）
+func DeleteReport(w http.ResponseWriter, r *http.Request) {
+	userID, _ := r.Context().Value(middleware.ContextUserID).(int64)
+	roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
+	id := pathID(r)
+	if id == 0 {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
+		return
+	}
+	// 权限校验：管理员可删任意，普通用户只能删自己提交的
+	if roleCode != "admin" {
+		var ownerID int64
+		err := database.DB.QueryRow("SELECT submitter_id FROM reports WHERE id = ?", id).Scan(&ownerID)
+		if err != nil || ownerID != userID {
+			middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "无权删除该报表"})
+			return
+		}
+	}
+	_, err := database.DB.Exec("DELETE FROM reports WHERE id = ?", id)
+	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+		return
+	}
+	middleware.JSON(w, http.StatusOK, map[string]string{"message": "删除成功"})
 }
 
 // GetReport 报表详情

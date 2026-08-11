@@ -9,6 +9,8 @@
             <el-radio-button value="monthly">月报</el-radio-button>
             <el-radio-button value="yearly">年报</el-radio-button>
           </el-radio-group>
+          <el-date-picker v-model="yearFilter" type="year" value-format="YYYY" placeholder="按年筛选"
+            clearable style="width:130px;margin-left:10px" @change="loadData" />
         </div>
         <el-button type="primary" @click="openCreate">提交报表</el-button>
       </div>
@@ -30,17 +32,24 @@
             <el-tag size="small" :type="statusType(row.status)">{{ statusNames[row.status] }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openDetail(row)">查看</el-button>
+            <el-button v-if="authStore.isAdmin || row.submitter_id === authStore.user?.id" link type="warning" size="small" @click="openEdit(row)">编辑</el-button>
             <el-button v-if="authStore.isAdmin" link type="success" size="small" @click="review(row)">审阅</el-button>
+            <el-button v-if="authStore.isAdmin || row.submitter_id === authStore.user?.id" link type="danger" size="small" @click="removeReport(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
+
+      <div class="pagination-wrap" v-if="total > 0">
+        <el-pagination background layout="total, prev, pager, next" :total="total" :page-size="pageSize"
+          :current-page="page" @current-change="onPageChange" />
+      </div>
     </el-card>
 
     <!-- 提交报表 -->
-    <el-dialog v-model="dialogVisible" title="提交报表" width="600px">
+    <el-dialog v-model="dialogVisible" :title="editId ? '编辑报表' : '提交报表'" width="600px">
       <el-form :model="form" label-width="80px">
         <el-form-item label="报表类型">
           <el-radio-group v-model="form.report_type">
@@ -95,8 +104,13 @@ const authStore = useAuthStore()
 const list = ref([])
 const loading = ref(false)
 const reportType = ref('')
+const yearFilter = ref('')
+const page = ref(1)
+const pageSize = 10
+const total = ref(0)
 const dialogVisible = ref(false)
 const detailVisible = ref(false)
+const editId = ref(0)
 const form = reactive({ report_type: 'weekly', period: '', title: '', content: '', status: 2 })
 const detail = ref({})
 
@@ -109,16 +123,34 @@ const formatDate = (d) => d ? dayjs(d).format('YYYY-MM-DD HH:mm') : '—'
 const loadData = async () => {
   loading.value = true
   try {
-    const res = await request.get('/reports', { params: { report_type: reportType.value } })
+    const params = { report_type: reportType.value, page: page.value, page_size: pageSize }
+    if (yearFilter.value) params.year = yearFilter.value
+    const res = await request.get('/reports', { params })
     list.value = res.list || []
+    total.value = res.total || 0
   } catch (e) {
   } finally {
     loading.value = false
   }
 }
 
+const onPageChange = (p) => {
+  page.value = p
+  loadData()
+}
+
 const openCreate = () => {
+  editId.value = 0
   Object.assign(form, { report_type: 'weekly', period: '', title: '', content: '', status: 2 })
+  dialogVisible.value = true
+}
+
+const openEdit = async (row) => {
+  editId.value = row.id
+  Object.assign(form, {
+    report_type: row.report_type, period: row.period || '', title: row.title,
+    content: row.content || '', status: row.status
+  })
   dialogVisible.value = true
 }
 
@@ -126,9 +158,25 @@ const save = async () => {
   if (!form.title) return ElMessage.warning('请输入标题')
   if (!form.content) return ElMessage.warning('请输入内容')
   try {
-    await request.post('/reports', form)
-    ElMessage.success(form.status === 2 ? '提交成功' : '已存草稿')
+    if (editId.value) {
+      await request.put('/reports', { ...form, id: editId.value })
+      ElMessage.success('修改成功')
+    } else {
+      await request.post('/reports', form)
+      ElMessage.success(form.status === 2 ? '提交成功' : '已存草稿')
+    }
     dialogVisible.value = false
+    loadData()
+  } catch (e) {}
+}
+
+const removeReport = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确认删除报表「${row.title}」？`, '删除确认', { type: 'warning', confirmButtonText: '删除' })
+  } catch (e) { return }
+  try {
+    await request.delete(`/reports/${row.id}`)
+    ElMessage.success('删除成功')
     loadData()
   } catch (e) {}
 }

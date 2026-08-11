@@ -72,6 +72,7 @@
             <el-table-column prop="use_date" label="用车日期" width="110" />
             <el-table-column prop="vehicle_no" label="车牌号" width="110" />
             <el-table-column prop="user_name" label="用车人" width="90" />
+            <el-table-column prop="driver_name" label="开车人" width="90" />
             <el-table-column prop="purpose" label="事由" min-width="130" show-overflow-tooltip />
             <el-table-column prop="destination" label="目的地" width="120" show-overflow-tooltip />
             <el-table-column prop="use_time" label="用车时间" width="90" />
@@ -140,13 +141,16 @@
     <el-dialog v-model="applyDialogVisible" title="用车报备" width="520px">
       <el-form :model="applyForm" label-width="90px">
         <el-form-item label="选择车辆" required>
-          <el-select v-model="applyForm.vehicle_id" placeholder="选择车辆" style="width:100%">
+          <el-select v-model="applyForm.vehicle_id" placeholder="选择车辆" style="width:100%" @change="onVehicleSelect">
             <el-option v-for="v in vehicles" :key="v.id"
               :label="v.plate_no + ' ' + (v.brand || '') + '（' + vStatusNames[v.status] + '）'" :value="v.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="用车人" required>
           <el-input v-model="applyForm.user_name" placeholder="用车人姓名" />
+        </el-form-item>
+        <el-form-item label="开车人">
+          <el-input v-model="applyForm.driver_name" placeholder="开车人（默认为该车司机，科室人员自行开车时填写本人）" />
         </el-form-item>
         <el-form-item label="用车事由" required>
           <el-input v-model="applyForm.purpose" placeholder="填写用车事由" />
@@ -193,9 +197,9 @@ const vForm = reactive({ plate_no: '', brand: '', seats: 5, driver: '', status: 
 // 报备
 const applies = ref([])
 const queryDate = ref('')
-const showAll = ref(false)
+const showAll = ref(authStore.isAdmin)
 const applyDialogVisible = ref(false)
-const applyForm = reactive({ vehicle_id: null, user_name: '', purpose: '', destination: '', use_date: dayjs().format('YYYY-MM-DD'), use_time: '', passengers: 1 })
+const applyForm = reactive({ vehicle_id: null, user_name: '', driver_name: '', purpose: '', destination: '', use_date: dayjs().format('YYYY-MM-DD'), use_time: '', passengers: 1 })
 
 const vStatusNames = { 1: '可用', 2: '使用中', 3: '维修中', 4: '已报废' }
 const vStatusType = (s) => ({ 1: 'success', 2: 'warning', 3: 'danger', 4: 'info' }[s] || 'info')
@@ -288,10 +292,20 @@ const removeVehicle = async (row) => {
 
 const openApplyCreate = () => {
   Object.assign(applyForm, {
-    vehicle_id: null, user_name: '', purpose: '', destination: '',
+    vehicle_id: null, user_name: '', driver_name: '', purpose: '', destination: '',
     use_date: dayjs().format('YYYY-MM-DD'), use_time: '', passengers: 1
   })
   applyDialogVisible.value = true
+}
+
+// 选车后自动带入该车默认司机，可手动改为科室人员
+const onVehicleSelect = (vid) => {
+  const v = vehicles.value.find(x => x.id === vid)
+  if (v && v.driver) {
+    applyForm.driver_name = v.driver
+  } else {
+    applyForm.driver_name = ''
+  }
 }
 
 const submitApply = async () => {

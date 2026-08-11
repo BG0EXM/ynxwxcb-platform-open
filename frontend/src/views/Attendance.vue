@@ -19,16 +19,24 @@
           <div class="header-right">
             <el-date-picker v-model="markDate" type="date" value-format="YYYY-MM-DD" placeholder="选择点到日期" style="width:160px" @change="loadMarkUsers" />
             <el-button type="primary" :icon="'CircleCheck'" @click="markAllPresent" class="ml-8">全部出勤</el-button>
+            <el-tag v-if="saved" type="success" class="ml-8">当日已点到</el-tag>
           </div>
         </div>
       </template>
 
       <div class="mark-area">
+        <el-alert v-if="saved" type="info" :closable="false" class="saved-alert"
+          title="当日点到结果已保存，可直接修改状态后重新保存（会覆盖原记录）。" show-icon />
         <div v-if="!markUsers.length" class="mark-empty">
           <el-empty description="暂无人员" :image-size="60" />
         </div>
-        <el-table v-else :data="markUsers" size="small">
-          <el-table-column prop="real_name" label="姓名" width="100" />
+        <el-table v-else :data="markUsers" size="small" :row-class-name="rowClass">
+          <el-table-column prop="real_name" label="姓名" width="100">
+            <template #default="{ row }">
+              {{ row.real_name }}
+              <el-tag v-if="row.auto_leave === 1" type="warning" size="small" class="auto-leave-tag">请假</el-tag>
+            </template>
+          </el-table-column>
           <el-table-column prop="department" label="部门" width="130" />
           <el-table-column label="状态" width="260">
             <template #default="{ row }">
@@ -119,6 +127,7 @@ const list = ref([])
 const stats = ref(null)
 const loading = ref(false)
 const saving = ref(false)
+const saved = ref(false)
 const userFilter = ref('')
 const assignees = ref([])
 
@@ -129,16 +138,31 @@ const leaveTypeNames = {
   maternity: '产假', bereavement: '丧假', other: '其他'
 }
 
+// 自动请假的用户行高亮
+const rowClass = ({ row }) => {
+  if (row.auto_leave === 1) return 'auto-leave-row'
+  return ''
+}
+
 const loadMarkUsers = async () => {
   if (!authStore.isAdmin) return
   try {
     const res = await request.get('/attendance/mark-users', { params: { date: markDate.value } })
     markUsers.value = res.list || []
+    saved.value = !!res.saved
   } catch (e) {}
 }
 
 const markAllPresent = () => {
-  markUsers.value.forEach(u => { u.status = 1 })
+  let skipped = 0
+  markUsers.value.forEach(u => {
+    if (u.status === 2) {
+      skipped++
+      return
+    }
+    u.status = 1
+  })
+  if (skipped > 0) ElMessage.info(`${skipped} 人已请假，保持请假状态不变`)
 }
 
 const saveMark = async () => {
@@ -253,5 +277,14 @@ onMounted(() => {
 }
 .stat-row:last-child {
   border-bottom: none;
+}
+.saved-alert {
+  margin-bottom: 12px;
+}
+.auto-leave-tag {
+  margin-left: 4px;
+}
+:deep(.auto-leave-row) {
+  background: #fdf6ec;
 }
 </style>

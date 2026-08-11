@@ -55,6 +55,8 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	// ---- 报表 ----
 	mux.Handle("GET /api/reports", middleware.Auth(http.HandlerFunc(handlers.ListReports)))
 	mux.Handle("POST /api/reports", middleware.Auth(http.HandlerFunc(handlers.CreateReport)))
+	mux.Handle("PUT /api/reports", middleware.Auth(http.HandlerFunc(handlers.UpdateReport)))
+	mux.Handle("DELETE /api/reports/{id}", middleware.Auth(http.HandlerFunc(handlers.DeleteReport)))
 	mux.Handle("GET /api/reports/{id}", middleware.Auth(http.HandlerFunc(handlers.GetReport)))
 	mux.Handle("POST /api/reports/{id}/status", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.UpdateReportStatus))))
 	mux.Handle("GET /api/report-stats", middleware.Auth(http.HandlerFunc(handlers.ReportStats)))

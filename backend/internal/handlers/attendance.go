@@ -208,6 +208,11 @@ func MarkUsers(w http.ResponseWriter, r *http.Request) {
 	// 查询所有启用用户，LEFT JOIN 当天考勤记录和当天有效的请假记录
 	// 若用户当天已请假（请假区间覆盖该日），自动标记为请假状态并带上请假类型
 	// 用 GROUP BY u.id 去重：同一用户可能有多条覆盖该日的请假记录
+	// 同时判断当天是否已保存过点到（存在考勤记录）
+	var savedCount int
+	database.DB.QueryRow("SELECT COUNT(*) FROM attendances WHERE attend_date = ?", date).Scan(&savedCount)
+	saved := savedCount > 0
+
 	query := `SELECT u.id, u.real_name, d.name,
 			COALESCE(a.status, 0) as status, COALESCE(a.leave_type, '') as leave_type, COALESCE(a.remark, '') as remark,
 			CASE WHEN MAX(l.id) IS NOT NULL THEN 2 ELSE 0 END as auto_leave,
@@ -233,6 +238,7 @@ func MarkUsers(w http.ResponseWriter, r *http.Request) {
 		Status     int    `json:"status"`
 		LeaveType  string `json:"leave_type"`
 		Remark     string `json:"remark"`
+		AutoLeave  int    `json:"auto_leave"`
 	}
 	list := []UserItem{}
 	for rows.Next() {
@@ -243,16 +249,17 @@ func MarkUsers(w http.ResponseWriter, r *http.Request) {
 		if dept.Valid {
 			u.Department = dept.String
 		}
-		// 若当天无考勤记录（status=0）但有请假记录，自动标记为请假
+		// 若当天无考勤记录（status=0）但有请假记录，自动标记为请假，并记录 auto_leave=1
 		if u.Status == 0 && autoLeave == 2 {
 			u.Status = 2
+			u.AutoLeave = 1
 			if autoLeaveType.Valid {
 				u.LeaveType = autoLeaveType.String
 			}
 		}
 		list = append(list, u)
 	}
-	middleware.JSON(w, http.StatusOK, map[string]interface{}{"list": list})
+	middleware.JSON(w, http.StatusOK, map[string]interface{}{"list": list, "saved": saved})
 }
 
 // 请假类型常量
@@ -322,8 +329,9 @@ func ListLeaveRecords(w http.ResponseWriter, r *http.Request) {
 	var total int
 	database.DB.QueryRow("SELECT COUNT(*) FROM leave_records l"+where, args...).Scan(&total)
 
-	query := `SELECT l.id, l.user_id, u.real_name, l.leave_type, l.start_date, l.end_date, l.days, l.reason, l.status, l.created_at, l.updated_at
-		FROM leave_records l LEFT JOIN users u ON l.user_id = u.id` + where +
+	query := `SELECT l.id, l.user_id, u.real_name, d.name, l.leave_type, l.start_date, l.end_date, l.days, l.reason, l.status, l.created_at, l.updated_at
+		FROM leave_records l LEFT JOIN users u ON l.user_id = u.id
+		LEFT JOIN departments d ON u.department_id = d.id` + where +
 		` ORDER BY l.id DESC LIMIT ? OFFSET ?`
 	args = append(args, p.PageSize, (p.Page-1)*p.PageSize)
 
@@ -337,8 +345,12 @@ func ListLeaveRecords(w http.ResponseWriter, r *http.Request) {
 	list := []models.LeaveRecord{}
 	for rows.Next() {
 		var l models.LeaveRecord
-		rows.Scan(&l.ID, &l.UserID, &l.UserName, &l.LeaveType, &l.StartDate, &l.EndDate,
+		var deptName sql.NullString
+		rows.Scan(&l.ID, &l.UserID, &l.UserName, &deptName, &l.LeaveType, &l.StartDate, &l.EndDate,
 			&l.Days, &l.Reason, &l.Status, &l.CreatedAt, &l.UpdatedAt)
+		if deptName.Valid {
+			l.Department = deptName.String
+		}
 		list = append(list, l)
 	}
 	middleware.JSON(w, http.StatusOK, paginateResult(list, total, p.Page, p.PageSize))

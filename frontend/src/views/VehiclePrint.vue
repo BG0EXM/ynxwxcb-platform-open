@@ -20,8 +20,8 @@
             <td class="value">{{ detail.vehicle_brand || '' }}</td>
           </tr>
           <tr>
-            <td class="label">司机</td>
-            <td class="value">{{ detail.vehicle_driver || '' }}</td>
+            <td class="label">开车人</td>
+            <td class="value">{{ detail.driver_name || detail.vehicle_driver || '' }}</td>
             <td class="label">乘车人数</td>
             <td class="value">{{ detail.passengers }} 人</td>
           </tr>
@@ -66,7 +66,7 @@
         <span>打印日期：{{ today }}</span>
         <span class="footer-right">
           <div>中共伊宁县委宣传部办公室</div>
-          <div>伊宁县委宣传部部务工作平台V1.3.2</div>
+          <div>伊宁县委宣传部部务工作平台V1.3.3</div>
         </span>
       </div>
     </div>

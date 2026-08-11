@@ -167,17 +167,19 @@ type Attendance struct {
 
 // LeaveRecord 请假记录（年假、特殊假期等）
 type LeaveRecord struct {
-	ID        int64     `json:"id"`
-	UserID    int64     `json:"user_id"`
-	UserName  string    `json:"user_name,omitempty"`
-	LeaveType string    `json:"leave_type"` // annual年假 / sick病假 / personal事假 / marriage婚假 / maternity产假 / bereavement丧假 / other其他
-	StartDate string    `json:"start_date"`
-	EndDate   string    `json:"end_date"`
-	Days      float64   `json:"days"`
-	Reason    string    `json:"reason"`
-	Status    int       `json:"status"` // 1已登记
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID           int64     `json:"id"`
+	UserID       int64     `json:"user_id"`
+	UserName     string    `json:"user_name,omitempty"`
+	DepartmentID int64     `json:"department_id,omitempty"`
+	Department   string    `json:"department_name,omitempty"`
+	LeaveType    string    `json:"leave_type"` // annual年假 / sick病假 / personal事假 / marriage婚假 / maternity产假 / bereavement丧假 / other其他
+	StartDate    string    `json:"start_date"`
+	EndDate      string    `json:"end_date"`
+	Days         float64   `json:"days"`
+	Reason       string    `json:"reason"`
+	Status       int       `json:"status"` // 1已登记
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // Vehicle 公车信息
@@ -200,18 +202,19 @@ type Vehicle struct {
 
 // VehicleApply 用车报备（无需审批）
 type VehicleApply struct {
-	ID          int64     `json:"id"`
-	VehicleID   int64     `json:"vehicle_id"`
-	VehicleNo   string    `json:"vehicle_no,omitempty"`
-	VehicleBrand string   `json:"vehicle_brand,omitempty"`
-	VehicleDriver string  `json:"vehicle_driver,omitempty"`
-	ReporterID  int64     `json:"reporter_id"`
-	Reporter    string    `json:"reporter_name,omitempty"`
-	UserName    string    `json:"user_name"`    // 用车人
-	Purpose     string    `json:"purpose"`      // 用车事由
-	Destination string    `json:"destination"`  // 目的地
-	UseDate     string    `json:"use_date"`     // 用车日期
-	UseTime     string    `json:"use_time"`     // 用车时间
-	Passengers  int       `json:"passengers"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID            int64     `json:"id"`
+	VehicleID     int64     `json:"vehicle_id"`
+	VehicleNo     string    `json:"vehicle_no,omitempty"`
+	VehicleBrand  string    `json:"vehicle_brand,omitempty"`
+	VehicleDriver string    `json:"vehicle_driver,omitempty"`
+	ReporterID    int64     `json:"reporter_id"`
+	Reporter      string    `json:"reporter_name,omitempty"`
+	UserName      string    `json:"user_name"`     // 用车人
+	DriverName    string    `json:"driver_name"`   // 开车人（可能不是专职司机，而是科室人员）
+	Purpose       string    `json:"purpose"`       // 用车事由
+	Destination   string    `json:"destination"`   // 目的地
+	UseDate       string    `json:"use_date"`      // 用车日期
+	UseTime       string    `json:"use_time"`      // 用车时间
+	Passengers    int       `json:"passengers"`
+	CreatedAt     time.Time `json:"created_at"`
 }
