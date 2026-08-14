@@ -67,7 +67,7 @@
             <el-button link type="primary" size="small" @click="openDetail(row)">详情</el-button>
             <el-button link type="warning" size="small" @click="openPrint(row)">打印</el-button>
             <el-button link type="info" size="small" @click="openLabel(row)">标签</el-button>
-            <el-button v-if="isOffice" link type="success" size="small" @click="openEdit(row)">编辑</el-button>
+            <el-button v-if="isOffice" link type="success" size="small" @click.stop="openEdit(row)">编辑</el-button>
             <el-button v-if="isOffice" link type="danger" size="small" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>

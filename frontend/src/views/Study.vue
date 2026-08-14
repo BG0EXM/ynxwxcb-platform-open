@@ -8,13 +8,13 @@
             <template #append><el-button :icon="'Search'" @click="loadData" /></template>
           </el-input>
           <el-select v-model="category" placeholder="分类" clearable style="width: 140px" class="ml-8" @change="loadData">
-            <el-option label="理论学习" value="theory" />
-            <el-option label="业务知识" value="business" />
-            <el-option label="政策文件" value="policy" />
-            <el-option label="其他" value="other" />
+            <el-option v-for="c in categories" :key="c.code" :label="c.name" :value="c.code" />
           </el-select>
         </div>
-        <el-button type="primary" @click="dialogVisible = true">发布资料</el-button>
+        <div>
+          <el-button v-if="authStore.isAdmin" type="warning" :icon="'Setting'" class="ml-8" @click="openCategory">分类管理</el-button>
+          <el-button type="primary" class="ml-8" @click="dialogVisible = true">发布资料</el-button>
+        </div>
       </div>
 
       <el-table :data="list" stripe v-loading="loading" empty-text="暂无资料">
@@ -33,9 +33,10 @@
         <el-table-column prop="created_at" label="发布时间" width="160">
           <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="100" fixed="right">
+        <el-table-column label="操作" width="140" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openDetail(row)">阅读</el-button>
+            <el-button v-if="authStore.isAdmin" link type="danger" size="small" @click="removeMaterial(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -49,10 +50,7 @@
         </el-form-item>
         <el-form-item label="分类">
           <el-select v-model="form.category" style="width: 100%">
-            <el-option label="理论学习" value="theory" />
-            <el-option label="业务知识" value="business" />
-            <el-option label="政策文件" value="policy" />
-            <el-option label="其他" value="other" />
+            <el-option v-for="c in categories" :key="c.code" :label="c.name" :value="c.code" />
           </el-select>
         </el-form-item>
         <el-form-item label="内容" required>
@@ -71,6 +69,25 @@
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="save">发布</el-button>
       </template>
+    </el-dialog>
+
+    <!-- 分类管理 -->
+    <el-dialog v-model="catVisible" title="分类管理" width="480px">
+      <div class="dept-add-bar">
+        <el-input v-model="newCatName" placeholder="新分类名称" clearable style="width: 180px" @keyup.enter="addCategory" />
+        <el-input v-model="newCatCode" placeholder="英文标识" clearable style="width: 130px" @keyup.enter="addCategory" />
+        <el-button type="primary" :icon="'Plus'" @click="addCategory">添加</el-button>
+      </div>
+      <el-table :data="categories" stripe empty-text="暂无分类">
+        <el-table-column prop="name" label="名称" min-width="120" />
+        <el-table-column prop="code" label="标识" width="110" />
+        <el-table-column label="操作" width="120" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="editCategory(row)">改名</el-button>
+            <el-button link type="danger" size="small" @click="removeCategory(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
     </el-dialog>
 
     <!-- 详情 -->
@@ -96,9 +113,12 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '../utils/request'
 import dayjs from 'dayjs'
+import { useAuthStore } from '../store/auth'
+
+const authStore = useAuthStore()
 
 const list = ref([])
 const loading = ref(false)
@@ -106,14 +126,33 @@ const keyword = ref('')
 const category = ref('')
 const dialogVisible = ref(false)
 const detailVisible = ref(false)
-const form = reactive({ title: '', content: '', category: 'theory' })
+const catVisible = ref(false)
+const categories = ref([])
+const newCatName = ref('')
+const newCatCode = ref('')
+const editCatId = ref(0)
+const form = reactive({ title: '', content: '', category: '' })
 const detail = ref({})
 const fileList = ref([])
 const uploadedAttachments = ref([])
 
-const categoryName = (c) => ({ theory: '理论学习', business: '业务知识', policy: '政策文件', other: '其他' }[c] || c)
-const categoryTag = (c) => ({ theory: 'primary', business: 'success', policy: 'warning', other: 'info' }[c] || 'info')
+const categoryName = (c) => {
+  const found = categories.value.find(x => x.code === c)
+  return found ? found.name : c
+}
+const categoryTag = (c) => {
+  const idx = categories.value.findIndex(x => x.code === c)
+  const tags = ['primary', 'success', 'warning', 'info']
+  return tags[idx % tags.length] || 'info'
+}
 const formatDate = (d) => d ? dayjs(d).format('YYYY-MM-DD HH:mm') : '—'
+
+const loadCategories = async () => {
+  try {
+    const res = await request.get('/study-categories')
+    categories.value = res.list || []
+  } catch (e) {}
+}
 
 const loadData = async () => {
   loading.value = true
@@ -124,6 +163,62 @@ const loadData = async () => {
   } finally {
     loading.value = false
   }
+}
+
+// 分类管理
+const openCategory = () => {
+  editCatId.value = 0
+  newCatName.value = ''
+  newCatCode.value = ''
+  loadCategories()
+  catVisible.value = true
+}
+
+const addCategory = async () => {
+  if (!newCatName.value.trim() || !newCatCode.value.trim()) return ElMessage.warning('请填写名称和标识')
+  try {
+    if (editCatId.value) {
+      await request.put('/study-categories', { id: editCatId.value, name: newCatName.value.trim() })
+      ElMessage.success('分类已改名')
+    } else {
+      await request.post('/study-categories', { name: newCatName.value.trim(), code: newCatCode.value.trim() })
+      ElMessage.success('分类已添加')
+    }
+    newCatName.value = ''
+    newCatCode.value = ''
+    editCatId.value = 0
+    loadCategories()
+  } catch (e) {}
+}
+
+const editCategory = (row) => {
+  editCatId.value = row.id
+  newCatName.value = row.name
+  newCatCode.value = row.code
+}
+
+const removeCategory = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确认删除分类「${row.name}」？`, '删除确认', { type: 'warning', confirmButtonText: '删除' })
+  } catch (e) { return }
+  try {
+    await request.delete(`/study-categories/${row.id}`)
+    ElMessage.success('分类已删除')
+    loadCategories()
+    loadData()
+  } catch (e) {}
+}
+
+// 删除资料
+const removeMaterial = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确认删除资料「${row.title}」？`, '删除确认', { type: 'warning', confirmButtonText: '删除' })
+  } catch (e) { return }
+  try {
+    await request.delete(`/study-materials/${row.id}`)
+    ElMessage.success('删除成功')
+    loadData()
+  } catch (e) {}
 }
 
 const uploadFile = async (options) => {
@@ -168,7 +263,10 @@ const openDetail = async (row) => {
   } catch (e) {}
 }
 
-onMounted(loadData)
+onMounted(() => {
+  loadData()
+  loadCategories()
+})
 </script>
 
 <style scoped>
@@ -176,6 +274,12 @@ onMounted(loadData)
   display: flex;
   justify-content: space-between;
   margin-bottom: 16px;
+}
+.dept-add-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  align-items: center;
 }
 .ml-8 { margin-left: 8px; }
 .title-link {

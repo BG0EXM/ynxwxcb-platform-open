@@ -437,17 +437,17 @@ func AttendanceMonthly(w http.ResponseWriter, r *http.Request) {
 		month = time.Now().Format("2006-01")
 	}
 
-	// 先查询出勤汇总
-	query := `SELECT a.user_id, u.real_name, d.name,
-			SUM(CASE WHEN a.status=1 THEN 1 ELSE 0 END) as present,
-			SUM(CASE WHEN a.status=2 THEN 1 ELSE 0 END) as leave,
-			SUM(CASE WHEN a.status=3 THEN 1 ELSE 0 END) as trip,
-			SUM(CASE WHEN a.status=4 THEN 1 ELSE 0 END) as absent
-		FROM attendances a
-		LEFT JOIN users u ON a.user_id = u.id
+	// 先查询出勤汇总：从所有启用用户出发，LEFT JOIN 当月考勤（无考勤记录的用户也列出，便于统计请假）
+	query := `SELECT u.id, u.real_name, d.name,
+			COALESCE(SUM(CASE WHEN a.status=1 THEN 1 ELSE 0 END),0) as present,
+			COALESCE(SUM(CASE WHEN a.status=2 THEN 1 ELSE 0 END),0) as leave,
+			COALESCE(SUM(CASE WHEN a.status=3 THEN 1 ELSE 0 END),0) as trip,
+			COALESCE(SUM(CASE WHEN a.status=4 THEN 1 ELSE 0 END),0) as absent
+		FROM users u
 		LEFT JOIN departments d ON u.department_id = d.id
-		WHERE a.attend_date LIKE ?
-		GROUP BY a.user_id ORDER BY a.user_id`
+		LEFT JOIN attendances a ON a.user_id = u.id AND a.attend_date LIKE ?
+		WHERE u.status = 1
+		GROUP BY u.id ORDER BY u.id`
 	rows, err := database.DB.Query(query, month+"%")
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
@@ -483,14 +483,36 @@ func AttendanceMonthly(w http.ResponseWriter, r *http.Request) {
 	}
 	rows.Close()
 
-	// 单独查询请假明细（一次性）
+	// 单独查询请假明细（跨月假期按当月实际覆盖天数计算）
+	// 请假区间 [start_date, end_date] 与当月 [month_start, month_end] 的重叠天数
+	// = julianday(min(end_date, month_end)) - julianday(max(start_date, month_start)) + 1
+	monthStart := month + "-01"
+	// 计算月末：下月首日减一天
+	var monthEnd string
+	if len(month) == 7 {
+		ym := time.Date(2006, 1, 1, 0, 0, 0, 0, time.Local)
+		if t, err := time.Parse("2006-01", month); err == nil {
+			ym = t
+		}
+		monthEnd = ym.AddDate(0, 1, -1).Format("2006-01-02")
+	} else {
+		monthEnd = monthStart
+	}
+
 	leaveQuery := `SELECT user_id,
-			COALESCE(SUM(CASE WHEN leave_type='annual' THEN days ELSE 0 END),0),
-			COALESCE(SUM(CASE WHEN leave_type='sick' THEN days ELSE 0 END),0),
-			COALESCE(SUM(CASE WHEN leave_type='personal' THEN days ELSE 0 END),0),
-			COALESCE(SUM(CASE WHEN leave_type NOT IN ('annual','sick','personal') THEN days ELSE 0 END),0)
-		FROM leave_records WHERE strftime('%Y-%m', start_date)=? GROUP BY user_id`
-	lrows, err := database.DB.Query(leaveQuery, month)
+			COALESCE(SUM(CASE WHEN leave_type='annual' THEN overlap_days ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN leave_type='sick' THEN overlap_days ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN leave_type='personal' THEN overlap_days ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN leave_type NOT IN ('annual','sick','personal') THEN overlap_days ELSE 0 END),0)
+		FROM (
+			SELECT user_id, leave_type,
+				CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
+					- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER) as overlap_days
+			FROM leave_records
+			WHERE status = 1 AND start_date <= ? AND end_date >= ?
+			GROUP BY id
+		) WHERE overlap_days > 0 GROUP BY user_id`
+	lrows, err := database.DB.Query(leaveQuery, monthEnd, monthEnd, monthStart, monthStart, monthEnd, monthStart)
 	if err == nil {
 		for lrows.Next() {
 			var uid int64
@@ -526,14 +548,15 @@ func AttendanceMonthly(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// AttendanceYearly 年度考勤统计（按月汇总）
-// 返回全年各月份的出勤/请假/出差/未到人数汇总
+// AttendanceYearly 年度考勤统计
+// 返回：按月出勤汇总 + 每个干部全年各类休假天数（跨年假期按当年实际天数计算）
 func AttendanceYearly(w http.ResponseWriter, r *http.Request) {
 	year := r.URL.Query().Get("year") // YYYY
 	if year == "" {
 		year = time.Now().Format("2006")
 	}
 
+	// 按月出勤汇总
 	query := `SELECT substr(a.attend_date, 1, 7) as ym,
 			SUM(CASE WHEN a.status=1 THEN 1 ELSE 0 END) as present,
 			SUM(CASE WHEN a.status=2 THEN 1 ELSE 0 END) as leave,
@@ -549,17 +572,17 @@ func AttendanceYearly(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	type Row struct {
+	type MonthRow struct {
 		Month   string `json:"month"`
 		Present int    `json:"present"`
 		Leave   int    `json:"leave"`
 		Trip    int    `json:"trip"`
 		Absent  int    `json:"absent"`
 	}
-	monthly := []Row{}
+	monthly := []MonthRow{}
 	var totalPresent, totalLeave, totalTrip, totalAbsent int
 	for rows.Next() {
-		var rw Row
+		var rw MonthRow
 		rows.Scan(&rw.Month, &rw.Present, &rw.Leave, &rw.Trip, &rw.Absent)
 		monthly = append(monthly, rw)
 		totalPresent += rw.Present
@@ -568,29 +591,72 @@ func AttendanceYearly(w http.ResponseWriter, r *http.Request) {
 		totalAbsent += rw.Absent
 	}
 
-	// 全年请假类型汇总
-	var annualDays, sickDays, personalDays, otherDays, totalDays, totalCount float64
-	var cnt int
-	database.DB.QueryRow(
-		`SELECT
-			COALESCE(SUM(CASE WHEN leave_type='annual' THEN days ELSE 0 END),0),
-			COALESCE(SUM(CASE WHEN leave_type='sick' THEN days ELSE 0 END),0),
-			COALESCE(SUM(CASE WHEN leave_type='personal' THEN days ELSE 0 END),0),
-			COALESCE(SUM(CASE WHEN leave_type NOT IN ('annual','sick','personal') THEN days ELSE 0 END),0),
-			COALESCE(SUM(days),0),
-			COUNT(*)
-		 FROM leave_records WHERE strftime('%Y', start_date)=?`,
-		year).Scan(&annualDays, &sickDays, &personalDays, &otherDays, &totalDays, &cnt)
-	totalCount = float64(cnt)
+	// 每个干部全年各类休假天数
+	// 跨年假期（如 2025-12-20~2026-01-10）按当年实际覆盖天数计算
+	yearStart := year + "-01-01"
+	yearEnd := year + "-12-31"
+	leaveQuery := `SELECT l.id, l.real_name, d.name,
+			COALESCE(SUM(CASE WHEN od.leave_type='annual' THEN od.overlap ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN od.leave_type='sick' THEN od.overlap ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN od.leave_type='personal' THEN od.overlap ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN od.leave_type NOT IN ('annual','sick','personal') THEN od.overlap ELSE 0 END),0),
+			COALESCE(SUM(od.overlap),0)
+		FROM (
+			SELECT user_id, leave_type,
+				CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
+					- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER) as overlap
+			FROM leave_records
+			WHERE status = 1 AND start_date <= ? AND end_date >= ?
+			GROUP BY id
+		) od
+		LEFT JOIN users l ON l.id = od.user_id
+		LEFT JOIN departments d ON l.department_id = d.id
+		WHERE od.overlap > 0
+		GROUP BY od.user_id ORDER BY od.user_id`
+	lrows, err := database.DB.Query(leaveQuery, yearEnd, yearEnd, yearStart, yearStart, yearEnd, yearStart)
+	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+	defer lrows.Close()
+
+	type PersonRow struct {
+		UserID      int64   `json:"user_id"`
+		UserName    string  `json:"user_name"`
+		Department  string  `json:"department"`
+		AnnualDays  float64 `json:"annual_days"`
+		SickDays    float64 `json:"sick_days"`
+		PersonalDays float64 `json:"personal_days"`
+		OtherDays   float64 `json:"other_days"`
+		TotalDays   float64 `json:"total_days"`
+	}
+	persons := []PersonRow{}
+	var totalAnnual, totalSick, totalPersonal, totalOther, totalAll float64
+	for lrows.Next() {
+		var p PersonRow
+		var dept sql.NullString
+		if lrows.Scan(&p.UserID, &p.UserName, &dept, &p.AnnualDays, &p.SickDays, &p.PersonalDays, &p.OtherDays, &p.TotalDays) == nil {
+			if dept.Valid {
+				p.Department = dept.String
+			}
+			persons = append(persons, p)
+			totalAnnual += p.AnnualDays
+			totalSick += p.SickDays
+			totalPersonal += p.PersonalDays
+			totalOther += p.OtherDays
+			totalAll += p.TotalDays
+		}
+	}
 
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{
 		"year": year, "monthly": monthly,
 		"total": map[string]int{
 			"present": totalPresent, "leave": totalLeave, "trip": totalTrip, "absent": totalAbsent,
 		},
-		"leave": map[string]float64{
-			"annual": annualDays, "sick": sickDays, "personal": personalDays, "other": otherDays,
-			"total_days": totalDays, "total_count": totalCount,
+		"persons": persons,
+		"leave_total": map[string]float64{
+			"annual": totalAnnual, "sick": totalSick, "personal": totalPersonal, "other": totalOther,
+			"total_days": totalAll,
 		},
 	})
 }

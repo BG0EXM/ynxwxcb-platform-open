@@ -104,28 +104,44 @@
           </tfoot>
         </table>
 
-        <div class="year-title mt-16">年度请假汇总（天）</div>
-        <table class="stat-table" v-if="yearly.leave">
+        <div class="year-title mt-16">干部全年休假统计（天）</div>
+        <table class="stat-table" v-if="yearly.persons">
           <thead>
             <tr>
+              <th>姓名</th>
+              <th>部门</th>
               <th>年假</th>
               <th>病假</th>
               <th>事假</th>
               <th>其他</th>
-              <th>总计天数</th>
-              <th>总计次数</th>
+              <th>合计</th>
             </tr>
           </thead>
           <tbody>
-            <tr>
-              <td class="center">{{ yearly.leave.annual }}</td>
-              <td class="center">{{ yearly.leave.sick }}</td>
-              <td class="center">{{ yearly.leave.personal }}</td>
-              <td class="center">{{ yearly.leave.other }}</td>
-              <td class="center"><b>{{ yearly.leave.total_days }}</b></td>
-              <td class="center"><b>{{ yearly.leave.total_count }}</b></td>
+            <tr v-for="p in yearly.persons" :key="p.user_id">
+              <td class="center">{{ p.user_name }}</td>
+              <td class="center">{{ p.department || '—' }}</td>
+              <td class="center">{{ p.annual_days }}</td>
+              <td class="center">{{ p.sick_days }}</td>
+              <td class="center">{{ p.personal_days }}</td>
+              <td class="center">{{ p.other_days }}</td>
+              <td class="center"><b>{{ p.total_days }}</b></td>
+            </tr>
+            <tr v-if="!yearly.persons.length">
+              <td colspan="7" class="center empty">本年度暂无请假记录</td>
             </tr>
           </tbody>
+          <tfoot v-if="yearly.leave_total">
+            <tr>
+              <td class="center"><b>合计</b></td>
+              <td class="center"></td>
+              <td class="center"><b>{{ yearly.leave_total.annual }}</b></td>
+              <td class="center"><b>{{ yearly.leave_total.sick }}</b></td>
+              <td class="center"><b>{{ yearly.leave_total.personal }}</b></td>
+              <td class="center"><b>{{ yearly.leave_total.other }}</b></td>
+              <td class="center"><b>{{ yearly.leave_total.total_days }}</b></td>
+            </tr>
+          </tfoot>
         </table>
       </template>
 
@@ -133,7 +149,7 @@
         <span>统计期间：{{ period }} · 打印日期：{{ today }}</span>
         <span class="footer-right">
           <div>中共伊宁县委宣传部办公室</div>
-          <div>伊宁县委宣传部部务工作平台V1.3.3</div>
+          <div>伊宁县委宣传部部务工作平台V1.3.4</div>
         </span>
       </div>
     </div>

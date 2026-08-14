@@ -93,6 +93,7 @@ type migration struct {
 var migrations = []migration{
 	{1, "初始化表结构与历史兼容迁移", migrateV1},
 	{2, "用车报备增加开车人字段", migrateV2},
+	{3, "公共资料分类管理表", migrateV3},
 }
 
 // migrateV2 版本2：用车报备支持科室人开车（增加 driver_name 字段）
@@ -101,6 +102,35 @@ func migrateV2() error {
 		_, err := DB.Exec("ALTER TABLE vehicle_applies ADD COLUMN driver_name TEXT")
 		if err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// migrateV3 版本3：公共资料分类管理表 + 预置默认分类
+func migrateV3() error {
+	if _, err := DB.Exec(`CREATE TABLE IF NOT EXISTS study_categories (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		code TEXT NOT NULL UNIQUE,
+		sort INTEGER DEFAULT 0
+	)`); err != nil {
+		return err
+	}
+	var cnt int
+	DB.QueryRow("SELECT COUNT(*) FROM study_categories").Scan(&cnt)
+	if cnt == 0 {
+		defaults := []struct{ name, code string }{
+			{"理论学习", "theory"},
+			{"业务知识", "business"},
+			{"政策文件", "policy"},
+			{"其他", "other"},
+		}
+		for i, c := range defaults {
+			_, err := DB.Exec("INSERT INTO study_categories (name, code, sort) VALUES (?, ?, ?)", c.name, c.code, i+1)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -270,6 +300,12 @@ func createTables() error {
 			read_count INTEGER DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS study_categories (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			code TEXT NOT NULL UNIQUE,
+			sort INTEGER DEFAULT 0
 		)`,
 		`CREATE TABLE IF NOT EXISTS contacts (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,

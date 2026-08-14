@@ -203,9 +203,21 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 	result["month_present"] = monthPresent
 	result["month_leave"] = monthLeave
 
-	// 本月请假天数
+	// 本月请假天数（跨月假期按当月实际覆盖天数计算）
 	var monthLeaveDays float64
-	database.DB.QueryRow("SELECT COALESCE(SUM(days),0) FROM leave_records WHERE user_id=? AND strftime('%Y-%m', start_date)=?", userID, month).Scan(&monthLeaveDays)
+	monthStart := month + "-01"
+	// 计算月末
+	ym, _ := time.Parse("2006-01", month)
+	monthEnd := ym.AddDate(0, 1, -1).Format("2006-01-02")
+	database.DB.QueryRow(
+		`SELECT COALESCE(SUM(overlap_days),0) FROM (
+			SELECT CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
+				- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER) as overlap_days
+			FROM leave_records
+			WHERE user_id = ? AND status = 1 AND start_date <= ? AND end_date >= ?
+			GROUP BY id
+		) WHERE overlap_days > 0`,
+		monthEnd, monthEnd, monthStart, monthStart, userID, monthEnd, monthStart).Scan(&monthLeaveDays)
 	result["month_leave_days"] = monthLeaveDays
 
 	// 今日用车报备
@@ -277,10 +289,20 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 	database.DB.QueryRow("SELECT COUNT(*) FROM reports WHERE submitter_id=? AND status=2", userID).Scan(&reportDone)
 	result["report_submitted"] = reportDone
 
-	// 全年请假汇总（管理员看全员）
+	// 全年请假汇总（管理员看全员，跨年假期按当年实际覆盖天数计算）
 	if roleCode == "admin" {
 		var annualDays float64
-		database.DB.QueryRow("SELECT COALESCE(SUM(days),0) FROM leave_records WHERE strftime('%Y', start_date)=?", year).Scan(&annualDays)
+		yearStart := year + "-01-01"
+		yearEnd := year + "-12-31"
+		database.DB.QueryRow(
+			`SELECT COALESCE(SUM(overlap_days),0) FROM (
+				SELECT CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
+					- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER) as overlap_days
+				FROM leave_records
+				WHERE status = 1 AND start_date <= ? AND end_date >= ?
+				GROUP BY id
+			) WHERE overlap_days > 0`,
+			yearEnd, yearEnd, yearStart, yearStart, yearEnd, yearStart).Scan(&annualDays)
 		result["year_leave_days"] = annualDays
 	}
 

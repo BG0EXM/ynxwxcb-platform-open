@@ -40,6 +40,10 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("POST /api/study-materials", middleware.Auth(http.HandlerFunc(handlers.CreateStudyMaterial)))
 	mux.Handle("GET /api/study-materials/{id}", middleware.Auth(http.HandlerFunc(handlers.GetStudyMaterial)))
 	mux.Handle("DELETE /api/study-materials/{id}", middleware.Auth(http.HandlerFunc(handlers.DeleteStudyMaterial)))
+	mux.Handle("GET /api/study-categories", middleware.Auth(http.HandlerFunc(handlers.ListStudyCategories)))
+	mux.Handle("POST /api/study-categories", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.CreateStudyCategory))))
+	mux.Handle("PUT /api/study-categories", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.UpdateStudyCategory))))
+	mux.Handle("DELETE /api/study-categories/{id}", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.DeleteStudyCategory))))
 
 	// ---- 通讯录 ----
 	mux.Handle("GET /api/contacts", middleware.Auth(http.HandlerFunc(handlers.ListContacts)))
