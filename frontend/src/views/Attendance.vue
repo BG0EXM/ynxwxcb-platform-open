@@ -17,7 +17,7 @@
         <div class="card-header">
           <span class="card-title">晨会点到</span>
           <div class="header-right">
-            <el-date-picker v-model="markDate" type="date" value-format="YYYY-MM-DD" placeholder="选择点到日期" style="width:160px" @change="loadMarkUsers" />
+            <el-date-picker v-model="markDate" type="date" value-format="YYYY-MM-DD" placeholder="选择点到日期" style="width:160px" @change="loadMarkUsers" :cell-class-name="dateCellClass" />
             <el-button type="primary" :icon="'CircleCheck'" @click="markAllPresent" class="ml-8">全部出勤</el-button>
             <el-tag v-if="saved" type="success" class="ml-8">当日已点到</el-tag>
           </div>
@@ -86,7 +86,7 @@
             <div class="card-header">
               <span class="card-title">考勤记录</span>
               <div class="header-right">
-                <el-date-picker v-model="queryDate" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" style="width:160px" @change="loadData" />
+                <el-date-picker v-model="queryDate" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" style="width:160px" @change="loadData" :cell-class-name="dateCellClass" />
                 <el-select v-if="authStore.isAdmin" v-model="userFilter" placeholder="全部人员" clearable style="width:140px" class="ml-8" @change="loadData">
                   <el-option v-for="a in assignees" :key="a.id" :label="a.real_name" :value="a.id" />
                 </el-select>
@@ -130,6 +130,7 @@ const saving = ref(false)
 const saved = ref(false)
 const userFilter = ref('')
 const assignees = ref([])
+const recordedDates = ref([])
 
 const statusNames = { 1: '出勤', 2: '请假', 3: '出差', 4: '未到' }
 const statusType = (s) => ({ 1: 'success', 2: 'warning', 3: 'primary', 4: 'danger' }[s] || 'info')
@@ -177,6 +178,7 @@ const saveMark = async () => {
     loadMarkUsers()
     loadStats()
     loadData()
+    loadRecordedDates()
   } catch (e) {
   } finally {
     saving.value = false
@@ -220,6 +222,25 @@ const exportData = () => {
   exportFile('/export/attendances', params)
 }
 
+// 加载已点到日期集合（用于日历标色）
+const loadRecordedDates = async () => {
+  try {
+    const res = await request.get('/attendance/dates')
+    recordedDates.value = res.dates || []
+  } catch (e) {}
+}
+
+// 日历单元格样式：已点到标绿，未点到标红
+// Element Plus cell-class-name 直接传入 Date 对象
+const dateCellClass = (date) => {
+  if (!date) return ''
+  const d = dayjs(date).format('YYYY-MM-DD')
+  if (recordedDates.value.includes(d)) return 'att-done'
+  // 未来日期不标红
+  if (d > dayjs().format('YYYY-MM-DD')) return ''
+  return 'att-missing'
+}
+
 onMounted(() => {
   if (authStore.isAdmin) {
     loadMarkUsers()
@@ -227,6 +248,7 @@ onMounted(() => {
   }
   loadData()
   loadStats()
+  loadRecordedDates()
 })
 </script>
 
@@ -286,5 +308,23 @@ onMounted(() => {
 }
 :deep(.auto-leave-row) {
   background: #fdf6ec;
+}
+</style>
+
+<!-- 全局样式：日历面板渲染在 popper 中，scoped 样式无法穿透 -->
+<style>
+.el-date-table td.att-done {
+  background-color: #67c23a !important;
+  border-radius: 50%;
+}
+.el-date-table td.att-done .el-date-table-cell__text {
+  color: #fff !important;
+}
+.el-date-table td.att-missing {
+  background-color: #f56c6c !important;
+  border-radius: 50%;
+}
+.el-date-table td.att-missing .el-date-table-cell__text {
+  color: #fff !important;
 }
 </style>

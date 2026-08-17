@@ -123,7 +123,7 @@ const editDate = ref('')
 const daySchedules = ref([])
 const addUser = ref(null)
 
-const weekNames = ['日', '一', '二', '三', '四', '五', '六']
+const weekNames = ['一', '二', '三', '四', '五', '六', '日']
 
 // 可添加的人员（未在该日排班的）
 const availableAssignees = computed(() => {
@@ -134,7 +134,8 @@ const availableAssignees = computed(() => {
 const calendarCells = computed(() => {
   const [year, month] = currentMonth.value.split('-').map(Number)
   const firstDay = dayjs(`${year}-${month}-01`)
-  const startOffset = firstDay.day()
+  // 星期一首：dayjs.day() 返回 0=周日...6=周六，转换为周一=0...周日=6
+  const startOffset = (firstDay.day() + 6) % 7
   const daysInMonth = firstDay.daysInMonth()
   const cells = []
   for (let i = 0; i < startOffset; i++) {

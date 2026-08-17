@@ -79,6 +79,7 @@
             <el-table-column prop="passengers" label="人数" width="60" />
             <el-table-column label="操作" width="180" fixed="right">
               <template #default="{ row }">
+                <el-button v-if="authStore.isAdmin || row.reporter_id === authStore.user?.id" link type="warning" size="small" @click="openApplyEdit(row)">编辑</el-button>
                 <el-button link type="primary" size="small" @click="openPrint(row)">打印派车单</el-button>
                 <el-button link type="danger" size="small" @click="removeApply(row)">删除</el-button>
               </template>
@@ -138,7 +139,7 @@
     </el-dialog>
 
     <!-- 用车报备对话框 -->
-    <el-dialog v-model="applyDialogVisible" title="用车报备" width="520px">
+    <el-dialog v-model="applyDialogVisible" :title="applyEditId ? '修改用车报备' : '用车报备'" width="520px">
       <el-form :model="applyForm" label-width="90px">
         <el-form-item label="选择车辆" required>
           <el-select v-model="applyForm.vehicle_id" placeholder="选择车辆" style="width:100%" @change="onVehicleSelect">
@@ -199,6 +200,7 @@ const applies = ref([])
 const queryDate = ref('')
 const showAll = ref(authStore.isAdmin)
 const applyDialogVisible = ref(false)
+const applyEditId = ref(0)
 const applyForm = reactive({ vehicle_id: null, user_name: '', driver_name: '', purpose: '', destination: '', use_date: dayjs().format('YYYY-MM-DD'), use_time: '', passengers: 1 })
 
 const vStatusNames = { 1: '可用', 2: '使用中', 3: '维修中', 4: '已报废' }
@@ -291,9 +293,21 @@ const removeVehicle = async (row) => {
 }
 
 const openApplyCreate = () => {
+  applyEditId.value = 0
   Object.assign(applyForm, {
     vehicle_id: null, user_name: '', driver_name: '', purpose: '', destination: '',
     use_date: dayjs().format('YYYY-MM-DD'), use_time: '', passengers: 1
+  })
+  applyDialogVisible.value = true
+}
+
+// 编辑用车报备
+const openApplyEdit = (row) => {
+  applyEditId.value = row.id
+  Object.assign(applyForm, {
+    vehicle_id: row.vehicle_id, user_name: row.user_name || '', driver_name: row.driver_name || '',
+    purpose: row.purpose || '', destination: row.destination || '',
+    use_date: row.use_date || dayjs().format('YYYY-MM-DD'), use_time: row.use_time || '', passengers: row.passengers || 1
   })
   applyDialogVisible.value = true
 }
@@ -313,9 +327,15 @@ const submitApply = async () => {
   if (!applyForm.user_name) return ElMessage.warning('请填写用车人')
   if (!applyForm.purpose) return ElMessage.warning('请填写用车事由')
   try {
-    const res = await request.post('/vehicle-applies', applyForm)
-    ElMessage.success(res.message || '报备成功')
+    if (applyEditId.value) {
+      await request.put('/vehicle-applies', { ...applyForm, id: applyEditId.value })
+      ElMessage.success('修改成功')
+    } else {
+      const res = await request.post('/vehicle-applies', applyForm)
+      ElMessage.success(res.message || '报备成功')
+    }
     applyDialogVisible.value = false
+    applyEditId.value = 0
     loadApplies()
     loadStats()
   } catch (e) {}

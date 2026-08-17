@@ -356,6 +356,48 @@ func ListLeaveRecords(w http.ResponseWriter, r *http.Request) {
 	middleware.JSON(w, http.StatusOK, paginateResult(list, total, p.Page, p.PageSize))
 }
 
+// UpdateLeaveRecord 修改请假（提交人本人或管理员）
+func UpdateLeaveRecord(w http.ResponseWriter, r *http.Request) {
+	userID, _ := r.Context().Value(middleware.ContextUserID).(int64)
+	roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
+	var req models.LeaveRecord
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请求格式错误"})
+		return
+	}
+	if req.ID == 0 {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
+		return
+	}
+	if req.LeaveType == "" || req.StartDate == "" {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请填写完整信息"})
+		return
+	}
+	// 权限校验：管理员可改任意，普通用户只能改自己的
+	if roleCode != "admin" {
+		var ownerID int64
+		err := database.DB.QueryRow("SELECT user_id FROM leave_records WHERE id = ?", req.ID).Scan(&ownerID)
+		if err != nil || ownerID != userID {
+			middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "无权修改该请假记录"})
+			return
+		}
+	}
+	if req.EndDate == "" {
+		req.EndDate = req.StartDate
+	}
+	if req.Days <= 0 {
+		req.Days = 1
+	}
+	_, err := database.DB.Exec(
+		`UPDATE leave_records SET user_id=?, leave_type=?, start_date=?, end_date=?, days=?, reason=? WHERE id=?`,
+		req.UserID, req.LeaveType, req.StartDate, req.EndDate, req.Days, req.Reason, req.ID)
+	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "修改失败"})
+		return
+	}
+	middleware.JSON(w, http.StatusOK, map[string]string{"message": "修改成功"})
+}
+
 // DeleteLeaveRecord 删除请假记录
 func DeleteLeaveRecord(w http.ResponseWriter, r *http.Request) {
 	roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)

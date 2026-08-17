@@ -35,7 +35,7 @@
     <!-- 请假登记 -->
     <el-card shadow="never" class="mt-12">
       <template #header>
-        <span class="card-title">{{ authStore.isAdmin ? '登记请假' : '我的请假申请' }}</span>
+        <span class="card-title">{{ editId ? '编辑请假' : (authStore.isAdmin ? '登记请假' : '我的请假申请') }}</span>
       </template>
       <el-form :model="form" inline label-width="70px">
         <el-form-item label="人员" v-if="authStore.isAdmin">
@@ -61,7 +61,8 @@
           <el-input v-model="form.reason" placeholder="请假事由" style="width:200px" />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :icon="'Plus'" @click="saveLeave">登记</el-button>
+          <el-button type="primary" :icon="editId ? 'EditPen' : 'Plus'" @click="saveLeave">{{ editId ? '保存修改' : '登记' }}</el-button>
+          <el-button v-if="editId" @click="cancelEdit">取消</el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -93,8 +94,9 @@
         <el-table-column prop="end_date" label="结束日期" width="110" />
         <el-table-column prop="days" label="天数" width="80" />
         <el-table-column prop="reason" label="事由" min-width="150" show-overflow-tooltip />
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
+            <el-button v-if="authStore.isAdmin || row.user_id === authStore.user?.id" link type="warning" size="small" @click="openEdit(row)">编辑</el-button>
             <el-button link type="primary" size="small" @click="openPrint(row)">打印假条</el-button>
             <el-button v-if="authStore.isAdmin" link type="danger" size="small" @click="removeLeave(row)">删除</el-button>
           </template>
@@ -114,6 +116,7 @@ import { useAuthStore } from '../store/auth'
 const authStore = useAuthStore()
 const list = ref([])
 const loading = ref(false)
+const editId = ref(0)
 const stats = reactive({ year: dayjs().format('YYYY'), total_count: 0, total_days: 0 })
 const statsYear = ref(dayjs().format('YYYY'))
 const filterType = ref('')
@@ -198,12 +201,32 @@ const saveLeave = async () => {
       // 普通用户只能为自己请假，由后端强制绑定当前账号
       payload.user_id = authStore.user?.id
     }
-    await request.post('/leave-records', payload)
-    ElMessage.success('请假登记成功')
+    if (editId.value) {
+      await request.put('/leave-records', { ...payload, id: editId.value })
+      ElMessage.success('修改成功')
+    } else {
+      await request.post('/leave-records', payload)
+      ElMessage.success('请假登记成功')
+    }
     Object.assign(form, { user_id: null, leave_type: 'annual', start_date: dayjs().format('YYYY-MM-DD'), end_date: '', days: 1, reason: '' })
+    editId.value = 0
     loadData()
     loadStats()
   } catch (e) {}
+}
+
+// 编辑请假：填入表单
+const openEdit = (row) => {
+  editId.value = row.id
+  Object.assign(form, {
+    user_id: row.user_id, leave_type: row.leave_type, start_date: row.start_date,
+    end_date: row.end_date || row.start_date, days: row.days, reason: row.reason || ''
+  })
+}
+
+const cancelEdit = () => {
+  editId.value = 0
+  Object.assign(form, { user_id: null, leave_type: 'annual', start_date: dayjs().format('YYYY-MM-DD'), end_date: '', days: 1, reason: '' })
 }
 
 const openPrint = (row) => {

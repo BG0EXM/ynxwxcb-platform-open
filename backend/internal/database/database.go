@@ -94,6 +94,7 @@ var migrations = []migration{
 	{1, "初始化表结构与历史兼容迁移", migrateV1},
 	{2, "用车报备增加开车人字段", migrateV2},
 	{3, "公共资料分类管理表", migrateV3},
+	{4, "新增分管领导角色", migrateV4},
 }
 
 // migrateV2 版本2：用车报备支持科室人开车（增加 driver_name 字段）
@@ -131,6 +132,20 @@ func migrateV3() error {
 			if err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+// migrateV4 版本4：新增分管领导角色
+func migrateV4() error {
+	var cnt int
+	DB.QueryRow("SELECT COUNT(*) FROM roles WHERE code = 'leader'").Scan(&cnt)
+	if cnt == 0 {
+		_, err := DB.Exec("INSERT INTO roles (name, code, description) VALUES (?, ?, ?)",
+			"分管领导", "leader", "分管领导，查看与审阅权限")
+		if err != nil {
+			return err
 		}
 	}
 	return nil
@@ -453,6 +468,7 @@ func seed() error {
 		name, code, desc string
 	}{
 		{"系统管理员", "admin", "系统管理，用户管理，全部权限"},
+		{"分管领导", "leader", "分管领导，查看与审阅权限"},
 		{"科室工作人员", "staff", "业务办理，日常操作"},
 		{"乡镇/通讯员", "reporter", "投稿、接收通知、上报材料"},
 	}

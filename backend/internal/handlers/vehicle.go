@@ -147,6 +147,45 @@ func CreateVehicleApply(w http.ResponseWriter, r *http.Request) {
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{"message": "报备成功", "id": id})
 }
 
+// UpdateVehicleApply 修改用车报备（报备人本人或管理员）
+func UpdateVehicleApply(w http.ResponseWriter, r *http.Request) {
+	reporterID, _ := r.Context().Value(middleware.ContextUserID).(int64)
+	roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
+	var req models.VehicleApply
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请求格式错误"})
+		return
+	}
+	if req.ID == 0 {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
+		return
+	}
+	if req.VehicleID == 0 || req.Purpose == "" {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请选择车辆并填写事由"})
+		return
+	}
+	// 权限校验：管理员可改任意，普通用户只能改自己的报备
+	if roleCode != "admin" {
+		var ownerID int64
+		err := database.DB.QueryRow("SELECT reporter_id FROM vehicle_applies WHERE id = ?", req.ID).Scan(&ownerID)
+		if err != nil || ownerID != reporterID {
+			middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "无权修改该报备"})
+			return
+		}
+	}
+	if req.Passengers == 0 {
+		req.Passengers = 1
+	}
+	_, err := database.DB.Exec(
+		`UPDATE vehicle_applies SET vehicle_id=?, user_name=?, driver_name=?, purpose=?, destination=?, use_date=?, use_time=?, passengers=? WHERE id=?`,
+		req.VehicleID, req.UserName, req.DriverName, req.Purpose, req.Destination, req.UseDate, req.UseTime, req.Passengers, req.ID)
+	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "修改失败"})
+		return
+	}
+	middleware.JSON(w, http.StatusOK, map[string]string{"message": "修改成功"})
+}
+
 // ListVehicleApplies 用车报备列表（分页）
 func ListVehicleApplies(w http.ResponseWriter, r *http.Request) {
 	userID, _ := r.Context().Value(middleware.ContextUserID).(int64)

@@ -62,7 +62,7 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("PUT /api/reports", middleware.Auth(http.HandlerFunc(handlers.UpdateReport)))
 	mux.Handle("DELETE /api/reports/{id}", middleware.Auth(http.HandlerFunc(handlers.DeleteReport)))
 	mux.Handle("GET /api/reports/{id}", middleware.Auth(http.HandlerFunc(handlers.GetReport)))
-	mux.Handle("POST /api/reports/{id}/status", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.UpdateReportStatus))))
+	mux.Handle("POST /api/reports/{id}/status", middleware.Auth(middleware.RequireRole("admin", "leader")(http.HandlerFunc(handlers.UpdateReportStatus))))
 	mux.Handle("GET /api/report-stats", middleware.Auth(http.HandlerFunc(handlers.ReportStats)))
 
 	// ---- 考勤（管理员晨会点到）----
@@ -76,6 +76,7 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 
 	// ---- 请假管理 ----
 	mux.Handle("POST /api/leave-records", middleware.Auth(http.HandlerFunc(handlers.CreateLeaveRecord)))
+	mux.Handle("PUT /api/leave-records", middleware.Auth(http.HandlerFunc(handlers.UpdateLeaveRecord)))
 	mux.Handle("GET /api/leave-records", middleware.Auth(http.HandlerFunc(handlers.ListLeaveRecords)))
 	mux.Handle("DELETE /api/leave-records/{id}", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.DeleteLeaveRecord))))
 	mux.Handle("GET /api/leave-stats", middleware.Auth(http.HandlerFunc(handlers.LeaveStats)))
@@ -86,6 +87,7 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("PUT /api/vehicles", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.UpdateVehicle))))
 	mux.Handle("DELETE /api/vehicles/{id}", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.DeleteVehicle))))
 	mux.Handle("POST /api/vehicle-applies", middleware.Auth(http.HandlerFunc(handlers.CreateVehicleApply)))
+	mux.Handle("PUT /api/vehicle-applies", middleware.Auth(http.HandlerFunc(handlers.UpdateVehicleApply)))
 	mux.Handle("GET /api/vehicle-applies", middleware.Auth(http.HandlerFunc(handlers.ListVehicleApplies)))
 	mux.Handle("GET /api/vehicle-applies/{id}", middleware.Auth(http.HandlerFunc(handlers.GetVehicleApply)))
 	mux.Handle("DELETE /api/vehicle-applies/{id}", middleware.Auth(http.HandlerFunc(handlers.DeleteVehicleApply)))

@@ -36,7 +36,7 @@
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openDetail(row)">查看</el-button>
             <el-button v-if="authStore.isAdmin || row.submitter_id === authStore.user?.id" link type="warning" size="small" @click="openEdit(row)">编辑</el-button>
-            <el-button v-if="authStore.isAdmin" link type="success" size="small" @click="review(row)">审阅</el-button>
+            <el-button v-if="authStore.canReview" link type="success" size="small" @click="review(row)">审阅</el-button>
             <el-button v-if="authStore.isAdmin || row.submitter_id === authStore.user?.id" link type="danger" size="small" @click="removeReport(row)">删除</el-button>
           </template>
         </el-table-column>
