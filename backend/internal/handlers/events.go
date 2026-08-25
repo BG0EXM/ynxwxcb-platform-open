@@ -71,6 +71,11 @@ func ListMajorEvents(w http.ResponseWriter, r *http.Request) {
 		e.UpdatedAt = updatedAt
 		list = append(list, e)
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{"list": list})
 }
 
@@ -231,6 +236,11 @@ func ExportMajorEvents(w http.ResponseWriter, r *http.Request) {
 		}
 		list = append(list, it)
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	sort.Slice(list, func(i, j int) bool {
 		return list[i].period < list[j].period
 	})

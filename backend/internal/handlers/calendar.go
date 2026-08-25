@@ -61,6 +61,11 @@ func ListCalendarTasks(w http.ResponseWriter, r *http.Request) {
 		t.UpdatedAt = updatedAt
 		list = append(list, t)
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{"list": list})
 }
 
@@ -172,5 +177,10 @@ func ExportCalendarTasks(w http.ResponseWriter, r *http.Request) {
 		})
 		idx++
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	exportExcel(w, "工作日历", "工作日历.xlsx", headers, data)
 }

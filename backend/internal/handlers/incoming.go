@@ -81,6 +81,11 @@ func ListIncomingDocs(w http.ResponseWriter, r *http.Request) {
 			&d.RegistrarID, &d.Registrar, &d.Status, &d.CreatedAt, &d.UpdatedAt)
 		docs = append(docs, d)
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	middleware.JSON(w, http.StatusOK, paginateResult(docs, total, p.Page, p.PageSize))
 }
 
@@ -223,6 +228,10 @@ func getCirculations(docID int64) []models.CirculationRecord {
 		rows.Scan(&c.ID, &c.DocID, &c.UserID, &c.UserName, &c.OrderNo, &c.ReadDate, &c.Signature)
 		list = append(list, c)
 	}
+	if err := rows.Err(); err != nil {
+		return []models.CirculationRecord{}
+	}
+
 	return list
 }
 
@@ -319,6 +328,11 @@ func IncomingDocStats(w http.ResponseWriter, r *http.Request) {
 		}
 		stats["total"] += count
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	middleware.JSON(w, http.StatusOK, stats)
 }
 

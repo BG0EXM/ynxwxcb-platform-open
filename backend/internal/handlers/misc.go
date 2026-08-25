@@ -49,6 +49,11 @@ func ListContacts(w http.ResponseWriter, r *http.Request) {
 		rows.Scan(&c.ID, &c.Name, &c.Phone, &c.DepartmentID, &c.Department, &c.Position, &c.IsPublic, &c.Sort)
 		contacts = append(contacts, c)
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	middleware.JSON(w, http.StatusOK, paginateResult(contacts, total, p.Page, p.PageSize))
 }
 
@@ -140,6 +145,11 @@ func ListDutySchedules(w http.ResponseWriter, r *http.Request) {
 		rows.Scan(&s.ID, &s.DutyDate, &s.UserID, &s.UserName, &s.IsDaWangYuan, &s.Note, &s.Status)
 		schedules = append(schedules, s)
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{"list": schedules})
 }
 

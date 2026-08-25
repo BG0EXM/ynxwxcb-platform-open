@@ -111,6 +111,11 @@ func ExportVehicleApplies(w http.ResponseWriter, r *http.Request) {
 		})
 		idx++
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	exportExcel(w, "用车报备", "用车报备台账.xlsx", headers, data)
 }
 
@@ -159,6 +164,11 @@ func ExportLeaveRecords(w http.ResponseWriter, r *http.Request) {
 		})
 		idx++
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	exportExcel(w, "请假记录", "请假记录台账.xlsx", headers, data)
 }
 
@@ -218,6 +228,11 @@ func ExportAttendances(w http.ResponseWriter, r *http.Request) {
 		})
 		idx++
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	exportExcel(w, "考勤记录", "考勤记录台账.xlsx", headers, data)
 }
 
@@ -259,6 +274,11 @@ func ExportDutySchedules(w http.ResponseWriter, r *http.Request) {
 		})
 		idx++
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	exportExcel(w, "值守排班", "值守排班台账.xlsx", headers, data)
 }
 
@@ -301,5 +321,10 @@ func ExportIncomingDocs(w http.ResponseWriter, r *http.Request) {
 		})
 		idx++
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	exportExcel(w, "收文登记", "收文登记台账.xlsx", headers, data)
 }

@@ -54,6 +54,11 @@ func ListStandingCommitteeEvents(w http.ResponseWriter, r *http.Request) {
 		e.UpdatedAt = updatedAt
 		list = append(list, e)
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{"list": list})
 }
 
@@ -162,6 +167,11 @@ func ExportStandingCommitteeEvents(w http.ResponseWriter, r *http.Request) {
 		}
 		list = append(list, it)
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	// 按日期/月份顺序排列
 	sort.Slice(list, func(i, j int) bool {
 		return list[i].eventDate < list[j].eventDate

@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"encoding/json"
@@ -41,6 +41,11 @@ func ListStudyMaterials(w http.ResponseWriter, r *http.Request) {
 			&s.ReadCount, &s.CreatedAt, &s.UpdatedAt)
 		materials = append(materials, s)
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{"list": materials})
 }
 
@@ -95,6 +100,11 @@ func GetStudyMaterial(w http.ResponseWriter, r *http.Request) {
 			rows.Scan(&a.ID, &a.FileName, &a.FilePath, &a.FileSize, &a.CreatedAt)
 			s.Attachments = append(s.Attachments, a)
 		}
+		if err := rows.Err(); err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+			return
+		}
+
 	}
 
 	middleware.JSON(w, http.StatusOK, s)
@@ -110,7 +120,6 @@ func DeleteStudyMaterial(w http.ResponseWriter, r *http.Request) {
 	}
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "删除成功"})
 }
-
 
 // StudyCategory 公共资料分类
 type StudyCategory struct {
@@ -134,6 +143,11 @@ func ListStudyCategories(w http.ResponseWriter, r *http.Request) {
 		rows.Scan(&c.ID, &c.Name, &c.Code, &c.Sort)
 		list = append(list, c)
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{"list": list})
 }
 

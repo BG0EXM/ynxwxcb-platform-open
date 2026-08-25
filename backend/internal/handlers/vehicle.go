@@ -46,6 +46,11 @@ func ListVehicles(w http.ResponseWriter, r *http.Request) {
 			&v.InsuranceDate, &v.InspectDate, &v.RegisterDate, &v.PurchaseAt, &v.Note, &v.CreatedAt)
 		list = append(list, v)
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{"list": list})
 }
 
@@ -251,6 +256,11 @@ func ListVehicleApplies(w http.ResponseWriter, r *http.Request) {
 		}
 		list = append(list, a)
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	middleware.JSON(w, http.StatusOK, paginateResult(list, total, p.Page, p.PageSize))
 }
 
@@ -331,6 +341,11 @@ func VehicleStats(w http.ResponseWriter, r *http.Request) {
 			stats["repair"] = count
 		}
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	// 今日报备数
 	today := timeNow().Format("2006-01-02")
 	var todayUse int

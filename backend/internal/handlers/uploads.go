@@ -142,8 +142,8 @@ func DownloadAttachment(w http.ResponseWriter, r *http.Request) {
 // LinkAttachment 将已上传附件关联到业务对象
 func LinkAttachment(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ID      int64  `json:"id"`
-		OwnerID int64  `json:"owner_id"`
+		ID      int64 `json:"id"`
+		OwnerID int64 `json:"owner_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请求格式错误"})
@@ -254,6 +254,11 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 			rows.Scan(&b.ID, &b.ReceiveNo, &b.ReceivedDate, &b.FromUnit, &b.FromDocNo, &b.Title, &b.Status)
 			latest = append(latest, b)
 		}
+		if err := rows.Err(); err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+			return
+		}
+
 		rows.Close()
 		result["latest_incoming"] = latest
 	} else {
@@ -268,9 +273,9 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 		 ORDER BY s.duty_date`)
 	if err == nil {
 		type DutyBrief struct {
-			DutyDate    string `json:"duty_date"`
-			UserName    string `json:"user_name"`
-			IsDaWangYuan int   `json:"is_dawangyuan"`
+			DutyDate     string `json:"duty_date"`
+			UserName     string `json:"user_name"`
+			IsDaWangYuan int    `json:"is_dawangyuan"`
 		}
 		weekDuty := []DutyBrief{}
 		for weekRows.Next() {
@@ -278,6 +283,11 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 			weekRows.Scan(&d.DutyDate, &d.UserName, &d.IsDaWangYuan)
 			weekDuty = append(weekDuty, d)
 		}
+		if err := weekRows.Err(); err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+			return
+		}
+
 		weekRows.Close()
 		result["week_duty"] = weekDuty
 	} else {

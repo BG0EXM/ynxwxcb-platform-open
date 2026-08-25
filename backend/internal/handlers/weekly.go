@@ -70,6 +70,11 @@ func ListWeeklySummaries(w http.ResponseWriter, r *http.Request) {
 		s.UpdatedAt = updatedAt
 		list = append(list, s)
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{"list": list})
 }
 
@@ -225,6 +230,11 @@ func ExportWeeklySummaries(w http.ResponseWriter, r *http.Request) {
 		}
 		grouped[name] = append(grouped[name], summaryItem{content: content.String})
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	sort.Strings(deptOrder)
 
 	// 周数显示：X月X日-X月X日

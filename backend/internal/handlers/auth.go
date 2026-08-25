@@ -17,13 +17,13 @@ import (
 
 // 登录限流：每个用户名最多失败 5 次，锁定 10 分钟
 const (
-	maxLoginFails  = 5
-	lockDuration   = 10 * time.Minute
+	maxLoginFails = 5
+	lockDuration  = 10 * time.Minute
 )
 
 type loginFailCounter struct {
-	mu       sync.Mutex
-	fails    map[string]int
+	mu        sync.Mutex
+	fails     map[string]int
 	lockUntil map[string]time.Time
 }
 
@@ -228,6 +228,11 @@ func ListUsers(w http.ResponseWriter, r *http.Request) {
 			&u.RoleID, &u.RoleName, &u.Status, &u.CreatedAt)
 		users = append(users, u)
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{"list": users})
 }
 
@@ -310,6 +315,11 @@ func ListRoles(w http.ResponseWriter, r *http.Request) {
 		rows.Scan(&role.ID, &role.Name, &role.Code, &role.Description)
 		roles = append(roles, role)
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{"list": roles})
 }
 
@@ -327,6 +337,11 @@ func ListDepartments(w http.ResponseWriter, r *http.Request) {
 		rows.Scan(&d.ID, &d.Name, &d.ParentID, &d.Sort)
 		depts = append(depts, d)
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{"list": depts})
 }
 

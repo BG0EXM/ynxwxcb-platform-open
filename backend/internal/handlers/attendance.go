@@ -136,6 +136,11 @@ func ListAttendances(w http.ResponseWriter, r *http.Request) {
 		rows.Scan(&a.ID, &a.UserID, &a.UserName, &a.AttendDate, &a.Status, &a.LeaveType, &a.Remark, &a.CreatedAt, &a.UpdatedAt)
 		list = append(list, a)
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	middleware.JSON(w, http.StatusOK, paginateResult(list, total, p.Page, p.PageSize))
 }
 
@@ -176,6 +181,11 @@ func AttendanceStats(w http.ResponseWriter, r *http.Request) {
 			stats["late"] = count
 		}
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	stats["total"] = total
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{
 		"stats": stats, "date": date,
@@ -196,6 +206,11 @@ func AttendanceDates(w http.ResponseWriter, r *http.Request) {
 		rows.Scan(&d)
 		dates = append(dates, d)
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{"dates": dates})
 }
 
@@ -261,6 +276,11 @@ func MarkUsers(w http.ResponseWriter, r *http.Request) {
 		}
 		list = append(list, u)
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{"list": list, "saved": saved})
 }
 
@@ -355,6 +375,11 @@ func ListLeaveRecords(w http.ResponseWriter, r *http.Request) {
 		}
 		list = append(list, l)
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	middleware.JSON(w, http.StatusOK, paginateResult(list, total, p.Page, p.PageSize))
 }
 
@@ -468,6 +493,11 @@ func LeaveStats(w http.ResponseWriter, r *http.Request) {
 		totalDays += d
 		totalCount += cnt
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	result["total_count"] = totalCount
 	result["total_days"] = totalDays
 	middleware.JSON(w, http.StatusOK, result)
@@ -500,18 +530,18 @@ func AttendanceMonthly(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type Row struct {
-		UserID     int64   `json:"user_id"`
-		UserName   string  `json:"user_name"`
-		Department string  `json:"department"`
-		Present    int     `json:"present"`
-		Leave      int     `json:"leave"`
-		Trip       int     `json:"trip"`
-		Absent     int     `json:"absent"`
-		Late       int     `json:"late"`
-		AnnualDays float64 `json:"annual_days"`
-		SickDays   float64 `json:"sick_days"`
+		UserID       int64   `json:"user_id"`
+		UserName     string  `json:"user_name"`
+		Department   string  `json:"department"`
+		Present      int     `json:"present"`
+		Leave        int     `json:"leave"`
+		Trip         int     `json:"trip"`
+		Absent       int     `json:"absent"`
+		Late         int     `json:"late"`
+		AnnualDays   float64 `json:"annual_days"`
+		SickDays     float64 `json:"sick_days"`
 		PersonalDays float64 `json:"personal_days"`
-		OtherDays  float64 `json:"other_days"`
+		OtherDays    float64 `json:"other_days"`
 	}
 
 	// 收集 user_id 列表，先关闭外层 rows 再查请假明细（避免 MaxOpenConns=1 死锁）
@@ -527,6 +557,11 @@ func AttendanceMonthly(w http.ResponseWriter, r *http.Request) {
 		base[rw.UserID] = &rw
 		userIDs = append(userIDs, rw.UserID)
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	rows.Close()
 
 	// 单独查询请假明细（跨月假期按当月实际覆盖天数计算）
@@ -572,6 +607,11 @@ func AttendanceMonthly(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		if err := lrows.Err(); err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+			return
+		}
+
 		lrows.Close()
 	}
 
@@ -640,6 +680,10 @@ func AttendanceYearly(w http.ResponseWriter, r *http.Request) {
 		totalAbsent += rw.Absent
 		totalLate += rw.Late
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
 
 	// 每个干部全年各类休假天数
 	// 跨年假期（如 2025-12-20~2026-01-10）按当年实际覆盖天数计算
@@ -671,14 +715,14 @@ func AttendanceYearly(w http.ResponseWriter, r *http.Request) {
 	defer lrows.Close()
 
 	type PersonRow struct {
-		UserID      int64   `json:"user_id"`
-		UserName    string  `json:"user_name"`
-		Department  string  `json:"department"`
-		AnnualDays  float64 `json:"annual_days"`
-		SickDays    float64 `json:"sick_days"`
+		UserID       int64   `json:"user_id"`
+		UserName     string  `json:"user_name"`
+		Department   string  `json:"department"`
+		AnnualDays   float64 `json:"annual_days"`
+		SickDays     float64 `json:"sick_days"`
 		PersonalDays float64 `json:"personal_days"`
-		OtherDays   float64 `json:"other_days"`
-		TotalDays   float64 `json:"total_days"`
+		OtherDays    float64 `json:"other_days"`
+		TotalDays    float64 `json:"total_days"`
 	}
 	persons := []PersonRow{}
 	var totalAnnual, totalSick, totalPersonal, totalOther, totalAll float64
@@ -696,6 +740,10 @@ func AttendanceYearly(w http.ResponseWriter, r *http.Request) {
 			totalOther += p.OtherDays
 			totalAll += p.TotalDays
 		}
+	}
+	if err := lrows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
 	}
 
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{
@@ -735,5 +783,10 @@ func GetAssignees(w http.ResponseWriter, r *http.Request) {
 		}
 		list = append(list, a)
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{"list": list})
 }
