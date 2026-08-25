@@ -73,19 +73,61 @@ type DutySchedule struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
-// Report 周报/月报/年报
-type Report struct {
-	ID          int64     `json:"id"`
-	ReportType  string    `json:"report_type"` // weekly / monthly / yearly
-	Title       string    `json:"title"`
-	Content     string    `json:"content"`
-	Period      string    `json:"period"` // 周期标识,如 2026-W32
-	SubmitterID int64     `json:"submitter_id"`
-	Submitter   string    `json:"submitter_name,omitempty"`
-	Status      int       `json:"status"` // 1草稿 2已提交 3已审阅
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	Attachments []Attachment `json:"attachments,omitempty"`
+// LoginRequest 登录请求
+type CalendarTask struct {
+	ID           int64     `json:"id"`
+	DepartmentID int64     `json:"department_id"`
+	Department   string    `json:"department_name,omitempty"`
+	Title        string    `json:"title"`
+	Content      string    `json:"content"`
+	StartDate    string    `json:"start_date"` // YYYY-MM-DD
+	EndDate      string    `json:"end_date"`   // YYYY-MM-DD
+	CreatedBy    int64     `json:"created_by"`
+	CreatedName  string    `json:"created_name,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// StandingCommitteeEvent 常委大事记（仅记录常委个人情况，仅管理员操作）
+type StandingCommitteeEvent struct {
+	ID         int64     `json:"id"`
+	EventDate  string    `json:"event_date"` // YYYY-MM-DD
+	MemberName string    `json:"member_name"`
+	Title      string    `json:"title"`
+	Content    string    `json:"content"`
+	CreatedBy  int64     `json:"created_by"`
+	CreatedName string   `json:"created_name,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// MajorEvent 各科室大事记（按月记录的重大事项，精确到日，替代周月年报）
+type MajorEvent struct {
+	ID           int64     `json:"id"`
+	DepartmentID int64     `json:"department_id"`
+	Department   string    `json:"department_name,omitempty"`
+	EventType    string    `json:"event_type"` // monthly（仅按月）
+	Period       string    `json:"period"`     // 日期：YYYY-MM-DD（精确到日）
+	Title        string    `json:"title"`
+	Content      string    `json:"content"`
+	CreatedBy    int64     `json:"created_by"`
+	CreatedName  string    `json:"created_name,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// WeeklySummary 每周工作总结（各科室录入本周重点工作）
+type WeeklySummary struct {
+	ID           int64     `json:"id"`
+	DepartmentID int64     `json:"department_id"`
+	Department   string    `json:"department_name,omitempty"`
+	WeekStart    string    `json:"week_start"` // YYYY-MM-DD
+	WeekEnd      string    `json:"week_end"`   // YYYY-MM-DD
+	Content      string    `json:"content"`
+	CreatedBy    int64     `json:"created_by"`
+	CreatedName  string    `json:"created_name,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // Attachment 文件附件

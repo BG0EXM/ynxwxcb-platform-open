@@ -266,6 +266,8 @@ const exportData = () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-bottom: 16px;
 }
 .ml-8 { margin-left: 8px; }

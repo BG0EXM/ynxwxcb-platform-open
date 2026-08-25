@@ -81,8 +81,26 @@ const routes = [
       {
         path: 'reports',
         name: 'reports',
-        component: () => import('../views/Reports.vue'),
-        meta: { title: '周/月/年报', icon: 'Tickets' }
+        component: () => import('../views/MajorEvents.vue'),
+        meta: { title: '大事记', icon: 'Tickets' }
+      },
+      {
+        path: 'calendar',
+        name: 'calendar',
+        component: () => import('../views/WorkCalendar.vue'),
+        meta: { title: '工作日历', icon: 'Calendar' }
+      },
+      {
+        path: 'weekly',
+        name: 'weekly',
+        component: () => import('../views/WeeklySummary.vue'),
+        meta: { title: '每周工作总结', icon: 'Document' }
+      },
+      {
+        path: 'standing',
+        name: 'standing',
+        component: () => import('../views/StandingCommittee.vue'),
+        meta: { title: '常委管理', icon: 'UserFilled', admin: true }
       },
       {
         path: 'attendance',
@@ -143,7 +161,7 @@ router.beforeEach((to, from, next) => {
         return
       }
     }
-    document.title = to.meta.title ? `${to.meta.title} - 伊宁县委宣传部部务工作平台 V1.3.5` : '伊宁县委宣传部部务工作平台 V1.3.5'
+    document.title = to.meta.title ? `${to.meta.title} - 伊宁县委宣传部部务工作平台 V1.3.6` : '伊宁县委宣传部部务工作平台 V1.3.6'
     next()
   }
 })

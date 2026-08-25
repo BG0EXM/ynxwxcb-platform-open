@@ -194,7 +194,7 @@ func ExportAttendances(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	statusNames := map[int]string{1: "出勤", 2: "请假", 3: "出差", 4: "未到"}
+	statusNames := map[int]string{1: "出勤", 2: "请假", 3: "出差", 4: "未到", 5: "迟到"}
 	leaveTypeNames := map[string]string{
 		"annual": "年假", "sick": "病假", "personal": "事假", "marriage": "婚假",
 		"maternity": "产假", "bereavement": "丧假", "other": "其他",

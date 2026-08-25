@@ -95,6 +95,7 @@ var migrations = []migration{
 	{2, "用车报备增加开车人字段", migrateV2},
 	{3, "公共资料分类管理表", migrateV3},
 	{4, "新增分管领导角色", migrateV4},
+	{5, "新增工作日历/常委大事记/各科室大事记/每周工作总结，废除周月年报", migrateV5},
 }
 
 // migrateV2 版本2：用车报备支持科室人开车（增加 driver_name 字段）
@@ -148,6 +149,79 @@ func migrateV4() error {
 			return err
 		}
 	}
+	return nil
+}
+
+// migrateV5 版本5：新增工作日历、常委大事记、各科室大事记、每周工作总结四张表，废除周月年报 reports 表
+func migrateV5() error {
+	// 工作日历（各科室日历格子中添加要做的工作）
+	if _, err := DB.Exec(`CREATE TABLE IF NOT EXISTS calendar_tasks (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		department_id INTEGER,
+		title TEXT NOT NULL,
+		content TEXT,
+		start_date TEXT,
+		end_date TEXT,
+		created_by INTEGER,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		return err
+	}
+
+	// 常委大事记（仅记录常委个人情况，仅管理员操作）
+	if _, err := DB.Exec(`CREATE TABLE IF NOT EXISTS standing_committee_events (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		event_date TEXT,
+		member_name TEXT,
+		title TEXT NOT NULL,
+		content TEXT,
+		created_by INTEGER,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		return err
+	}
+
+	// 各科室大事记（每月/每年重大事项，替代周月年报）
+	if _, err := DB.Exec(`CREATE TABLE IF NOT EXISTS major_events (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		department_id INTEGER,
+		event_type TEXT,
+		period TEXT,
+		title TEXT NOT NULL,
+		content TEXT,
+		created_by INTEGER,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		return err
+	}
+
+	// 每周工作总结（各科室录入本周重点工作）
+	if _, err := DB.Exec(`CREATE TABLE IF NOT EXISTS weekly_summaries (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		department_id INTEGER,
+		week_start TEXT,
+		week_end TEXT,
+		content TEXT,
+		created_by INTEGER,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		return err
+	}
+
+	DB.Exec("CREATE INDEX IF NOT EXISTS idx_calendar_date ON calendar_tasks(start_date)")
+	DB.Exec("CREATE INDEX IF NOT EXISTS idx_calendar_dept ON calendar_tasks(department_id)")
+	DB.Exec("CREATE INDEX IF NOT EXISTS idx_sc_events_date ON standing_committee_events(event_date)")
+	DB.Exec("CREATE INDEX IF NOT EXISTS idx_me_dept ON major_events(department_id)")
+	DB.Exec("CREATE INDEX IF NOT EXISTS idx_me_period ON major_events(period)")
+	DB.Exec("CREATE INDEX IF NOT EXISTS idx_ws_dept ON weekly_summaries(department_id)")
+	DB.Exec("CREATE INDEX IF NOT EXISTS idx_ws_week ON weekly_summaries(week_start)")
+
+	// 废除旧周月年报表（数据无保留价值，整体重做）
+	DB.Exec("DROP TABLE IF EXISTS reports")
 	return nil
 }
 
@@ -341,14 +415,45 @@ func createTables() error {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE(duty_date, user_id)
 		)`,
-		`CREATE TABLE IF NOT EXISTS reports (
+		`CREATE TABLE IF NOT EXISTS calendar_tasks (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			report_type TEXT,
+			department_id INTEGER,
 			title TEXT NOT NULL,
 			content TEXT,
+			start_date TEXT,
+			end_date TEXT,
+			created_by INTEGER,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS standing_committee_events (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			event_date TEXT,
+			member_name TEXT,
+			title TEXT NOT NULL,
+			content TEXT,
+			created_by INTEGER,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS major_events (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			department_id INTEGER,
+			event_type TEXT,
 			period TEXT,
-			submitter_id INTEGER,
-			status INTEGER DEFAULT 1,
+			title TEXT NOT NULL,
+			content TEXT,
+			created_by INTEGER,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS weekly_summaries (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			department_id INTEGER,
+			week_start TEXT,
+			week_end TEXT,
+			content TEXT,
+			created_by INTEGER,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
@@ -446,11 +551,17 @@ func createTables() error {
 			uploader_id INTEGER,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
-		`CREATE INDEX IF NOT EXISTS idx_reports_submitter ON reports(submitter_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_schedule_date ON duty_schedules(duty_date)`,
 		`CREATE INDEX IF NOT EXISTS idx_incoming_status ON incoming_docs(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_incoming_date ON incoming_docs(received_date)`,
 		`CREATE INDEX IF NOT EXISTS idx_circ_doc ON circulation_records(doc_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_calendar_date ON calendar_tasks(start_date)`,
+		`CREATE INDEX IF NOT EXISTS idx_calendar_dept ON calendar_tasks(department_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_sc_events_date ON standing_committee_events(event_date)`,
+		`CREATE INDEX IF NOT EXISTS idx_me_dept ON major_events(department_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_me_period ON major_events(period)`,
+		`CREATE INDEX IF NOT EXISTS idx_ws_dept ON weekly_summaries(department_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_ws_week ON weekly_summaries(week_start)`,
 	}
 
 	for _, s := range stmts {

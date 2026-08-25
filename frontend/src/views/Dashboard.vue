@@ -2,7 +2,7 @@
   <div class="dashboard">
     <!-- 统计卡片 -->
     <el-row :gutter="16">
-      <el-col :span="6" v-for="card in cards" :key="card.label">
+      <el-col :xs="24" :sm="12" :md="6" :lg="6" v-for="card in cards" :key="card.label">
         <el-card shadow="hover" class="stat-card" @click="card.path && $router.push(card.path)">
           <div class="stat-inner">
             <div class="stat-icon" :style="{ background: card.color }">
@@ -19,7 +19,7 @@
 
     <el-row :gutter="16" class="mt-16">
       <!-- 左侧主区：最新收文 -->
-      <el-col :span="16">
+      <el-col :xs="24" :md="16">
         <el-card shadow="never" header="最新收文">
           <el-table :data="latestIncoming" stripe empty-text="暂无收文记录">
             <el-table-column prop="received_date" label="收文日期" width="110" />
@@ -40,7 +40,7 @@
       </el-col>
 
       <!-- 右侧 -->
-      <el-col :span="8">
+      <el-col :xs="24" :md="8">
         <el-card shadow="never" header="今日值班">
           <div class="duty-info" v-if="stats.today_duty">
             <el-icon :size="40" color="#c8102e"><AlarmClock /></el-icon>
@@ -147,7 +147,7 @@ const attStatusType = computed(() => {
 const quickActions = [
   { label: '收文登记', path: '/incoming' },
   { label: '用车报备', path: '/vehicles' },
-  { label: '提交周报', path: '/reports' },
+  { label: '录入大事记', path: '/reports' },
   { label: '考勤点到', path: '/attendance' }
 ]
 

@@ -17,13 +17,13 @@
         </div>
       </template>
       <el-row :gutter="12">
-        <el-col :span="3" v-for="c in statItems" :key="c.key">
+        <el-col :xs="12" :sm="6" :md="3" v-for="c in statItems" :key="c.key">
           <div class="stat-item" :style="{ borderLeft: '4px solid ' + c.color }">
             <div class="stat-num">{{ c.days }}</div>
             <div class="stat-label">{{ c.label }}（{{ c.count }}次）</div>
           </div>
         </el-col>
-        <el-col :span="3">
+        <el-col :xs="12" :sm="6" :md="3">
           <div class="stat-item" style="border-left: 4px solid #303133; background: #f5f7fa;">
             <div class="stat-num total">{{ stats.total_days }}</div>
             <div class="stat-label">总计（{{ stats.total_count }}次）</div>

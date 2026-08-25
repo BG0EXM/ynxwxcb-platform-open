@@ -244,9 +244,12 @@ func CreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	password := "123456" // 默认初始密码
 	hash, _ := database.HashPassword(password)
+	// 显式指定 id = 当前最大 id + 1，避免 SQLite 自增序列在删除用户后跳号
+	var nextID int64
+	database.DB.QueryRow("SELECT COALESCE(MAX(id), 0) + 1 FROM users").Scan(&nextID)
 	_, err := database.DB.Exec(
-		"INSERT INTO users (username, password_hash, real_name, phone, department_id, role_id, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		req.Username, hash, req.RealName, req.Phone, req.DepartmentID, req.RoleID, 1)
+		"INSERT INTO users (id, username, password_hash, real_name, phone, department_id, role_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		nextID, req.Username, hash, req.RealName, req.Phone, req.DepartmentID, req.RoleID, 1)
 	if err != nil {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "创建失败，用户名可能已存在"})
 		return
@@ -480,8 +483,9 @@ func DeleteUser(w http.ResponseWriter, r *http.Request) {
 // resetAutoIncrement 将自增序列重置为各表当前最大 ID，实现删除后 ID 复用
 func resetAutoIncrement() {
 	tables := []string{"users", "departments", "attendances", "leave_records", "vehicles", "vehicle_applies",
-		"contacts", "duty_schedules", "reports", "incoming_docs", "circulation_records",
-		"study_materials", "attachments"}
+		"contacts", "duty_schedules", "incoming_docs", "circulation_records",
+		"study_materials", "attachments", "calendar_tasks", "standing_committee_events",
+		"major_events", "weekly_summaries"}
 	for _, t := range tables {
 		// 将序列设为当前最大 ID（若表为空则为 0）
 		database.DB.Exec("DELETE FROM sqlite_sequence WHERE name=?", t)

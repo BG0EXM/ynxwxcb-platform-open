@@ -56,14 +56,29 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("POST /api/duty-schedules", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.SaveDutySchedule))))
 	mux.Handle("DELETE /api/duty-schedules/{id}", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.DeleteDutySchedule))))
 
-	// ---- 报表 ----
-	mux.Handle("GET /api/reports", middleware.Auth(http.HandlerFunc(handlers.ListReports)))
-	mux.Handle("POST /api/reports", middleware.Auth(http.HandlerFunc(handlers.CreateReport)))
-	mux.Handle("PUT /api/reports", middleware.Auth(http.HandlerFunc(handlers.UpdateReport)))
-	mux.Handle("DELETE /api/reports/{id}", middleware.Auth(http.HandlerFunc(handlers.DeleteReport)))
-	mux.Handle("GET /api/reports/{id}", middleware.Auth(http.HandlerFunc(handlers.GetReport)))
-	mux.Handle("POST /api/reports/{id}/status", middleware.Auth(middleware.RequireRole("admin", "leader")(http.HandlerFunc(handlers.UpdateReportStatus))))
-	mux.Handle("GET /api/report-stats", middleware.Auth(http.HandlerFunc(handlers.ReportStats)))
+	// ---- 工作日历 ----
+	mux.Handle("GET /api/calendar-tasks", middleware.Auth(http.HandlerFunc(handlers.ListCalendarTasks)))
+	mux.Handle("POST /api/calendar-tasks", middleware.Auth(http.HandlerFunc(handlers.CreateCalendarTask)))
+	mux.Handle("PUT /api/calendar-tasks", middleware.Auth(http.HandlerFunc(handlers.UpdateCalendarTask)))
+	mux.Handle("DELETE /api/calendar-tasks/{id}", middleware.Auth(http.HandlerFunc(handlers.DeleteCalendarTask)))
+
+	// ---- 常委管理（仅管理员）----
+	mux.Handle("GET /api/standing-events", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.ListStandingCommitteeEvents))))
+	mux.Handle("POST /api/standing-events", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.CreateStandingCommitteeEvent))))
+	mux.Handle("PUT /api/standing-events", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.UpdateStandingCommitteeEvent))))
+	mux.Handle("DELETE /api/standing-events/{id}", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.DeleteStandingCommitteeEvent))))
+
+	// ---- 大事记（各科室每月/每年）----
+	mux.Handle("GET /api/major-events", middleware.Auth(http.HandlerFunc(handlers.ListMajorEvents)))
+	mux.Handle("POST /api/major-events", middleware.Auth(http.HandlerFunc(handlers.CreateMajorEvent)))
+	mux.Handle("PUT /api/major-events", middleware.Auth(http.HandlerFunc(handlers.UpdateMajorEvent)))
+	mux.Handle("DELETE /api/major-events/{id}", middleware.Auth(http.HandlerFunc(handlers.DeleteMajorEvent)))
+
+	// ---- 每周工作总结 ----
+	mux.Handle("GET /api/weekly-summaries", middleware.Auth(http.HandlerFunc(handlers.ListWeeklySummaries)))
+	mux.Handle("POST /api/weekly-summaries", middleware.Auth(http.HandlerFunc(handlers.CreateWeeklySummary)))
+	mux.Handle("PUT /api/weekly-summaries", middleware.Auth(http.HandlerFunc(handlers.UpdateWeeklySummary)))
+	mux.Handle("DELETE /api/weekly-summaries/{id}", middleware.Auth(http.HandlerFunc(handlers.DeleteWeeklySummary)))
 
 	// ---- 考勤（管理员晨会点到）----
 	mux.Handle("POST /api/attendance/mark", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.MarkAttendance))))
@@ -119,6 +134,12 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("GET /api/export/attendances", middleware.Auth(http.HandlerFunc(handlers.ExportAttendances)))
 	mux.Handle("GET /api/export/duty-schedules", middleware.Auth(http.HandlerFunc(handlers.ExportDutySchedules)))
 	mux.Handle("GET /api/export/incoming-docs", middleware.Auth(http.HandlerFunc(handlers.ExportIncomingDocs)))
+	mux.Handle("GET /api/export/calendar-tasks", middleware.Auth(http.HandlerFunc(handlers.ExportCalendarTasks)))
+
+	// ---- 数据导出（Word）----
+	mux.Handle("GET /api/export/standing-events", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.ExportStandingCommitteeEvents))))
+	mux.Handle("GET /api/export/major-events", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.ExportMajorEvents))))
+	mux.Handle("GET /api/export/weekly-summaries", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.ExportWeeklySummaries))))
 
 	// 静态文件服务（前端构建产物）+ SPA 回退
 	staticDir := "static"

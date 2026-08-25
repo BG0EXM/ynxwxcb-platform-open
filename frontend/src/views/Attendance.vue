@@ -45,6 +45,7 @@
                 <el-radio :label="2">请假</el-radio>
                 <el-radio :label="3">出差</el-radio>
                 <el-radio :label="4">未到</el-radio>
+                <el-radio :label="5">迟到</el-radio>
               </el-radio-group>
               <el-select v-if="row.status === 2" v-model="row.leave_type" size="small" placeholder="请假类型" style="width:120px;margin-left:8px">
                 <el-option v-for="(name, val) in leaveTypeNames" :key="val" :label="name" :value="val" />
@@ -65,7 +66,7 @@
 
     <!-- 考勤记录与统计 -->
     <el-row :gutter="16" class="mt-12">
-      <el-col :span="8">
+      <el-col :xs="24" :md="8">
         <el-card shadow="never">
           <template #header>
             <span class="card-title">点到统计</span>
@@ -77,10 +78,11 @@
             <div class="stat-row"><span>请假</span><b style="color:#e6a23c">{{ stats.stats.leave }} 人</b></div>
             <div class="stat-row"><span>出差</span><b style="color:#409eff">{{ stats.stats.trip }} 人</b></div>
             <div class="stat-row"><span>未到</span><b style="color:#f56c6c">{{ stats.stats.absent }} 人</b></div>
+            <div class="stat-row"><span>迟到</span><b style="color:#e6a23c">{{ stats.stats.late }} 人</b></div>
           </div>
         </el-card>
       </el-col>
-      <el-col :span="16">
+      <el-col :xs="24" :md="16">
         <el-card shadow="never">
           <template #header>
             <div class="card-header">
@@ -132,8 +134,8 @@ const userFilter = ref('')
 const assignees = ref([])
 const recordedDates = ref([])
 
-const statusNames = { 1: '出勤', 2: '请假', 3: '出差', 4: '未到' }
-const statusType = (s) => ({ 1: 'success', 2: 'warning', 3: 'primary', 4: 'danger' }[s] || 'info')
+const statusNames = { 1: '出勤', 2: '请假', 3: '出差', 4: '未到', 5: '迟到' }
+const statusType = (s) => ({ 1: 'success', 2: 'warning', 3: 'primary', 4: 'danger', 5: 'warning' }[s] || 'info')
 const leaveTypeNames = {
   annual: '年假', sick: '病假', personal: '事假', marriage: '婚假',
   maternity: '产假', bereavement: '丧假', other: '其他'

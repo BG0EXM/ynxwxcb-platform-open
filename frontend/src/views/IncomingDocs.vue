@@ -62,13 +62,13 @@
             <el-tag size="small" :type="statusType(row.status)">{{ statusNames[row.status] }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="250" fixed="right" @click.stop>
+        <el-table-column label="操作" width="250" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="openDetail(row)">详情</el-button>
-            <el-button link type="warning" size="small" @click="openPrint(row)">打印</el-button>
-            <el-button link type="info" size="small" @click="openLabel(row)">标签</el-button>
+            <el-button link type="primary" size="small" @click.stop="openDetail(row)">详情</el-button>
+            <el-button link type="warning" size="small" @click.stop="openPrint(row)">打印</el-button>
+            <el-button link type="info" size="small" @click.stop="openLabel(row)">标签</el-button>
             <el-button v-if="isOffice" link type="success" size="small" @click.stop="openEdit(row)">编辑</el-button>
-            <el-button v-if="isOffice" link type="danger" size="small" @click="remove(row)">删除</el-button>
+            <el-button v-if="isOffice" link type="danger" size="small" @click.stop="remove(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -398,6 +398,8 @@ const exportData = () => {
 .toolbar {
   display: flex;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-bottom: 16px;
 }
 .ml-8 { margin-left: 8px; }

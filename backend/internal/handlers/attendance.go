@@ -151,7 +151,7 @@ func AttendanceStats(w http.ResponseWriter, r *http.Request) {
 		date = time.Now().Format("2006-01-02")
 	}
 
-	stats := map[string]int{"total": 0, "present": 0, "leave": 0, "trip": 0, "absent": 0}
+	stats := map[string]int{"total": 0, "present": 0, "leave": 0, "trip": 0, "absent": 0, "late": 0}
 	rows, err := database.DB.Query("SELECT status, COUNT(*) FROM attendances WHERE attend_date=? GROUP BY status", date)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
@@ -172,6 +172,8 @@ func AttendanceStats(w http.ResponseWriter, r *http.Request) {
 			stats["trip"] = count
 		case 4:
 			stats["absent"] = count
+		case 5:
+			stats["late"] = count
 		}
 	}
 	stats["total"] = total
@@ -484,7 +486,8 @@ func AttendanceMonthly(w http.ResponseWriter, r *http.Request) {
 			COALESCE(SUM(CASE WHEN a.status=1 THEN 1 ELSE 0 END),0) as present,
 			COALESCE(SUM(CASE WHEN a.status=2 THEN 1 ELSE 0 END),0) as leave,
 			COALESCE(SUM(CASE WHEN a.status=3 THEN 1 ELSE 0 END),0) as trip,
-			COALESCE(SUM(CASE WHEN a.status=4 THEN 1 ELSE 0 END),0) as absent
+			COALESCE(SUM(CASE WHEN a.status=4 THEN 1 ELSE 0 END),0) as absent,
+			COALESCE(SUM(CASE WHEN a.status=5 THEN 1 ELSE 0 END),0) as late
 		FROM users u
 		LEFT JOIN departments d ON u.department_id = d.id
 		LEFT JOIN attendances a ON a.user_id = u.id AND a.attend_date LIKE ?
@@ -504,6 +507,7 @@ func AttendanceMonthly(w http.ResponseWriter, r *http.Request) {
 		Leave      int     `json:"leave"`
 		Trip       int     `json:"trip"`
 		Absent     int     `json:"absent"`
+		Late       int     `json:"late"`
 		AnnualDays float64 `json:"annual_days"`
 		SickDays   float64 `json:"sick_days"`
 		PersonalDays float64 `json:"personal_days"`
@@ -516,7 +520,7 @@ func AttendanceMonthly(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var rw Row
 		var dept sql.NullString
-		rows.Scan(&rw.UserID, &rw.UserName, &dept, &rw.Present, &rw.Leave, &rw.Trip, &rw.Absent)
+		rows.Scan(&rw.UserID, &rw.UserName, &dept, &rw.Present, &rw.Leave, &rw.Trip, &rw.Absent, &rw.Late)
 		if dept.Valid {
 			rw.Department = dept.String
 		}
@@ -572,7 +576,7 @@ func AttendanceMonthly(w http.ResponseWriter, r *http.Request) {
 	}
 
 	list := []Row{}
-	var totalPresent, totalLeave, totalTrip, totalAbsent int
+	var totalPresent, totalLeave, totalTrip, totalAbsent, totalLate int
 	for _, uid := range userIDs {
 		if rw, ok := base[uid]; ok {
 			list = append(list, *rw)
@@ -580,12 +584,13 @@ func AttendanceMonthly(w http.ResponseWriter, r *http.Request) {
 			totalLeave += rw.Leave
 			totalTrip += rw.Trip
 			totalAbsent += rw.Absent
+			totalLate += rw.Late
 		}
 	}
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{
 		"month": month, "list": list,
 		"total": map[string]int{
-			"present": totalPresent, "leave": totalLeave, "trip": totalTrip, "absent": totalAbsent,
+			"present": totalPresent, "leave": totalLeave, "trip": totalTrip, "absent": totalAbsent, "late": totalLate,
 		},
 	})
 }
@@ -603,7 +608,8 @@ func AttendanceYearly(w http.ResponseWriter, r *http.Request) {
 			SUM(CASE WHEN a.status=1 THEN 1 ELSE 0 END) as present,
 			SUM(CASE WHEN a.status=2 THEN 1 ELSE 0 END) as leave,
 			SUM(CASE WHEN a.status=3 THEN 1 ELSE 0 END) as trip,
-			SUM(CASE WHEN a.status=4 THEN 1 ELSE 0 END) as absent
+			SUM(CASE WHEN a.status=4 THEN 1 ELSE 0 END) as absent,
+			SUM(CASE WHEN a.status=5 THEN 1 ELSE 0 END) as late
 		FROM attendances a
 		WHERE a.attend_date LIKE ?
 		GROUP BY ym ORDER BY ym`
@@ -620,17 +626,19 @@ func AttendanceYearly(w http.ResponseWriter, r *http.Request) {
 		Leave   int    `json:"leave"`
 		Trip    int    `json:"trip"`
 		Absent  int    `json:"absent"`
+		Late    int    `json:"late"`
 	}
 	monthly := []MonthRow{}
-	var totalPresent, totalLeave, totalTrip, totalAbsent int
+	var totalPresent, totalLeave, totalTrip, totalAbsent, totalLate int
 	for rows.Next() {
 		var rw MonthRow
-		rows.Scan(&rw.Month, &rw.Present, &rw.Leave, &rw.Trip, &rw.Absent)
+		rows.Scan(&rw.Month, &rw.Present, &rw.Leave, &rw.Trip, &rw.Absent, &rw.Late)
 		monthly = append(monthly, rw)
 		totalPresent += rw.Present
 		totalLeave += rw.Leave
 		totalTrip += rw.Trip
 		totalAbsent += rw.Absent
+		totalLate += rw.Late
 	}
 
 	// 每个干部全年各类休假天数
@@ -693,7 +701,7 @@ func AttendanceYearly(w http.ResponseWriter, r *http.Request) {
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{
 		"year": year, "monthly": monthly,
 		"total": map[string]int{
-			"present": totalPresent, "leave": totalLeave, "trip": totalTrip, "absent": totalAbsent,
+			"present": totalPresent, "leave": totalLeave, "trip": totalTrip, "absent": totalAbsent, "late": totalLate,
 		},
 		"persons": persons,
 		"leave_total": map[string]float64{

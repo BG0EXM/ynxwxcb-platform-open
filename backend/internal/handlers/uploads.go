@@ -284,10 +284,10 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 		result["week_duty"] = []interface{}{}
 	}
 
-	// 报表待提交（本月）
-	var reportDone int
-	database.DB.QueryRow("SELECT COUNT(*) FROM reports WHERE submitter_id=? AND status=2", userID).Scan(&reportDone)
-	result["report_submitted"] = reportDone
+	// 本周工作总结是否已提交（本月）
+	var weeklySubmitted int
+	database.DB.QueryRow("SELECT COUNT(*) FROM weekly_summaries WHERE created_by=?", userID).Scan(&weeklySubmitted)
+	result["report_submitted"] = weeklySubmitted
 
 	// 全年请假汇总（管理员看全员，跨年假期按当年实际覆盖天数计算）
 	if roleCode == "admin" {

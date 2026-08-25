@@ -7,7 +7,7 @@
     </el-alert>
 
     <el-row :gutter="16" class="mt-12">
-      <el-col :span="6" v-for="c in statCards" :key="c.label">
+      <el-col :xs="12" :sm="8" :md="6" v-for="c in statCards" :key="c.label">
         <el-card shadow="hover" :body-style="{ padding: '16px' }">
           <div class="stat-card">
             <div class="stat-num" :style="{ color: c.color }">{{ c.value }}</div>
@@ -398,6 +398,8 @@ const exportApplies = () => {
 .toolbar {
   display: flex;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-bottom: 12px;
 }
 .ml-8 {
