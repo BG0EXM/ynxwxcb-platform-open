@@ -14,11 +14,12 @@ import (
 // OvertimeHoursPerDay 补休换算：8 小时加班 = 1 天补休
 const OvertimeHoursPerDay = 8.0
 
-// ListOvertimeRecords 加班记录列表（管理员看全部，可按人/日期范围筛选）
+// ListOvertimeRecords 加班记录列表（管理员看全部，可按人/日期范围/年份筛选）
 func ListOvertimeRecords(w http.ResponseWriter, r *http.Request) {
 	userID := r.URL.Query().Get("user_id")
 	start := r.URL.Query().Get("start")
 	end := r.URL.Query().Get("end")
+	year := r.URL.Query().Get("year")
 
 	where := ` WHERE 1=1`
 	args := []interface{}{}
@@ -33,6 +34,10 @@ func ListOvertimeRecords(w http.ResponseWriter, r *http.Request) {
 	if end != "" {
 		where += ` AND o.overtime_date <= ?`
 		args = append(args, end)
+	}
+	if year != "" {
+		where += ` AND o.overtime_date LIKE ?`
+		args = append(args, year+"%")
 	}
 
 	query := `SELECT o.id, o.user_id, u.real_name, o.overtime_date, o.hours, o.reason,
@@ -112,6 +117,7 @@ func DeleteOvertimeRecord(w http.ResponseWriter, r *http.Request) {
 
 // ExportOvertimeRecords 导出加班记录 Excel（管理员）
 func ExportOvertimeRecords(w http.ResponseWriter, r *http.Request) {
+	year := r.URL.Query().Get("year")
 	month := r.URL.Query().Get("month")
 	query := `SELECT o.id, u.real_name, o.overtime_date, o.hours, o.reason, o.created_at
 		FROM overtime_records o
@@ -120,6 +126,9 @@ func ExportOvertimeRecords(w http.ResponseWriter, r *http.Request) {
 	if month != "" {
 		query += ` AND o.overtime_date LIKE ?`
 		args = append(args, month+"%")
+	} else if year != "" {
+		query += ` AND o.overtime_date LIKE ?`
+		args = append(args, year+"%")
 	}
 	query += ` ORDER BY o.overtime_date DESC, o.id DESC`
 
@@ -168,24 +177,35 @@ func getCompRemainDays(userID int64) float64 {
 	return compDays - used
 }
 
-// OvertimeStats 加班统计（按人，指定月份）
+// OvertimeStats 加班统计（按人，可按年或按月）
 // 返回每人：加班小时数、折合补休天数、已补休天数、剩余可补天数
-// 补休从 leave_records 的 leave_type='comp'（跨月按当月实际覆盖天数计算）
+// 补休从 leave_records 的 leave_type='comp'（按日期范围实际覆盖天数计算）
 func OvertimeStats(w http.ResponseWriter, r *http.Request) {
-	month := r.URL.Query().Get("month") // YYYY-MM
-	if month == "" {
-		month = time.Now().Format("2006-01")
+	year := r.URL.Query().Get("year")   // YYYY
+	month := r.URL.Query().Get("month") // YYYY-MM（可选，不填则统计全年）
+	dateLike := ""
+	datePrefix := ""
+	if month != "" {
+		dateLike = month + "%"
+		datePrefix = month
+	} else {
+		if year == "" {
+			year = time.Now().Format("2006")
+		}
+		dateLike = year + "%"
+		datePrefix = year
 	}
 
-	// 1. 查询加班汇总（当月）
-	otQuery := `SELECT o.user_id, u.real_name, d.name,
+	// 1. 查询加班汇总（按年/月）
+	// 注意：user_id 必须从 u.id 取，不能从 o.user_id（无加班记录时 o.user_id 为 NULL）
+	otQuery := `SELECT u.id, u.real_name, d.name,
 			COALESCE(SUM(o.hours), 0)
 		FROM users u
 		LEFT JOIN departments d ON u.department_id = d.id
 		LEFT JOIN overtime_records o ON o.user_id = u.id AND o.overtime_date LIKE ?
 		WHERE u.status = 1
 		GROUP BY u.id ORDER BY u.id`
-	rows, err := database.DB.Query(otQuery, month+"%")
+	rows, err := database.DB.Query(otQuery, dateLike)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
@@ -218,13 +238,17 @@ func OvertimeStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. 查询当月已用补休天数（leave_type='comp'，跨月按当月实际覆盖天数）
-	monthStart := month + "-01"
-	var monthEnd string
-	if t, err := time.Parse("2006-01", month); err == nil {
-		monthEnd = t.AddDate(0, 1, -1).Format("2006-01-02")
+	// 2. 查询已用补休天数（leave_type='comp'，按日期范围实际覆盖天数计算）
+	rangeStart := datePrefix + "-01"
+	var rangeEnd string
+	if month != "" {
+		if t, err := time.Parse("2006-01", month); err == nil {
+			rangeEnd = t.AddDate(0, 1, -1).Format("2006-01-02")
+		} else {
+			rangeEnd = rangeStart
+		}
 	} else {
-		monthEnd = monthStart
+		rangeEnd = year + "-12-31"
 	}
 	compQuery := `SELECT user_id, SUM(overlap_days) FROM (
 			SELECT user_id,
@@ -234,7 +258,7 @@ func OvertimeStats(w http.ResponseWriter, r *http.Request) {
 			WHERE status = 1 AND leave_type = 'comp' AND start_date <= ? AND end_date >= ?
 			GROUP BY id
 		) WHERE overlap_days > 0 GROUP BY user_id`
-	crows, err := database.DB.Query(compQuery, monthEnd, monthEnd, monthStart, monthStart, monthEnd, monthStart)
+	crows, err := database.DB.Query(compQuery, rangeEnd, rangeEnd, rangeStart, rangeStart, rangeEnd, rangeStart)
 	if err == nil {
 		for crows.Next() {
 			var uid int64
@@ -260,7 +284,7 @@ func OvertimeStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{
-		"month": month, "list": list,
+		"period": datePrefix, "list": list,
 		"total": map[string]float64{
 			"overtime_hours": totalHours, "used_days": totalUsed,
 		},

@@ -3,7 +3,8 @@
     <el-card shadow="never">
       <div class="toolbar">
         <div>
-          <el-date-picker v-model="month" type="month" value-format="YYYY-MM" placeholder="选择月份" style="width:150px" @change="loadAll" />
+          <el-date-picker v-model="year" type="year" value-format="YYYY" placeholder="按年筛选" style="width:130px" @change="loadAll" />
+          <el-date-picker v-model="month" type="month" value-format="YYYY-MM" placeholder="按年+按月" clearable style="width:140px;margin-left:10px" @change="loadAll" />
         </div>
         <div>
           <el-button type="success" :icon="'Download'" @click="exportData">导出Excel</el-button>
@@ -12,8 +13,8 @@
       </div>
 
       <!-- 加班统计表 -->
-      <div class="section-title" v-if="!detailMode">本月加班与补休统计</div>
-      <el-table v-if="!detailMode" :data="statsList" stripe v-loading="loading" empty-text="暂无统计数据">
+      <div class="section-title">{{ periodLabel }}加班与补休统计</div>
+      <el-table :data="statsList" stripe v-loading="loading" empty-text="暂无统计数据">
         <el-table-column prop="user_name" label="姓名" width="120" />
         <el-table-column prop="department" label="部门" width="140" />
         <el-table-column label="加班小时" width="100">
@@ -32,22 +33,15 @@
             <b :style="{ color: row.remain_days < 0 ? '#f56c6c' : '#67c23a' }">{{ row.remain_days.toFixed(1) }}</b>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="160" fixed="right">
+        <el-table-column label="操作" width="110" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" :disabled="row.remain_days <= 0" @click="registerComp(row)">登记补休</el-button>
-            <el-button link type="warning" size="small" @click="viewDetail(row)">加班明细</el-button>
           </template>
         </el-table-column>
       </el-table>
 
-      <!-- 加班明细列表 -->
-      <div class="section-title mt-16">
-        <template v-if="detailMode">
-          {{ detailName }}的加班明细
-          <el-button link type="primary" size="small" @click="backToStats">返回统计</el-button>
-        </template>
-        <template v-else>加班记录</template>
-      </div>
+      <!-- 加班记录列表（当年全部，可按年/月筛选） -->
+      <div class="section-title mt-16">{{ periodLabel }}加班记录</div>
       <el-table :data="records" stripe size="small" v-loading="recLoading" empty-text="暂无加班记录">
         <el-table-column prop="overtime_date" label="日期" width="110" />
         <el-table-column prop="user_name" label="姓名" width="100" />
@@ -89,21 +83,29 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request, { exportFile } from '../utils/request'
 import dayjs from 'dayjs'
 
-const month = ref(dayjs().format('YYYY-MM'))
+const year = ref(dayjs().format('YYYY'))
+const month = ref('')
 const statsList = ref([])
 const records = ref([])
 const loading = ref(false)
 const recLoading = ref(false)
 const assignees = ref([])
 const dialogVisible = ref(false)
-const detailMode = ref(false)
-const detailName = ref('')
 const form = ref({ user_id: '', overtime_date: dayjs().format('YYYY-MM-DD'), hours: 8, reason: '' })
+
+// 统计期间标题：选月则 XXXX年X月，否则 XXXX年
+const periodLabel = computed(() => {
+  if (month.value) {
+    const t = dayjs(month.value + '-01')
+    return `${t.year()}年${t.month() + 1}月`
+  }
+  return `${year.value}年`
+})
 
 const loadAssignees = async () => {
   try {
@@ -115,7 +117,9 @@ const loadAssignees = async () => {
 const loadStats = async () => {
   loading.value = true
   try {
-    const res = await request.get('/overtime-stats', { params: { month: month.value } })
+    const params = { year: year.value }
+    if (month.value) params.month = month.value
+    const res = await request.get('/overtime-stats', { params })
     statsList.value = res.list || []
   } catch (e) {
   } finally {
@@ -123,11 +127,14 @@ const loadStats = async () => {
   }
 }
 
-const loadRecords = async (userId) => {
+const loadRecords = async () => {
   recLoading.value = true
   try {
-    const params = { start: month.value + '-01', end: dayjs(month.value + '-01').endOf('month').format('YYYY-MM-DD') }
-    if (userId) params.user_id = userId
+    const params = { year: year.value }
+    if (month.value) {
+      params.start = month.value + '-01'
+      params.end = dayjs(month.value + '-01').endOf('month').format('YYYY-MM-DD')
+    }
     const res = await request.get('/overtime-records', { params })
     records.value = res.list || []
   } catch (e) {
@@ -137,7 +144,6 @@ const loadRecords = async (userId) => {
 }
 
 const loadAll = () => {
-  detailMode.value = false
   loadStats()
   loadRecords()
 }
@@ -166,26 +172,8 @@ const removeRecord = async (row) => {
   try {
     await request.delete(`/overtime-records/${row.id}`)
     ElMessage.success('删除成功')
-    if (detailMode.value) {
-      loadRecords(form._detailUserId)
-    } else {
-      loadAll()
-    }
+    loadAll()
   } catch (e) {}
-}
-
-// 查看某人的加班明细：切换明细视图
-const viewDetail = (row) => {
-  detailMode.value = true
-  detailName.value = row.user_name
-  form._detailUserId = row.user_id
-  loadRecords(row.user_id)
-}
-
-const backToStats = () => {
-  detailMode.value = false
-  loadStats()
-  loadRecords()
 }
 
 // 登记补休：跳转到请假模块，并预填补休类型和人员
@@ -201,7 +189,8 @@ const registerComp = (row) => {
 }
 
 const exportData = () => {
-  const params = { month: month.value }
+  const params = { year: year.value }
+  if (month.value) params.month = month.value
   exportFile('/export/overtime-records', params)
 }
 

@@ -167,7 +167,7 @@ router.beforeEach((to, from, next) => {
         return
       }
     }
-    document.title = to.meta.title ? `${to.meta.title} - 伊宁县委宣传部部务工作平台 V1.3.7` : '伊宁县委宣传部部务工作平台 V1.3.7'
+    document.title = to.meta.title ? `${to.meta.title} - 伊宁县委宣传部部务工作平台 V1.3.8` : '伊宁县委宣传部部务工作平台 V1.3.8'
     next()
   }
 })
