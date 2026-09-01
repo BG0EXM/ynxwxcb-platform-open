@@ -67,7 +67,7 @@
       <el-footer class="app-footer" height="40px">
         <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">ICP备案号占位</a>
         <span class="footer-sep">|</span>
-        <a href="http://www.beian.gov.cn/portal/registerSystemInfo?beian.miit.gov.cn" target="_blank" rel="noopener">
+        <a href="https://beian.mps.gov.cn/#/query/webSearch" target="_blank" rel="noopener">
           公网安备号占位
         </a>
       </el-footer>
