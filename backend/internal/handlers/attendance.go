@@ -232,8 +232,9 @@ func MarkUsers(w http.ResponseWriter, r *http.Request) {
 
 	query := `SELECT u.id, u.real_name, d.name,
 			COALESCE(a.status, 0) as status, COALESCE(a.leave_type, '') as leave_type, COALESCE(a.remark, '') as remark,
-			CASE WHEN MAX(l.id) IS NOT NULL THEN 2 ELSE 0 END as auto_leave,
-			COALESCE(MAX(l.leave_type), '') as auto_leave_type
+			CASE WHEN MAX(CASE WHEN l.leave_type != 'comp' THEN l.id END) IS NOT NULL THEN 2 ELSE 0 END as auto_leave,
+			COALESCE(MAX(CASE WHEN l.leave_type != 'comp' THEN l.leave_type END), '') as auto_leave_type,
+			CASE WHEN MAX(CASE WHEN l.leave_type = 'comp' THEN l.id END) IS NOT NULL THEN 1 ELSE 0 END as auto_comp
 		FROM users u
 		LEFT JOIN departments d ON u.department_id = d.id
 		LEFT JOIN attendances a ON a.user_id = u.id AND a.attend_date = ?
@@ -256,13 +257,14 @@ func MarkUsers(w http.ResponseWriter, r *http.Request) {
 		LeaveType  string `json:"leave_type"`
 		Remark     string `json:"remark"`
 		AutoLeave  int    `json:"auto_leave"`
+		AutoComp   int    `json:"auto_comp"`
 	}
 	list := []UserItem{}
 	for rows.Next() {
 		var u UserItem
 		var dept, autoLeaveType sql.NullString
-		var autoLeave int
-		rows.Scan(&u.ID, &u.RealName, &dept, &u.Status, &u.LeaveType, &u.Remark, &autoLeave, &autoLeaveType)
+		var autoLeave, autoComp int
+		rows.Scan(&u.ID, &u.RealName, &dept, &u.Status, &u.LeaveType, &u.Remark, &autoLeave, &autoLeaveType, &autoComp)
 		if dept.Valid {
 			u.Department = dept.String
 		}
@@ -273,6 +275,11 @@ func MarkUsers(w http.ResponseWriter, r *http.Request) {
 			if autoLeaveType.Valid {
 				u.LeaveType = autoLeaveType.String
 			}
+		}
+		// 补休（comp）：无考勤记录时按出勤处理，标记 auto_comp=1（补休视为正常出勤）
+		if u.Status == 0 && autoComp == 1 {
+			u.Status = 1
+			u.AutoComp = 1
 		}
 		list = append(list, u)
 	}

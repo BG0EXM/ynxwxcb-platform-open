@@ -140,6 +140,19 @@ type OvertimeRecord struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+// AnnualLeaveConfig 年休假配置（每人每年可休天数）
+type AnnualLeaveConfig struct {
+	ID         int64     `json:"id"`
+	UserID     int64     `json:"user_id"`
+	UserName   string    `json:"user_name,omitempty"`
+	Year       string    `json:"year"`
+	Days       float64   `json:"days"`
+	UsedDays   float64   `json:"used_days,omitempty"`   // 已休（联动请假 annual）
+	RemainDays float64   `json:"remain_days,omitempty"` // 剩余
+	UpdatedBy  int64     `json:"updated_by"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
 // Attachment 文件附件
 type Attachment struct {
 	ID           int64     `json:"id"`

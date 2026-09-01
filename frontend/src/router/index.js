@@ -106,7 +106,13 @@ const routes = [
         path: 'overtime',
         name: 'overtime',
         component: () => import('../views/Overtime.vue'),
-        meta: { title: '加班管理', icon: 'AlarmClock', admin: true }
+        meta: { title: '加班管理', icon: 'AlarmClock' }
+      },
+      {
+        path: 'annualleave',
+        name: 'annualleave',
+        component: () => import('../views/AnnualLeave.vue'),
+        meta: { title: '年休假管理', icon: 'Sunny' }
       },
       {
         path: 'attendance',
@@ -167,7 +173,7 @@ router.beforeEach((to, from, next) => {
         return
       }
     }
-    document.title = to.meta.title ? `${to.meta.title} - 伊宁县委宣传部部务工作平台 V1.3.8` : '伊宁县委宣传部部务工作平台 V1.3.8'
+    document.title = to.meta.title ? `${to.meta.title} - 伊宁县委宣传部部务工作平台 V1.3.9` : '伊宁县委宣传部部务工作平台 V1.3.9'
     next()
   }
 })

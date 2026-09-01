@@ -35,6 +35,7 @@
             <template #default="{ row }">
               {{ row.real_name }}
               <el-tag v-if="row.auto_leave === 1" type="warning" size="small" class="auto-leave-tag">请假</el-tag>
+              <el-tag v-if="row.auto_comp === 1" type="success" size="small" class="auto-leave-tag">补休</el-tag>
             </template>
           </el-table-column>
           <el-table-column prop="department" label="部门" width="130" />
@@ -138,7 +139,8 @@ const statusNames = { 1: '出勤', 2: '请假', 3: '出差', 4: '未到', 5: '�
 const statusType = (s) => ({ 1: 'success', 2: 'warning', 3: 'primary', 4: 'danger', 5: 'warning' }[s] || 'info')
 const leaveTypeNames = {
   annual: '年假', sick: '病假', personal: '事假', marriage: '婚假',
-  maternity: '产假', bereavement: '丧假', other: '其他'
+  maternity: '产假', bereavement: '丧假', prenatal: '产检假', family: '探亲假',
+  other: '其他'
 }
 
 // 自动请假的用户行高亮

@@ -12,10 +12,24 @@
       </div>
       <el-menu :default-active="$route.path" router background-color="transparent"
         text-color="rgba(255,255,255,0.7)" active-text-color="#ffffff" class="sidebar-menu">
-        <el-menu-item v-for="item in menus" :key="item.path" :index="item.path" @click="closeMobile">
-          <el-icon><component :is="item.icon" /></el-icon>
-          <span>{{ item.title }}</span>
+        <!-- 工作台单独置顶 -->
+        <el-menu-item :index="dashboardMenu.path" @click="closeMobile">
+          <el-icon><component :is="dashboardMenu.icon" /></el-icon>
+          <span>{{ dashboardMenu.title }}</span>
         </el-menu-item>
+        <!-- 分组菜单 -->
+        <template v-for="group in menuGroups" :key="group.title">
+          <el-sub-menu :index="group.title">
+            <template #title>
+              <el-icon><component :is="group.icon" /></el-icon>
+              <span>{{ group.title }}</span>
+            </template>
+            <el-menu-item v-for="item in group.items" :key="item.path" :index="item.path" @click="closeMobile">
+              <el-icon><component :is="item.icon" /></el-icon>
+              <span>{{ item.title }}</span>
+            </el-menu-item>
+          </el-sub-menu>
+        </template>
       </el-menu>
     </el-aside>
     <div v-if="mobileOpen" class="sidebar-mask" @click="closeMobile"></div>
@@ -86,26 +100,44 @@ const closeMobile = () => {
   mobileOpen.value = false
 }
 
-const menus = computed(() => {
-  const all = [
-    { path: '/dashboard', title: '工作台', icon: 'Odometer' },
-    { path: '/incoming', title: '收文管理', icon: 'FolderOpened' },
-    { path: '/study', title: '公共资料', icon: 'Reading' },
-    { path: '/contacts', title: '通讯录', icon: 'Phone' },
-    { path: '/duty', title: '值守排班', icon: 'AlarmClock' },
-    { path: '/calendar', title: '工作日历', icon: 'Calendar' },
-    { path: '/reports', title: '大事记', icon: 'Tickets' },
-    { path: '/weekly', title: '每周工作总结', icon: 'Document' },
-    { path: '/attendance', title: '考勤点到', icon: 'AlarmClock' },
-    { path: '/leave', title: '请假管理', icon: 'Calendar' },
-    { path: '/vehicles', title: '公车管理', icon: 'Van' }
+const dashboardMenu = { path: '/dashboard', title: '工作台', icon: 'Odometer' }
+
+const menuGroups = computed(() => {
+  const groups = [
+    {
+      title: '业务办理', icon: 'FolderOpened', items: [
+        { path: '/incoming', title: '收文管理', icon: 'FolderOpened' },
+        { path: '/vehicles', title: '公车管理', icon: 'Van' },
+        { path: '/duty', title: '值守排班', icon: 'AlarmClock' },
+        { path: '/calendar', title: '工作日历', icon: 'Calendar' },
+        { path: '/contacts', title: '通讯录', icon: 'Phone' }
+      ]
+    },
+    {
+      title: '考勤休假', icon: 'AlarmClock', items: [
+        { path: '/attendance', title: '考勤点到', icon: 'AlarmClock' },
+        { path: '/leave', title: '请假管理', icon: 'Calendar' },
+        { path: '/overtime', title: '加班管理', icon: 'Clock' },
+        { path: '/annualleave', title: '年休假管理', icon: 'Sunny' }
+      ]
+    },
+    {
+      title: '材料报送', icon: 'Document', items: [
+        { path: '/reports', title: '大事记', icon: 'Tickets' },
+        { path: '/weekly', title: '每周工作总结', icon: 'Document' },
+        { path: '/study', title: '公共资料', icon: 'Reading' }
+      ]
+    }
   ]
   if (authStore.isAdmin) {
-    all.push({ path: '/standing', title: '常委管理', icon: 'UserFilled' })
-    all.push({ path: '/overtime', title: '加班管理', icon: 'AlarmClock' })
-    all.push({ path: '/users', title: '用户管理', icon: 'User' })
+    groups.push({
+      title: '系统管理', icon: 'Setting', items: [
+        { path: '/standing', title: '常委管理', icon: 'UserFilled' },
+        { path: '/users', title: '用户管理', icon: 'User' }
+      ]
+    })
   }
-  return all
+  return groups
 })
 
 const currentTitle = computed(() => route.meta.title || '')
@@ -235,6 +267,35 @@ const handleCommand = (cmd) => {
   height: 24px;
   border-radius: 0 4px 4px 0;
   background: linear-gradient(180deg, var(--yx-gold-light), var(--yx-gold));
+}
+/* 分组子菜单：标题与子项在深色侧边栏下的配色 */
+.sidebar-menu :deep(.el-sub-menu__title) {
+  height: 44px;
+  line-height: 44px;
+  border-radius: 8px;
+  margin-bottom: 4px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+}
+.sidebar-menu :deep(.el-sub-menu__title:hover) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+.sidebar-menu :deep(.el-sub-menu .el-menu) {
+  background: transparent;
+}
+.sidebar-menu :deep(.el-sub-menu .el-menu-item) {
+  height: 40px;
+  line-height: 40px;
+  border-radius: 8px;
+  padding-left: 52px !important;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 13px;
+  min-width: 0;
+}
+.sidebar-menu :deep(.el-sub-menu .el-menu-item.is-active) {
+  background: linear-gradient(90deg, rgba(200, 16, 46, 0.85), rgba(200, 16, 46, 0.55));
+  color: #fff !important;
 }
 .header {
   background: #fff;

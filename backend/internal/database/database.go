@@ -98,6 +98,7 @@ var migrations = []migration{
 	{5, "新增工作日历/常委大事记/各科室大事记/每周工作总结，废除周月年报", migrateV5},
 	{6, "新增加班记录表（加班统计与补休）", migrateV6},
 	{7, "清理废弃列：大事记/常委大事记去掉冗余字段", migrateV7},
+	{8, "新增年休假配置表（每人每年年休假天数）", migrateV8},
 }
 
 // migrateV2 版本2：用车报备支持科室人开车（增加 driver_name 字段）
@@ -285,6 +286,25 @@ func migrateV7() error {
 		DB.Exec("CREATE INDEX IF NOT EXISTS idx_sc_events_date ON standing_committee_events(event_date)")
 	}
 
+	return nil
+}
+
+// migrateV8 版本8：年休假配置表（每人每年可休天数）
+func migrateV8() error {
+	// 年休假配置：user_id + year + days（当年可休天数），重复录入 upsert
+	if _, err := DB.Exec(`CREATE TABLE IF NOT EXISTS annual_leave_configs (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id INTEGER,
+		year TEXT,
+		days REAL DEFAULT 0,
+		updated_by INTEGER,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(user_id, year)
+	)`); err != nil {
+		return err
+	}
+	DB.Exec("CREATE INDEX IF NOT EXISTS idx_al_config_user ON annual_leave_configs(user_id)")
+	DB.Exec("CREATE INDEX IF NOT EXISTS idx_al_config_year ON annual_leave_configs(year)")
 	return nil
 }
 
@@ -526,6 +546,15 @@ func createTables() error {
 			created_by INTEGER,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`CREATE TABLE IF NOT EXISTS annual_leave_configs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER,
+			year TEXT,
+			days REAL DEFAULT 0,
+			updated_by INTEGER,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(user_id, year)
+		)`,
 		`CREATE TABLE IF NOT EXISTS leave_records (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			user_id INTEGER,
@@ -633,6 +662,8 @@ func createTables() error {
 		`CREATE INDEX IF NOT EXISTS idx_ws_week ON weekly_summaries(week_start)`,
 		`CREATE INDEX IF NOT EXISTS idx_ot_user ON overtime_records(user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_ot_date ON overtime_records(overtime_date)`,
+		`CREATE INDEX IF NOT EXISTS idx_al_config_user ON annual_leave_configs(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_al_config_year ON annual_leave_configs(year)`,
 	}
 
 	for _, s := range stmts {

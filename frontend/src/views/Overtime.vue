@@ -7,8 +7,8 @@
           <el-date-picker v-model="month" type="month" value-format="YYYY-MM" placeholder="按年+按月" clearable style="width:140px;margin-left:10px" @change="loadAll" />
         </div>
         <div>
-          <el-button type="success" :icon="'Download'" @click="exportData">导出Excel</el-button>
-          <el-button type="primary" :icon="'Plus'" @click="openCreate">录入加班</el-button>
+          <el-button v-if="authStore.isAdmin" type="success" :icon="'Download'" @click="exportData">导出Excel</el-button>
+          <el-button v-if="authStore.isAdmin" type="primary" :icon="'Plus'" @click="openCreate">录入加班</el-button>
         </div>
       </div>
 
@@ -33,7 +33,7 @@
             <b :style="{ color: row.remain_days < 0 ? '#f56c6c' : '#67c23a' }">{{ row.remain_days.toFixed(1) }}</b>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="110" fixed="right">
+        <el-table-column label="操作" width="110" fixed="right" v-if="authStore.isAdmin">
           <template #default="{ row }">
             <el-button link type="primary" size="small" :disabled="row.remain_days <= 0" @click="registerComp(row)">登记补休</el-button>
           </template>
@@ -47,7 +47,7 @@
         <el-table-column prop="user_name" label="姓名" width="100" />
         <el-table-column prop="hours" label="加班小时" width="90" />
         <el-table-column prop="reason" label="事由" min-width="200" show-overflow-tooltip />
-        <el-table-column label="操作" width="80" fixed="right">
+        <el-table-column label="操作" width="80" fixed="right" v-if="authStore.isAdmin">
           <template #default="{ row }">
             <el-button link type="danger" size="small" @click="removeRecord(row)">删除</el-button>
           </template>
@@ -87,6 +87,9 @@ import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request, { exportFile } from '../utils/request'
 import dayjs from 'dayjs'
+import { useAuthStore } from '../store/auth'
+
+const authStore = useAuthStore()
 
 const year = ref(dayjs().format('YYYY'))
 const month = ref('')
