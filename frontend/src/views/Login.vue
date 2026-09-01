@@ -20,7 +20,7 @@
           </el-button>
         </el-form-item>
       </el-form>
-      <p class="login-tip">默认管理员账号：admin / admin123</p>
+      <p class="login-tip">伊宁县委宣传部部务工作平台 V1.3.7</p>
     </div>
     <div class="login-footer">
       <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">ICP备案号占位</a>
@@ -71,51 +71,64 @@ const handleLogin = async () => {
 
 <style scoped>
 .login-page {
-  height: 100%;
+  min-height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #8f0f26;
-  background-image: url('../assets/login-bg.jpg');
+  background: url('../assets/login-bg.jpg');
   background-size: cover;
   background-position: center;
-  background-repeat: no-repeat;
+  position: relative;
+}
+.login-page::before {
+  display: none;
 }
 .login-box {
   width: 400px;
-  padding: 48px 40px;
-  background: #fff;
-  border-radius: 8px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+  padding: 44px 40px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  position: relative;
+  z-index: 1;
 }
 .login-header {
   text-align: center;
   margin-bottom: 32px;
 }
 .danghui-img {
-  width: 64px;
-  height: 64px;
+  width: 68px;
+  height: 68px;
   object-fit: contain;
   margin-bottom: 12px;
 }
 .login-header h1 {
   font-size: 24px;
-  color: #c8102e;
+  color: var(--yx-primary);
   margin-bottom: 6px;
+  letter-spacing: 2px;
 }
 .login-header p {
-  color: #909399;
+  color: #606266;
   font-size: 14px;
   letter-spacing: 6px;
 }
 .login-btn {
   width: 100%;
-  background: #c8102e;
-  border-color: #c8102e;
+  background: linear-gradient(135deg, #e0354f, #a90d26) !important;
+  border: none !important;
+  border-radius: 8px !important;
+  height: 44px;
+  font-size: 16px;
+  letter-spacing: 6px;
+  box-shadow: 0 6px 18px rgba(200, 16, 46, 0.3);
 }
 .login-btn:hover {
-  background: #a90d26;
-  border-color: #a90d26;
+  box-shadow: 0 8px 24px rgba(200, 16, 46, 0.4);
+  transform: translateY(-1px);
 }
 .login-tip {
   text-align: center;
@@ -123,17 +136,49 @@ const handleLogin = async () => {
   font-size: 12px;
   margin-top: 12px;
 }
+@media (max-width: 480px) {
+  .login-box {
+    width: 90%;
+    padding: 36px 24px;
+  }
+  .login-header h1 {
+    font-size: 20px;
+  }
+}
+@media (max-width: 767px) {
+  .login-footer {
+    position: static;
+    padding-top: 16px;
+    color: rgba(255,255,255,0.9);
+  }
+  .login-footer a {
+    color: rgba(255,255,255,0.9);
+  }
+  .login-page {
+    min-height: 100%;
+    padding: 20px 12px;
+    align-items: flex-start;
+    justify-content: center;
+  }
+  .login-box {
+    margin-top: 8vh;
+  }
+}
 .login-footer {
   position: fixed;
   bottom: 16px;
-  left: 0;
-  right: 0;
+  left: 50%;
+  transform: translateX(-50%);
   text-align: center;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(255, 255, 255, 0.95);
+  background: rgba(0, 0, 0, 0.55);
+  padding: 6px 16px;
+  border-radius: 6px;
+  white-space: nowrap;
 }
 .login-footer a {
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(255, 255, 255, 0.92);
   text-decoration: none;
 }
 .login-footer a:hover {
@@ -141,6 +186,6 @@ const handleLogin = async () => {
 }
 .footer-sep {
   margin: 0 8px;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgba(255, 255, 255, 0.7);
 }
 </style>

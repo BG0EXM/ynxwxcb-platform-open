@@ -1,6 +1,6 @@
 <template>
   <el-container class="layout">
-    <el-aside width="220px" class="sidebar">
+    <el-aside width="220px" class="sidebar" :class="{ 'sidebar-collapsed': collapsed, 'sidebar-mobile-open': mobileOpen }">
       <div class="logo">
         <div class="logo-badge">
           <img src="../assets/danghui.png" alt="党徽" class="danghui-img" />
@@ -10,17 +10,19 @@
           <p>部务工作平台</p>
         </div>
       </div>
-      <el-menu :default-active="$route.path" router background-color="#1f2d3d"
-        text-color="#a7bfd9" active-text-color="#ffffff">
-        <el-menu-item v-for="item in menus" :key="item.path" :index="item.path">
+      <el-menu :default-active="$route.path" router background-color="transparent"
+        text-color="rgba(255,255,255,0.7)" active-text-color="#ffffff" class="sidebar-menu">
+        <el-menu-item v-for="item in menus" :key="item.path" :index="item.path" @click="closeMobile">
           <el-icon><component :is="item.icon" /></el-icon>
           <span>{{ item.title }}</span>
         </el-menu-item>
       </el-menu>
     </el-aside>
+    <div v-if="mobileOpen" class="sidebar-mask" @click="closeMobile"></div>
     <el-container>
       <el-header class="header">
         <div class="header-left">
+          <el-button class="menu-toggle" :icon="'Expand'" @click="toggleMobile" circle size="small" />
           <el-breadcrumb separator="/">
             <el-breadcrumb-item :to="{ path: '/dashboard' }">首页</el-breadcrumb-item>
             <el-breadcrumb-item>{{ currentTitle }}</el-breadcrumb-item>
@@ -69,6 +71,21 @@ const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 
+const collapsed = ref(false)
+const mobileOpen = ref(false)
+const isMobile = ref(false)
+
+const checkMobile = () => {
+  isMobile.value = window.innerWidth < 768
+  if (!isMobile.value) mobileOpen.value = false
+}
+const toggleMobile = () => {
+  mobileOpen.value = !mobileOpen.value
+}
+const closeMobile = () => {
+  mobileOpen.value = false
+}
+
 const menus = computed(() => {
   const all = [
     { path: '/dashboard', title: '工作台', icon: 'Odometer' },
@@ -76,12 +93,16 @@ const menus = computed(() => {
     { path: '/study', title: '公共资料', icon: 'Reading' },
     { path: '/contacts', title: '通讯录', icon: 'Phone' },
     { path: '/duty', title: '值守排班', icon: 'AlarmClock' },
-    { path: '/reports', title: '周/月/年报', icon: 'Tickets' },
+    { path: '/calendar', title: '工作日历', icon: 'Calendar' },
+    { path: '/reports', title: '大事记', icon: 'Tickets' },
+    { path: '/weekly', title: '每周工作总结', icon: 'Document' },
     { path: '/attendance', title: '考勤点到', icon: 'AlarmClock' },
     { path: '/leave', title: '请假管理', icon: 'Calendar' },
     { path: '/vehicles', title: '公车管理', icon: 'Van' }
   ]
   if (authStore.isAdmin) {
+    all.push({ path: '/standing', title: '常委管理', icon: 'UserFilled' })
+    all.push({ path: '/overtime', title: '加班管理', icon: 'AlarmClock' })
     all.push({ path: '/users', title: '用户管理', icon: 'User' })
   }
   return all
@@ -104,11 +125,14 @@ const refreshUnread = () => {
 
 onMounted(() => {
   loadUnread()
+  checkMobile()
+  window.addEventListener('resize', checkMobile)
   // 事件驱动刷新：收文操作后触发
   window.addEventListener('incoming-changed', refreshUnread)
 })
 onUnmounted(() => {
   window.removeEventListener('incoming-changed', refreshUnread)
+  window.removeEventListener('resize', checkMobile)
 })
 
 const avatarText = computed(() => {
@@ -131,18 +155,22 @@ const handleCommand = (cmd) => {
   height: 100%;
 }
 .sidebar {
-  background: #1f2d3d;
+  background: linear-gradient(180deg, #1a2535 0%, #141c28 100%);
   overflow-x: hidden;
+  box-shadow: 4px 0 24px rgba(20, 28, 40, 0.15);
+  position: relative;
+  z-index: 100;
 }
 .logo {
-  height: 64px;
+  height: 72px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 10px;
   color: #fff;
-  border-bottom: 1px solid rgba(255,255,255,0.1);
+  border-bottom: 1px solid rgba(201, 160, 99, 0.25);
   padding: 0 8px;
+  background: linear-gradient(180deg, rgba(201,160,99,0.08), transparent);
 }
 .logo-badge {
   flex-shrink: 0;
@@ -150,9 +178,10 @@ const handleCommand = (cmd) => {
   align-items: center;
 }
 .danghui-img {
-  width: 34px;
-  height: 34px;
+  width: 38px;
+  height: 38px;
   object-fit: contain;
+  filter: drop-shadow(0 0 6px rgba(201, 160, 99, 0.5));
 }
 .logo-text {
   display: flex;
@@ -166,15 +195,46 @@ const handleCommand = (cmd) => {
   margin-bottom: 2px;
   line-height: 1.2;
   white-space: nowrap;
+  letter-spacing: 1px;
 }
 .logo p {
   font-size: 10px;
-  color: #a7bfd9;
-  letter-spacing: 2px;
+  color: var(--yx-gold-light);
+  letter-spacing: 3px;
   line-height: 1.2;
 }
-.sidebar :deep(.el-menu) {
+.sidebar .el-menu {
   border-right: none;
+  padding: 10px 8px;
+}
+.sidebar-menu :deep(.el-menu-item) {
+  height: 44px;
+  line-height: 44px;
+  border-radius: 8px;
+  margin-bottom: 4px;
+  color: rgba(255, 255, 255, 0.72);
+  position: relative;
+  transition: all 0.2s ease;
+}
+.sidebar-menu :deep(.el-menu-item:hover) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+.sidebar-menu :deep(.el-menu-item.is-active) {
+  background: linear-gradient(90deg, rgba(200, 16, 46, 0.85), rgba(200, 16, 46, 0.55));
+  color: #fff !important;
+  box-shadow: 0 4px 14px rgba(200, 16, 46, 0.35);
+}
+.sidebar-menu :deep(.el-menu-item.is-active)::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 24px;
+  border-radius: 0 4px 4px 0;
+  background: linear-gradient(180deg, var(--yx-gold-light), var(--yx-gold));
 }
 .header {
   background: #fff;
@@ -229,5 +289,47 @@ const handleCommand = (cmd) => {
 }
 .footer-sep {
   color: #c0c4cc;
+}
+.menu-toggle {
+  display: none;
+}
+@media (max-width: 767px) {
+  .menu-toggle {
+    display: inline-flex;
+    margin-right: 8px;
+  }
+  .layout {
+    position: relative;
+  }
+  .sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 1001;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+  }
+  .sidebar-mobile-open {
+    transform: translateX(0);
+  }
+  .sidebar-mask {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 1000;
+  }
+  .header {
+    padding: 0 10px;
+  }
+  .user-name {
+    max-width: 80px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .logo-text h2 {
+    font-size: 13px;
+  }
 }
 </style>
