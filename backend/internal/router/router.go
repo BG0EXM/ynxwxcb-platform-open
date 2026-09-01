@@ -80,6 +80,12 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("PUT /api/weekly-summaries", middleware.Auth(http.HandlerFunc(handlers.UpdateWeeklySummary)))
 	mux.Handle("DELETE /api/weekly-summaries/{id}", middleware.Auth(http.HandlerFunc(handlers.DeleteWeeklySummary)))
 
+	// ---- 加班统计与补休（仅管理员）----
+	mux.Handle("GET /api/overtime-records", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.ListOvertimeRecords))))
+	mux.Handle("POST /api/overtime-records", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.CreateOvertimeRecord))))
+	mux.Handle("DELETE /api/overtime-records/{id}", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.DeleteOvertimeRecord))))
+	mux.Handle("GET /api/overtime-stats", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.OvertimeStats))))
+
 	// ---- 考勤（管理员晨会点到）----
 	mux.Handle("POST /api/attendance/mark", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.MarkAttendance))))
 	mux.Handle("GET /api/attendance/list", middleware.Auth(http.HandlerFunc(handlers.ListAttendances)))
@@ -135,6 +141,7 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("GET /api/export/duty-schedules", middleware.Auth(http.HandlerFunc(handlers.ExportDutySchedules)))
 	mux.Handle("GET /api/export/incoming-docs", middleware.Auth(http.HandlerFunc(handlers.ExportIncomingDocs)))
 	mux.Handle("GET /api/export/calendar-tasks", middleware.Auth(http.HandlerFunc(handlers.ExportCalendarTasks)))
+	mux.Handle("GET /api/export/overtime-records", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.ExportOvertimeRecords))))
 
 	// ---- 数据导出（Word）----
 	mux.Handle("GET /api/export/standing-events", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.ExportStandingCommitteeEvents))))

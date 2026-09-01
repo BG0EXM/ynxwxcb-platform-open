@@ -14,8 +14,7 @@
 
       <el-table :data="list" stripe v-loading="loading" empty-text="暂无常委大事记">
         <el-table-column prop="event_date" label="日期" width="120" />
-        <el-table-column prop="title" label="事项" min-width="220" show-overflow-tooltip />
-        <el-table-column prop="content" label="详情" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="title" label="事项" min-width="280" show-overflow-tooltip />
         <el-table-column prop="created_name" label="录入人" width="100" />
         <el-table-column label="操作" width="140" fixed="right">
           <template #default="{ row }">
@@ -32,10 +31,7 @@
           <el-date-picker v-model="form.event_date" type="date" value-format="YYYY-MM-DD" style="width:100%" />
         </el-form-item>
         <el-form-item label="事项" required>
-          <el-input v-model="form.title" placeholder="如：赴 XX 县调研" />
-        </el-form-item>
-        <el-form-item label="详情">
-          <el-input v-model="form.content" type="textarea" :rows="4" placeholder="详情（选填）" />
+          <el-input v-model="form.title" type="textarea" :rows="4" placeholder="如：赴 XX 县调研" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -58,7 +54,7 @@ const year = ref(dayjs().format('YYYY'))
 const month = ref('')
 const dialogVisible = ref(false)
 const editId = ref(0)
-const form = ref({ event_date: dayjs().format('YYYY-MM-DD'), title: '', content: '' })
+const form = ref({ event_date: dayjs().format('YYYY-MM-DD'), title: '' })
 
 const loadData = async () => {
   loading.value = true
@@ -75,13 +71,13 @@ const loadData = async () => {
 
 const openCreate = () => {
   editId.value = 0
-  form.value = { event_date: dayjs().format('YYYY-MM-DD'), title: '', content: '' }
+  form.value = { event_date: dayjs().format('YYYY-MM-DD'), title: '' }
   dialogVisible.value = true
 }
 
 const openEdit = (row) => {
   editId.value = row.id
-  form.value = { event_date: row.event_date, title: row.title, content: row.content || '' }
+  form.value = { event_date: row.event_date, title: row.title }
   dialogVisible.value = true
 }
 

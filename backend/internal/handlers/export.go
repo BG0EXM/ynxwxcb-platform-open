@@ -15,6 +15,26 @@ import (
 
 type sqlStr = sql.NullString
 
+// formatDateStr 将 YYYY-MM-DD 转为 YYYY/M/D（去前导零），空串原样返回
+func formatDateStr(s string) string {
+	if s == "" {
+		return ""
+	}
+	t, err := time.Parse("2006-01-02", s)
+	if err != nil {
+		return s
+	}
+	return t.Format("2006/1/2")
+}
+
+// formatDateTime 将时间戳转为 YYYY/M/D 15:04
+func formatDateTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format("2006/1/2 15:04")
+}
+
 // exportExcel 生成 Excel 并写入响应
 // headers: 列标题; rows: 数据行（每行 []interface{}）; sheetName: 工作表名; fileName: 下载文件名
 func exportExcel(w http.ResponseWriter, sheetName, fileName string, headers []string, rows [][]interface{}) {
@@ -105,9 +125,9 @@ func ExportVehicleApplies(w http.ResponseWriter, r *http.Request) {
 		var createdAt time.Time
 		rows.Scan(&id, &useDate, &useTime, &plateNo, &brand, &userName, &destination, &purpose, &passengers, &reporter, &createdAt)
 		data = append(data, []interface{}{
-			idx, useDate.String, useTime.String, plateNo.String, brand.String,
+			idx, formatDateStr(useDate.String), useTime.String, plateNo.String, brand.String,
 			userName.String, destination.String, purpose.String, passengers, reporter.String,
-			createdAt.Format("2006-01-02 15:04"),
+			formatDateTime(createdAt),
 		})
 		idx++
 	}
@@ -146,7 +166,8 @@ func ExportLeaveRecords(w http.ResponseWriter, r *http.Request) {
 
 	leaveTypeNames := map[string]string{
 		"annual": "年假", "sick": "病假", "personal": "事假", "marriage": "婚假",
-		"maternity": "产假", "bereavement": "丧假", "other": "其他",
+		"maternity": "产假", "bereavement": "丧假", "prenatal": "产检假", "family": "探亲假",
+		"comp": "补休", "other": "其他",
 	}
 
 	headers := []string{"序号", "姓名", "请假类型", "开始日期", "结束日期", "天数", "事由", "登记时间"}
@@ -159,8 +180,8 @@ func ExportLeaveRecords(w http.ResponseWriter, r *http.Request) {
 		var createdAt time.Time
 		rows.Scan(&id, &userName, &leaveType, &startDate, &endDate, &days, &reason, &createdAt)
 		data = append(data, []interface{}{
-			idx, userName.String, leaveTypeNames[leaveType.String], startDate.String,
-			endDate.String, days, reason.String, createdAt.Format("2006-01-02 15:04"),
+			idx, userName.String, leaveTypeNames[leaveType.String], formatDateStr(startDate.String),
+			formatDateStr(endDate.String), days, reason.String, formatDateTime(createdAt),
 		})
 		idx++
 	}
@@ -207,7 +228,8 @@ func ExportAttendances(w http.ResponseWriter, r *http.Request) {
 	statusNames := map[int]string{1: "出勤", 2: "请假", 3: "出差", 4: "未到", 5: "迟到"}
 	leaveTypeNames := map[string]string{
 		"annual": "年假", "sick": "病假", "personal": "事假", "marriage": "婚假",
-		"maternity": "产假", "bereavement": "丧假", "other": "其他",
+		"maternity": "产假", "bereavement": "丧假", "prenatal": "产检假", "family": "探亲假",
+		"comp": "补休", "other": "其他",
 	}
 
 	headers := []string{"序号", "姓名", "日期", "状态", "请假类型", "备注"}
@@ -224,7 +246,7 @@ func ExportAttendances(w http.ResponseWriter, r *http.Request) {
 			statusText += "（" + leaveTypeNames[leaveType.String] + "）"
 		}
 		data = append(data, []interface{}{
-			idx, userName.String, attendDate.String, statusText, leaveTypeNames[leaveType.String], remark.String,
+			idx, userName.String, formatDateStr(attendDate.String), statusText, leaveTypeNames[leaveType.String], remark.String,
 		})
 		idx++
 	}
@@ -270,7 +292,7 @@ func ExportDutySchedules(w http.ResponseWriter, r *http.Request) {
 			dwy = "是"
 		}
 		data = append(data, []interface{}{
-			idx, dutyDate.String, userName.String, dwy, note.String,
+			idx, formatDateStr(dutyDate.String), userName.String, dwy, note.String,
 		})
 		idx++
 	}
@@ -315,9 +337,9 @@ func ExportIncomingDocs(w http.ResponseWriter, r *http.Request) {
 		rows.Scan(&id, &receiveNo, &receivedDate, &fromUnit, &fromDocNo, &title,
 			&secretLevel, &urgency, &copies, &status, &realName, &createdAt)
 		data = append(data, []interface{}{
-			idx, receiveNo.String, receivedDate.String, fromUnit.String, fromDocNo.String,
+			idx, receiveNo.String, formatDateStr(receivedDate.String), fromUnit.String, fromDocNo.String,
 			title.String, secretLevel.String, urgency.String, copies, statusNames[status],
-			realName.String, createdAt.Format("2006-01-02 15:04"),
+			realName.String, formatDateTime(createdAt),
 		})
 		idx++
 	}

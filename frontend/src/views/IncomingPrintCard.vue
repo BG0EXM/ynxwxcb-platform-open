@@ -9,6 +9,9 @@
       <div v-if="doc.need_return === 1" class="need-return-mark">
         {{ doc.returned === 1 ? '已退回' : '需退回' }}
       </div>
+      <div v-if="doc.urgency === '紧急' || doc.urgency === '特急'" class="urgent-mark">
+        {{ doc.urgency }}
+      </div>
       <div class="doc-header">
         <span class="unit-name">中共伊宁县委宣传部</span>
       </div>
@@ -67,7 +70,7 @@
         <span class="footer-left">打印日期：{{ today }}</span>
         <span class="footer-right">
           <div>中共伊宁县委宣传部办公室</div>
-          <div>伊宁县委宣传部部务工作平台V1.3.6</div>
+          <div>伊宁县委宣传部部务工作平台V1.3.7</div>
         </span>
       </div>
     </div>
@@ -150,6 +153,19 @@ onMounted(async () => {
   font-weight: 700;
   padding: 6px 16px;
   letter-spacing: 4px;
+  background: #fff;
+}
+.urgent-mark {
+  position: absolute;
+  top: 24px;
+  left: 24px;
+  border: 3px solid #c8102e;
+  color: #c8102e;
+  font-size: 22px;
+  font-weight: 700;
+  padding: 6px 16px;
+  letter-spacing: 4px;
+  transform: rotate(-12deg);
   background: #fff;
 }
 .unit-name {

@@ -61,7 +61,7 @@
         <span class="footer-left">打印日期：{{ today }}</span>
         <span class="footer-right">
           <div>中共伊宁县委宣传部办公室</div>
-          <div>伊宁县委宣传部部务工作平台V1.3.6</div>
+          <div>伊宁县委宣传部部务工作平台V1.3.7</div>
         </span>
       </div>
     </div>
@@ -79,7 +79,8 @@ const record = ref({})
 
 const leaveTypeNames = {
   annual: '年假', sick: '病假', personal: '事假', marriage: '婚假',
-  maternity: '产假', bereavement: '丧假', other: '其他'
+  maternity: '产假', bereavement: '丧假', prenatal: '产检假', family: '探亲假',
+  comp: '补休', other: '其他'
 }
 
 const today = computed(() => {

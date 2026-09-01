@@ -1,0 +1,128 @@
+/* ===== 全局主题（V1.3.7 现代化）=====
+   纯本地 CSS，无外部字体/CDN，单机离线可用。
+   党政现代风：墨蓝渐变侧边栏 + 暗金点缀 + 中国红主色 + 毛玻璃 + 圆角阴影 */
+
+:root {
+  /* 主色系 */
+  --yx-primary: #c8102e;        /* 中国红 */
+  --yx-primary-dark: #a90d26;
+  --yx-primary-light: #e6415a;
+  --yx-gold: #c9a063;           /* 暗金 */
+  --yx-gold-light: #e6c78a;
+  --yx-ink: #1f2d3d;            /* 墨蓝 */
+  --yx-ink-dark: #141c28;
+  --yx-bg: #f4f6fa;
+  --yx-radius: 12px;
+  --yx-radius-sm: 8px;
+  --yx-shadow: 0 6px 20px rgba(31, 45, 61, 0.08);
+  --yx-shadow-hover: 0 10px 28px rgba(31, 45, 61, 0.15);
+}
+
+/* Element Plus 主色覆盖为党政红 */
+:root {
+  --el-color-primary: var(--yx-primary);
+  --el-color-primary-light-3: #e05a6f;
+  --el-color-primary-light-5: #ec93a1;
+  --el-color-primary-light-7: #f5c3cb;
+  --el-color-primary-light-8: #f9d8dd;
+  --el-color-primary-light-9: #fdecef;
+  --el-color-primary-dark-2: var(--yx-primary-dark);
+  --el-border-radius-base: 6px;
+}
+
+body {
+  background: var(--yx-bg);
+  color: #303133;
+}
+
+/* 卡片：大圆角 + 分层阴影 + 顶部渐变细条 */
+.el-card {
+  border-radius: var(--yx-radius) !important;
+  border: none !important;
+  box-shadow: var(--yx-shadow) !important;
+  overflow: hidden;
+}
+.el-card.is-hover-shadow:hover {
+  box-shadow: var(--yx-shadow-hover) !important;
+  transform: translateY(-2px);
+  transition: all 0.25s ease;
+}
+.el-card > .el-card__header {
+  border-bottom: 1px solid #f0f0f0;
+  font-weight: 600;
+}
+.el-card::before {
+  content: '';
+  display: block;
+  height: 3px;
+  background: linear-gradient(90deg, var(--yx-primary), var(--yx-gold));
+}
+
+/* 主按钮：渐变（仅实心按钮，link 文字按钮不受影响） */
+.el-button--primary:not(.is-link) {
+  background: linear-gradient(135deg, var(--yx-primary), var(--yx-primary-dark)) !important;
+  border: none !important;
+  box-shadow: 0 4px 12px rgba(200, 16, 46, 0.25);
+  transition: all 0.2s ease;
+}
+.el-button--primary:not(.is-link):hover {
+  box-shadow: 0 6px 16px rgba(200, 16, 46, 0.35);
+  transform: translateY(-1px);
+}
+.el-button--success:not(.is-link) {
+  background: linear-gradient(135deg, #5cb87a, #3e9c60) !important;
+  border: none !important;
+}
+/* link 文字按钮：保证可读性 */
+.el-button.is-link {
+  padding: 2px 4px;
+}
+.el-button {
+  border-radius: 6px;
+}
+
+/* 表格：表头渐变 + hover 提亮 */
+.el-table {
+  --el-table-header-bg-color: #f7f8fc;
+  border-radius: var(--yx-radius-sm);
+}
+.el-table th.el-table__cell {
+  background: linear-gradient(180deg, #fafbfe, #f2f4fa) !important;
+  font-weight: 600;
+  color: #303133;
+}
+.el-table tbody tr:hover > td.el-table__cell {
+  background: #f5f8ff !important;
+}
+
+/* 标签页 / 面包屑微调 */
+.el-breadcrumb {
+  font-size: 13px;
+}
+
+/* 对话框 */
+.el-dialog {
+  border-radius: var(--yx-radius) !important;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2) !important;
+}
+.el-dialog__header {
+  border-bottom: 1px solid #f0f0f0;
+  font-weight: 600;
+}
+
+/* 菜单胶囊效果由 Layout.vue 内联处理 */
+
+/* 页面容器淡入动画 */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+/* 表单提示 */
+.el-form-item__label {
+  font-weight: 500;
+}

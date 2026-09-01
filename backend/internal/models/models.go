@@ -88,17 +88,15 @@ type CalendarTask struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
-// StandingCommitteeEvent 常委大事记（仅记录常委个人情况，仅管理员操作）
+// StandingCommitteeEvent 常委大事记（仅管理员，不填姓名）
 type StandingCommitteeEvent struct {
-	ID         int64     `json:"id"`
-	EventDate  string    `json:"event_date"` // YYYY-MM-DD
-	MemberName string    `json:"member_name"`
-	Title      string    `json:"title"`
-	Content    string    `json:"content"`
-	CreatedBy  int64     `json:"created_by"`
-	CreatedName string   `json:"created_name,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID          int64     `json:"id"`
+	EventDate   string    `json:"event_date"` // YYYY-MM-DD
+	Title       string    `json:"title"`
+	CreatedBy   int64     `json:"created_by"`
+	CreatedName string    `json:"created_name,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // MajorEvent 各科室大事记（按月记录的重大事项，精确到日，替代周月年报）
@@ -109,7 +107,6 @@ type MajorEvent struct {
 	EventType    string    `json:"event_type"` // monthly（仅按月）
 	Period       string    `json:"period"`     // 日期：YYYY-MM-DD（精确到日）
 	Title        string    `json:"title"`
-	Content      string    `json:"content"`
 	CreatedBy    int64     `json:"created_by"`
 	CreatedName  string    `json:"created_name,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
@@ -130,10 +127,23 @@ type WeeklySummary struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
+// OvertimeRecord 加班记录（用于加班统计与补休）
+type OvertimeRecord struct {
+	ID           int64     `json:"id"`
+	UserID       int64     `json:"user_id"`
+	UserName     string    `json:"user_name,omitempty"`
+	OvertimeDate string    `json:"overtime_date"` // YYYY-MM-DD
+	Hours        float64   `json:"hours"`
+	Reason       string    `json:"reason"`
+	CreatedBy    int64     `json:"created_by"`
+	CreatedName  string    `json:"created_name,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
 // Attachment 文件附件
 type Attachment struct {
 	ID           int64     `json:"id"`
-	OwnerType    string    `json:"owner_type"` // document / study / report
+	OwnerType    string    `json:"owner_type"` // study（公共资料附件）
 	OwnerID      int64     `json:"owner_id"`
 	FileName     string    `json:"file_name"`
 	FilePath     string    `json:"file_path"`
@@ -158,28 +168,28 @@ type LoginResponse struct {
 
 // IncomingDoc 收文登记（上级来文）
 type IncomingDoc struct {
-	ID           int64     `json:"id"`
-	ReceiveNo    string    `json:"receive_no"`     // 收文编号
-	ReceivedDate string    `json:"received_date"`  // 收文日期 YYYY-MM-DD
-	FromUnit     string    `json:"from_unit"`      // 来文单位
-	FromDocNo    string    `json:"from_doc_no"`    // 来文字号
-	DocNo        string    `json:"doc_no"`         // 文件编号
-	Title        string    `json:"title"`          // 文件标题
-	Copies       int       `json:"copies"`         // 份数
-	SecretLevel  string    `json:"secret_level"`   // 密级
-	Urgency      string    `json:"urgency"`        // 紧急程度
-	Suggest      string    `json:"suggest"`        // 拟办意见
-	LeaderComment string   `json:"leader_comment"` // 领导批示
-	Processing   string    `json:"processing"`     // 办理情况
-	ReturnDate   string    `json:"return_date"`    // 退回日期
-	Returned     int       `json:"returned"`       // 是否已退 1已退 0未退
-	NeedReturn   int       `json:"need_return"`    // 是否需要退回 1需要 0不需要
-	RegistrarID  int64     `json:"registrar_id"`
-	Registrar    string    `json:"registrar_name,omitempty"`
-	Status       int       `json:"status"` // 1待登记 2拟办中 3待批示 4办理中 5已办结
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	CircList     []CirculationRecord `json:"circulations,omitempty"`
+	ID            int64               `json:"id"`
+	ReceiveNo     string              `json:"receive_no"`     // 收文编号
+	ReceivedDate  string              `json:"received_date"`  // 收文日期 YYYY-MM-DD
+	FromUnit      string              `json:"from_unit"`      // 来文单位
+	FromDocNo     string              `json:"from_doc_no"`    // 来文字号
+	DocNo         string              `json:"doc_no"`         // 文件编号
+	Title         string              `json:"title"`          // 文件标题
+	Copies        int                 `json:"copies"`         // 份数
+	SecretLevel   string              `json:"secret_level"`   // 密级
+	Urgency       string              `json:"urgency"`        // 紧急程度
+	Suggest       string              `json:"suggest"`        // 拟办意见
+	LeaderComment string              `json:"leader_comment"` // 领导批示
+	Processing    string              `json:"processing"`     // 办理情况
+	ReturnDate    string              `json:"return_date"`    // 退回日期
+	Returned      int                 `json:"returned"`       // 是否已退 1已退 0未退
+	NeedReturn    int                 `json:"need_return"`    // 是否需要退回 1需要 0不需要
+	RegistrarID   int64               `json:"registrar_id"`
+	Registrar     string              `json:"registrar_name,omitempty"`
+	Status        int                 `json:"status"` // 1待登记 2拟办中 3待批示 4办理中 5已办结
+	CreatedAt     time.Time           `json:"created_at"`
+	UpdatedAt     time.Time           `json:"updated_at"`
+	CircList      []CirculationRecord `json:"circulations,omitempty"`
 }
 
 // CirculationRecord 传阅记录
@@ -199,8 +209,8 @@ type Attendance struct {
 	UserID     int64     `json:"user_id"`
 	UserName   string    `json:"user_name,omitempty"`
 	AttendDate string    `json:"attend_date"` // YYYY-MM-DD
-	Status     int       `json:"status"` // 1出勤 2请假 3出差 4未到
-	LeaveType  string    `json:"leave_type"` // 请假类型（年假/事假/病假/婚假/产假/丧假/其他）
+	Status     int       `json:"status"`      // 1出勤 2请假 3出差 4未到
+	LeaveType  string    `json:"leave_type"`  // 请假类型（年假/事假/病假/婚假/产假/丧假/其他）
 	Remark     string    `json:"remark"`
 	MarkedBy   int64     `json:"marked_by"`
 	CreatedAt  time.Time `json:"created_at"`
@@ -226,19 +236,19 @@ type LeaveRecord struct {
 
 // Vehicle 公车信息
 type Vehicle struct {
-	ID            int64  `json:"id"`
-	PlateNo       string `json:"plate_no"`       // 车牌号
-	Brand         string `json:"brand"`          // 品牌型号
-	Seats         int    `json:"seats"`          // 座位数
-	Driver        string `json:"driver"`         // 司机
-	Status        int    `json:"status"`         // 1可用 2使用中 3维修中 4已报废
-	Vin           string `json:"vin"`            // 车架号(VIN)
-	EngineNo      string `json:"engine_no"`      // 发动机号
-	InsuranceDate string `json:"insurance_date"` // 保险到期日期
-	InspectDate   string `json:"inspect_date"`   // 年检到期日期
-	RegisterDate  string `json:"register_date"`  // 登记日期
-	PurchaseAt    string `json:"purchase_at"`    // 购置日期
-	Note          string `json:"note"`
+	ID            int64     `json:"id"`
+	PlateNo       string    `json:"plate_no"`       // 车牌号
+	Brand         string    `json:"brand"`          // 品牌型号
+	Seats         int       `json:"seats"`          // 座位数
+	Driver        string    `json:"driver"`         // 司机
+	Status        int       `json:"status"`         // 1可用 2使用中 3维修中 4已报废
+	Vin           string    `json:"vin"`            // 车架号(VIN)
+	EngineNo      string    `json:"engine_no"`      // 发动机号
+	InsuranceDate string    `json:"insurance_date"` // 保险到期日期
+	InspectDate   string    `json:"inspect_date"`   // 年检到期日期
+	RegisterDate  string    `json:"register_date"`  // 登记日期
+	PurchaseAt    string    `json:"purchase_at"`    // 购置日期
+	Note          string    `json:"note"`
 	CreatedAt     time.Time `json:"created_at"`
 }
 
@@ -251,12 +261,12 @@ type VehicleApply struct {
 	VehicleDriver string    `json:"vehicle_driver,omitempty"`
 	ReporterID    int64     `json:"reporter_id"`
 	Reporter      string    `json:"reporter_name,omitempty"`
-	UserName      string    `json:"user_name"`     // 用车人
-	DriverName    string    `json:"driver_name"`   // 开车人（可能不是专职司机，而是科室人员）
-	Purpose       string    `json:"purpose"`       // 用车事由
-	Destination   string    `json:"destination"`   // 目的地
-	UseDate       string    `json:"use_date"`      // 用车日期
-	UseTime       string    `json:"use_time"`      // 用车时间
+	UserName      string    `json:"user_name"`   // 用车人
+	DriverName    string    `json:"driver_name"` // 开车人（可能不是专职司机，而是科室人员）
+	Purpose       string    `json:"purpose"`     // 用车事由
+	Destination   string    `json:"destination"` // 目的地
+	UseDate       string    `json:"use_date"`    // 用车日期
+	UseTime       string    `json:"use_time"`    // 用车时间
 	Passengers    int       `json:"passengers"`
 	CreatedAt     time.Time `json:"created_at"`
 }

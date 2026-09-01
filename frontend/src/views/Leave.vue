@@ -126,12 +126,14 @@ const form = reactive({ user_id: null, leave_type: 'annual', start_date: dayjs()
 
 const leaveTypeNames = {
   annual: '年假', sick: '病假', personal: '事假', marriage: '婚假',
-  maternity: '产假', bereavement: '丧假', other: '其他'
+  maternity: '产假', bereavement: '丧假', prenatal: '产检假', family: '探亲假',
+  comp: '补休', other: '其他'
 }
 
 const statColors = {
   annual: '#409eff', sick: '#67c23a', personal: '#e6a23c', marriage: '#f56c6c',
-  maternity: '#909399', bereavement: '#303133', other: '#b88230'
+  maternity: '#909399', bereavement: '#303133', prenatal: '#722ed1', family: '#13c2c2',
+  comp: '#fa8c16', other: '#b88230'
 }
 
 const statItems = computed(() => Object.keys(leaveTypeNames).map(k => ({
@@ -195,6 +197,19 @@ const saveLeave = async () => {
   if (authStore.isAdmin && !form.user_id) return ElMessage.warning('请选择人员')
   if (!form.leave_type) return ElMessage.warning('请选择请假类型')
   if (!form.end_date) form.end_date = form.start_date
+  // 日期重复校验：同一人员相同日期区间已有请假则提醒
+  const checkUserID = authStore.isAdmin ? form.user_id : authStore.user?.id
+  if (checkUserID) {
+    const dup = list.value.find(r => r.user_id === checkUserID && r.id !== editId.value &&
+      form.start_date <= r.end_date && form.end_date >= r.start_date)
+    if (dup) {
+      try {
+        await ElMessageBox.confirm(
+          `该人员 ${dup.start_date} ~ ${dup.end_date} 已有${leaveTypeNames[dup.leave_type] || dup.leave_type}记录，与该时间段重叠，仍要保存吗？`,
+          '日期重叠提醒', { type: 'warning', confirmButtonText: '仍要保存', cancelButtonText: '取消' })
+      } catch (e) { return }
+    }
+  }
   try {
     const payload = { ...form }
     if (!authStore.isAdmin) {
@@ -250,6 +265,24 @@ onMounted(() => {
   loadData()
   loadStats()
   if (authStore.isAdmin) loadAssignees()
+  // 从加班管理跳转来登记补休：预填人员、类型和可补天数
+  try {
+    const comp = JSON.parse(localStorage.getItem('compUser') || 'null')
+    if (comp && comp.user_id) {
+      form.user_id = comp.user_id
+      form.leave_type = 'comp'
+      // 剩余可补 <1 天时预填剩余天数（按 8 小时=1 天折算小时提示）
+      const remain = comp.remain_days != null ? comp.remain_days : 1
+      form.days = Math.min(1, remain)
+      if (remain < 1) {
+        const hours = Math.round(remain * 8)
+        ElMessage.info(`${comp.user_name || ''} 剩余可补 ${remain} 天（约 ${hours} 小时），已预填`)
+      } else {
+        ElMessage.info(`已预填 ${comp.user_name || ''} 的补休登记`)
+      }
+      localStorage.removeItem('compUser')
+    }
+  } catch (e) {}
 })
 
 const exportData = () => {

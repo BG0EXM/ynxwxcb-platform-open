@@ -29,7 +29,7 @@ func ListStandingCommitteeEvents(w http.ResponseWriter, r *http.Request) {
 		args = append(args, month+"%")
 	}
 
-	query := `SELECT e.id, e.event_date, e.member_name, e.title, e.content, e.created_by,
+	query := `SELECT e.id, e.event_date, e.title, e.created_by,
 			u.real_name, e.created_at, e.updated_at
 		FROM standing_committee_events e
 		LEFT JOIN users u ON e.created_by = u.id` + where + ` ORDER BY e.event_date DESC, e.id DESC`
@@ -45,7 +45,7 @@ func ListStandingCommitteeEvents(w http.ResponseWriter, r *http.Request) {
 		var e models.StandingCommitteeEvent
 		var creator sql.NullString
 		var createdAt, updatedAt time.Time
-		rows.Scan(&e.ID, &e.EventDate, &e.MemberName, &e.Title, &e.Content, &e.CreatedBy,
+		rows.Scan(&e.ID, &e.EventDate, &e.Title, &e.CreatedBy,
 			&creator, &createdAt, &updatedAt)
 		if creator.Valid {
 			e.CreatedName = creator.String
@@ -78,8 +78,8 @@ func CreateStandingCommitteeEvent(w http.ResponseWriter, r *http.Request) {
 		req.EventDate = time.Now().Format("2006-01-02")
 	}
 	_, err := database.DB.Exec(
-		`INSERT INTO standing_committee_events (event_date, member_name, title, content, created_by) VALUES (?, ?, ?, ?, ?)`,
-		req.EventDate, req.MemberName, req.Title, req.Content, userID)
+		`INSERT INTO standing_committee_events (event_date, title, created_by) VALUES (?, ?, ?)`,
+		req.EventDate, req.Title, userID)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "创建失败"})
 		return
@@ -103,8 +103,8 @@ func UpdateStandingCommitteeEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err := database.DB.Exec(
-		`UPDATE standing_committee_events SET event_date=?, member_name=?, title=?, content=?, updated_at=? WHERE id=?`,
-		req.EventDate, req.MemberName, req.Title, req.Content, time.Now(), req.ID)
+		`UPDATE standing_committee_events SET event_date=?, title=?, updated_at=? WHERE id=?`,
+		req.EventDate, req.Title, time.Now(), req.ID)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "更新失败"})
 		return
@@ -142,7 +142,7 @@ func ExportStandingCommitteeEvents(w http.ResponseWriter, r *http.Request) {
 		where += ` AND e.event_date LIKE ?`
 		args = append(args, month+"%")
 	}
-	query := `SELECT e.event_date, e.member_name, e.title, e.content
+	query := `SELECT e.event_date, e.title
 		FROM standing_committee_events e` + where + ` ORDER BY e.event_date, e.id`
 	rows, err := database.DB.Query(query, args...)
 	if err != nil {
@@ -155,13 +155,12 @@ func ExportStandingCommitteeEvents(w http.ResponseWriter, r *http.Request) {
 		eventDate string
 		month     int
 		title     string
-		content   string
 	}
 	list := []scItem{}
 	for rows.Next() {
-		var eventDate, memberName, t, content sql.NullString
-		rows.Scan(&eventDate, &memberName, &t, &content)
-		it := scItem{eventDate: eventDate.String, title: t.String, content: content.String}
+		var eventDate, t sql.NullString
+		rows.Scan(&eventDate, &t)
+		it := scItem{eventDate: eventDate.String, title: t.String}
 		if len(it.eventDate) == 10 {
 			fmt.Sscanf(it.eventDate, "%d-%d", new(int), &it.month)
 		}
@@ -194,9 +193,6 @@ func ExportStandingCommitteeEvents(w http.ResponseWriter, r *http.Request) {
 		}
 		line := fmt.Sprintf("%d. %s　%s", idx, it.eventDate, it.title)
 		builder.add(line)
-		if it.content != "" {
-			builder.add("　　" + it.content)
-		}
 		idx++
 	}
 

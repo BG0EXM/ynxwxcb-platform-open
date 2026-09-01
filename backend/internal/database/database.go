@@ -96,6 +96,8 @@ var migrations = []migration{
 	{3, "公共资料分类管理表", migrateV3},
 	{4, "新增分管领导角色", migrateV4},
 	{5, "新增工作日历/常委大事记/各科室大事记/每周工作总结，废除周月年报", migrateV5},
+	{6, "新增加班记录表（加班统计与补休）", migrateV6},
+	{7, "清理废弃列：大事记/常委大事记去掉冗余字段", migrateV7},
 }
 
 // migrateV2 版本2：用车报备支持科室人开车（增加 driver_name 字段）
@@ -222,6 +224,67 @@ func migrateV5() error {
 
 	// 废除旧周月年报表（数据无保留价值，整体重做）
 	DB.Exec("DROP TABLE IF EXISTS reports")
+	return nil
+}
+
+// migrateV6 版本6：新增加班记录表，用于加班统计与补休管理
+func migrateV6() error {
+	// 加班记录：日期 + 人员 + 加班小时数 + 事由；补休在 leave_records 中用 leave_type='comp' 登记
+	if _, err := DB.Exec(`CREATE TABLE IF NOT EXISTS overtime_records (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id INTEGER,
+		overtime_date TEXT,
+		hours REAL DEFAULT 0,
+		reason TEXT,
+		created_by INTEGER,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		return err
+	}
+	DB.Exec("CREATE INDEX IF NOT EXISTS idx_ot_user ON overtime_records(user_id)")
+	DB.Exec("CREATE INDEX IF NOT EXISTS idx_ot_date ON overtime_records(overtime_date)")
+	return nil
+}
+
+// migrateV7 版本7：清理废弃列（V1.3.7 表单去掉了大事记详情、常委姓名与详情）
+func migrateV7() error {
+	// 清理废弃列：major_events.content（大事记已删详情框）
+	if hasColumn("major_events", "content") {
+		DB.Exec(`CREATE TABLE major_events_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			department_id INTEGER,
+			event_type TEXT,
+			period TEXT,
+			title TEXT NOT NULL,
+			created_by INTEGER,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`)
+		DB.Exec(`INSERT OR IGNORE INTO major_events_new (id, department_id, event_type, period, title, created_by, created_at, updated_at)
+			SELECT id, department_id, event_type, period, title, created_by, created_at, updated_at FROM major_events`)
+		DB.Exec("DROP TABLE major_events")
+		DB.Exec("ALTER TABLE major_events_new RENAME TO major_events")
+		DB.Exec("CREATE INDEX IF NOT EXISTS idx_me_dept ON major_events(department_id)")
+		DB.Exec("CREATE INDEX IF NOT EXISTS idx_me_period ON major_events(period)")
+	}
+
+	// 清理废弃列：standing_committee_events.member_name / content（常委不填姓名、无详情）
+	if hasColumn("standing_committee_events", "member_name") {
+		DB.Exec(`CREATE TABLE standing_committee_events_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			event_date TEXT,
+			title TEXT NOT NULL,
+			created_by INTEGER,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`)
+		DB.Exec(`INSERT OR IGNORE INTO standing_committee_events_new (id, event_date, title, created_by, created_at, updated_at)
+			SELECT id, event_date, title, created_by, created_at, updated_at FROM standing_committee_events`)
+		DB.Exec("DROP TABLE standing_committee_events")
+		DB.Exec("ALTER TABLE standing_committee_events_new RENAME TO standing_committee_events")
+		DB.Exec("CREATE INDEX IF NOT EXISTS idx_sc_events_date ON standing_committee_events(event_date)")
+	}
+
 	return nil
 }
 
@@ -429,9 +492,7 @@ func createTables() error {
 		`CREATE TABLE IF NOT EXISTS standing_committee_events (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			event_date TEXT,
-			member_name TEXT,
 			title TEXT NOT NULL,
-			content TEXT,
 			created_by INTEGER,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -442,7 +503,6 @@ func createTables() error {
 			event_type TEXT,
 			period TEXT,
 			title TEXT NOT NULL,
-			content TEXT,
 			created_by INTEGER,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -456,6 +516,15 @@ func createTables() error {
 			created_by INTEGER,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS overtime_records (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER,
+			overtime_date TEXT,
+			hours REAL DEFAULT 0,
+			reason TEXT,
+			created_by INTEGER,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE TABLE IF NOT EXISTS leave_records (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -562,6 +631,8 @@ func createTables() error {
 		`CREATE INDEX IF NOT EXISTS idx_me_period ON major_events(period)`,
 		`CREATE INDEX IF NOT EXISTS idx_ws_dept ON weekly_summaries(department_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_ws_week ON weekly_summaries(week_start)`,
+		`CREATE INDEX IF NOT EXISTS idx_ot_user ON overtime_records(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_ot_date ON overtime_records(overtime_date)`,
 	}
 
 	for _, s := range stmts {

@@ -42,7 +42,7 @@ func ListMajorEvents(w http.ResponseWriter, r *http.Request) {
 		args = append(args, userID)
 	}
 
-	query := `SELECT e.id, e.department_id, d.name, e.event_type, e.period, e.title, e.content,
+	query := `SELECT e.id, e.department_id, d.name, e.event_type, e.period, e.title,
 			e.created_by, u.real_name, e.created_at, e.updated_at
 		FROM major_events e
 		LEFT JOIN departments d ON e.department_id = d.id
@@ -59,7 +59,7 @@ func ListMajorEvents(w http.ResponseWriter, r *http.Request) {
 		var e models.MajorEvent
 		var dept, creator sql.NullString
 		var createdAt, updatedAt time.Time
-		rows.Scan(&e.ID, &e.DepartmentID, &dept, &e.EventType, &e.Period, &e.Title, &e.Content,
+		rows.Scan(&e.ID, &e.DepartmentID, &dept, &e.EventType, &e.Period, &e.Title,
 			&e.CreatedBy, &creator, &createdAt, &updatedAt)
 		if dept.Valid {
 			e.Department = dept.String
@@ -112,8 +112,8 @@ func CreateMajorEvent(w http.ResponseWriter, r *http.Request) {
 	// V1.3.6.1：大事记仅按月录入，年度类型不再使用
 	req.EventType = "monthly"
 	_, err := database.DB.Exec(
-		`INSERT INTO major_events (department_id, event_type, period, title, content, created_by) VALUES (?, ?, ?, ?, ?, ?)`,
-		req.DepartmentID, req.EventType, req.Period, req.Title, req.Content, userID)
+		`INSERT INTO major_events (department_id, event_type, period, title, created_by) VALUES (?, ?, ?, ?, ?)`,
+		req.DepartmentID, req.EventType, req.Period, req.Title, userID)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "创建失败"})
 		return
@@ -154,8 +154,8 @@ func UpdateMajorEvent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	_, err := database.DB.Exec(
-		`UPDATE major_events SET event_type=?, period=?, title=?, content=?, updated_at=? WHERE id=?`,
-		req.EventType, req.Period, req.Title, req.Content, time.Now(), req.ID)
+		`UPDATE major_events SET event_type=?, period=?, title=?, updated_at=? WHERE id=?`,
+		req.EventType, req.Period, req.Title, time.Now(), req.ID)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "更新失败"})
 		return

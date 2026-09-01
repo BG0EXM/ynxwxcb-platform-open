@@ -38,11 +38,11 @@
         <el-table-column prop="from_doc_no" label="来文字号" width="140" show-overflow-tooltip />
         <el-table-column prop="doc_no" label="文件编号" width="120" show-overflow-tooltip />
         <el-table-column prop="title" label="文件标题" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="secret_level" label="密级" width="70">
-          <template #default="{ row }">
-            <el-tag size="small" :type="secretTag(row.secret_level)">{{ row.secret_level }}</el-tag>
-          </template>
-        </el-table-column>
+        <el-table-column prop="secret_level" label="密级" width="110">
+            <template #default="{ row }">
+              <el-tag size="small" :type="secretTag(row.secret_level)">{{ row.secret_level }}</el-tag>
+            </template>
+          </el-table-column>
         <el-table-column label="需退回" width="80">
           <template #default="{ row }">
             <el-tag v-if="row.need_return === 1" size="small" type="warning">需要</el-tag>
@@ -78,7 +78,7 @@
     <el-dialog v-model="dialogVisible" :title="editId ? '编辑收文' : '收文登记'" width="640px">
       <el-form :model="form" label-width="90px">
         <el-form-item label="收文编号">
-          <el-input v-model="form.receive_no" placeholder="如：伊宣收〔2026〕12号" />
+          <el-input v-model="form.receive_no" />
         </el-form-item>
         <el-form-item label="收文日期">
           <el-date-picker v-model="form.received_date" type="date" value-format="YYYY-MM-DD"
@@ -100,12 +100,9 @@
           <el-input-number v-model="form.copies" :min="1" :max="999" />
         </el-form-item>
         <el-form-item label="密级">
-          <el-radio-group v-model="form.secret_level">
-            <el-radio value="普通">普通</el-radio>
-            <el-radio value="秘密">秘密</el-radio>
-            <el-radio value="机密">机密</el-radio>
-            <el-radio value="绝密">绝密</el-radio>
-          </el-radio-group>
+          <el-select v-model="form.secret_level" placeholder="请选择密级" style="width: 220px">
+            <el-option v-for="s in secretLevels" :key="s" :label="s" :value="s" />
+          </el-select>
         </el-form-item>
         <el-form-item label="紧急程度">
           <el-radio-group v-model="form.urgency">
@@ -232,7 +229,8 @@ const dateRange = ref([])
 
 const statusNames = { 1: '待登记', 2: '拟办中', 3: '待批示', 4: '办理中', 5: '已办结' }
 const statusType = (s) => ({ 1: 'info', 2: 'primary', 3: 'warning', 4: 'primary', 5: 'success' }[s] || 'info')
-const secretTag = (s) => ({ 普通: 'info', 秘密: 'warning', 机密: 'danger', 绝密: 'danger' }[s] || 'info')
+const secretLevels = ['非密', '内部', '秘密★长期', '秘密★10年', '秘密★5年', '秘密★1年', '秘密', '秘密★1个月', '秘密★3个月', '秘密★6个月', '机密★长期', '机密', '机密★20年', '机密★10年', '机密★5年', '机密★3年', '机密★1年']
+const secretTag = (s) => (s && s.startsWith('机密') ? 'danger' : s && s.startsWith('秘密') ? 'warning' : s === '内部' ? 'info' : 'info')
 
 const dialogVisible = ref(false)
 const detailVisible = ref(false)
@@ -240,7 +238,7 @@ const detailTab = ref('info')
 const editId = ref(0)
 const form = reactive({
   receive_no: '', received_date: '', from_unit: '', from_doc_no: '', doc_no: '', title: '',
-  copies: 1, secret_level: '普通', urgency: '一般', suggest: '', leader_comment: '', processing: '',
+  copies: 1, secret_level: '非密', urgency: '一般', suggest: '', leader_comment: '', processing: '',
   return_date: '', returned: 0, need_return: 0, status: 1
 })
 const detail = ref({})
@@ -274,7 +272,7 @@ const openCreate = () => {
   const today = new Date().toISOString().slice(0, 10)
   Object.assign(form, {
     receive_no: '', received_date: today, from_unit: '', from_doc_no: '', doc_no: '', title: '',
-    copies: 1, secret_level: '普通', urgency: '一般', suggest: '', leader_comment: '', processing: '',
+    copies: 1, secret_level: '非密', urgency: '一般', suggest: '', leader_comment: '', processing: '',
     return_date: '', returned: 0, need_return: 0, status: 1
   })
   dialogVisible.value = true

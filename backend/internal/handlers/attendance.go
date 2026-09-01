@@ -285,7 +285,7 @@ func MarkUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 // 请假类型常量
-var LeaveTypes = []string{"annual", "sick", "personal", "marriage", "maternity", "bereavement", "other"}
+var LeaveTypes = []string{"annual", "sick", "personal", "marriage", "maternity", "bereavement", "prenatal", "family", "comp", "other"}
 
 // CreateLeaveRecord 登记请假
 // 管理员可为任意人员登记；普通用户只能为自己提交请假
@@ -311,6 +311,14 @@ func CreateLeaveRecord(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Days <= 0 {
 		req.Days = 1
+	}
+	// 补休校验：加班折合的补休天数不足时不允许登记
+	if req.LeaveType == "comp" {
+		remain := getCompRemainDays(req.UserID)
+		if remain < req.Days {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "可补休天数不足"})
+			return
+		}
 	}
 	_, err := database.DB.Exec(
 		`INSERT INTO leave_records (user_id, leave_type, start_date, end_date, days, reason, status) VALUES (?, ?, ?, ?, ?, ?, 1)`,
