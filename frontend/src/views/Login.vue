@@ -20,7 +20,7 @@
           </el-button>
         </el-form-item>
       </el-form>
-      <p class="login-tip">伊宁县委宣传部部务工作平台 V1.3.9</p>
+      <p class="login-tip">伊宁县委宣传部部务工作平台 V1.4.0</p>
     </div>
     <div class="login-footer">
       <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">ICP备案号占位</a>

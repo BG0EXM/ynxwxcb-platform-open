@@ -58,20 +58,29 @@ body {
   background: linear-gradient(90deg, var(--yx-primary), var(--yx-gold));
 }
 
-/* 主按钮：渐变（仅实心按钮，link 文字按钮不受影响） */
-.el-button--primary:not(.is-link) {
+/* 主按钮：渐变（仅实心按钮；link 文字按钮、plain 浅色按钮不受影响） */
+.el-button--primary:not(.is-link):not(.is-plain) {
   background: linear-gradient(135deg, var(--yx-primary), var(--yx-primary-dark)) !important;
   border: none !important;
   box-shadow: 0 4px 12px rgba(200, 16, 46, 0.25);
   transition: all 0.2s ease;
 }
-.el-button--primary:not(.is-link):hover {
+.el-button--primary:not(.is-link):not(.is-plain):hover {
   box-shadow: 0 6px 16px rgba(200, 16, 46, 0.35);
   transform: translateY(-1px);
 }
-.el-button--success:not(.is-link) {
+.el-button--success:not(.is-link):not(.is-plain) {
   background: linear-gradient(135deg, #5cb87a, #3e9c60) !important;
   border: none !important;
+}
+/* plain 按钮还原为浅色样式（透明底+描边+彩色字） */
+.el-button--primary.is-plain {
+  background: transparent !important;
+  border-color: var(--yx-primary) !important;
+  color: var(--yx-primary) !important;
+}
+.el-button--primary.is-plain:hover {
+  background: rgba(200, 16, 46, 0.08) !important;
 }
 /* link 文字按钮：保证可读性 */
 .el-button.is-link {

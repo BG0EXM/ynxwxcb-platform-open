@@ -110,6 +110,7 @@ const menuGroups = computed(() => {
         { path: '/vehicles', title: '公车管理', icon: 'Van' },
         { path: '/duty', title: '值守排班', icon: 'AlarmClock' },
         { path: '/calendar', title: '工作日历', icon: 'Calendar' },
+        { path: '/meetings', title: '会务管理', icon: 'OfficeBuilding' },
         { path: '/contacts', title: '通讯录', icon: 'Phone' }
       ]
     },

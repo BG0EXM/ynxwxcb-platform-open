@@ -99,6 +99,8 @@ var migrations = []migration{
 	{6, "新增加班记录表（加班统计与补休）", migrateV6},
 	{7, "清理废弃列：大事记/常委大事记去掉冗余字段", migrateV7},
 	{8, "新增年休假配置表（每人每年年休假天数）", migrateV8},
+	{9, "新增会务管理表（会议与参会报名）", migrateV9},
+	{10, "会务会议增加每单位参会人数上限", migrateV10},
 }
 
 // migrateV2 版本2：用车报备支持科室人开车（增加 driver_name 字段）
@@ -305,6 +307,51 @@ func migrateV8() error {
 	}
 	DB.Exec("CREATE INDEX IF NOT EXISTS idx_al_config_user ON annual_leave_configs(user_id)")
 	DB.Exec("CREATE INDEX IF NOT EXISTS idx_al_config_year ON annual_leave_configs(year)")
+	return nil
+}
+
+// migrateV9 版本9：会务管理表（会议 + 参会报名）
+func migrateV9() error {
+	// 会议：标题/时间/地点/内容/参会单位范围（手动填写，逗号分隔）
+	if _, err := DB.Exec(`CREATE TABLE IF NOT EXISTS meetings (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		title TEXT NOT NULL,
+		meeting_date TEXT,
+		meeting_time TEXT,
+		location TEXT,
+		content TEXT,
+		units TEXT,
+		created_by INTEGER,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		return err
+	}
+	// 参会报名：单位 + 姓名 + 职务 + 电话；不参加时只填 unit + not_attend + reason
+	if _, err := DB.Exec(`CREATE TABLE IF NOT EXISTS meeting_registrations (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		meeting_id INTEGER,
+		unit TEXT,
+		attendee_name TEXT,
+		attendee_title TEXT,
+		phone TEXT,
+		not_attend INTEGER DEFAULT 0,
+		reason TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		return err
+	}
+	DB.Exec("CREATE INDEX IF NOT EXISTS idx_meeting_id ON meeting_registrations(meeting_id)")
+	return nil
+}
+
+// migrateV10 版本10：会务会议增加"每单位参会人数上限"字段（默认1=单人）
+func migrateV10() error {
+	if !hasColumn("meetings", "unit_limit") {
+		if _, err := DB.Exec("ALTER TABLE meetings ADD COLUMN unit_limit INTEGER DEFAULT 1"); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -555,6 +602,30 @@ func createTables() error {
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE(user_id, year)
 		)`,
+		`CREATE TABLE IF NOT EXISTS meetings (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			title TEXT NOT NULL,
+			meeting_date TEXT,
+			meeting_time TEXT,
+			location TEXT,
+			content TEXT,
+			units TEXT,
+			unit_limit INTEGER DEFAULT 1,
+			created_by INTEGER,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS meeting_registrations (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			meeting_id INTEGER,
+			unit TEXT,
+			attendee_name TEXT,
+			attendee_title TEXT,
+			phone TEXT,
+			not_attend INTEGER DEFAULT 0,
+			reason TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
 		`CREATE TABLE IF NOT EXISTS leave_records (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			user_id INTEGER,
@@ -664,6 +735,7 @@ func createTables() error {
 		`CREATE INDEX IF NOT EXISTS idx_ot_date ON overtime_records(overtime_date)`,
 		`CREATE INDEX IF NOT EXISTS idx_al_config_user ON annual_leave_configs(user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_al_config_year ON annual_leave_configs(year)`,
+		`CREATE INDEX IF NOT EXISTS idx_meeting_id ON meeting_registrations(meeting_id)`,
 	}
 
 	for _, s := range stmts {

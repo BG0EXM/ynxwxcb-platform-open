@@ -153,6 +153,37 @@ type AnnualLeaveConfig struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
+// Meeting 会议（会务管理）
+type Meeting struct {
+	ID          int64     `json:"id"`
+	Title       string    `json:"title"`
+	MeetingDate string    `json:"meeting_date"`
+	MeetingTime string    `json:"meeting_time"`
+	Location    string    `json:"location"`
+	Content     string    `json:"content"`
+	Units       string    `json:"units"`      // 参会单位范围（逗号分隔，手动填写）
+	UnitLimit   int       `json:"unit_limit"` // 每单位可报人数上限（1=单人）
+	CreatedBy   int64     `json:"created_by"`
+	CreatedName string    `json:"created_name,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	RegCount    int       `json:"reg_count,omitempty"`  // 已报名人数
+	NotAttend   int       `json:"not_attend,omitempty"` // 不参加人数
+}
+
+// MeetingRegistration 会议参会报名（匿名填写）
+type MeetingRegistration struct {
+	ID            int64     `json:"id"`
+	MeetingID     int64     `json:"meeting_id"`
+	Unit          string    `json:"unit"`
+	AttendeeName  string    `json:"attendee_name"`
+	AttendeeTitle string    `json:"attendee_title"`
+	Phone         string    `json:"phone"`
+	NotAttend     int       `json:"not_attend"` // 1=不参加
+	Reason        string    `json:"reason"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
 // Attachment 文件附件
 type Attachment struct {
 	ID           int64     `json:"id"`

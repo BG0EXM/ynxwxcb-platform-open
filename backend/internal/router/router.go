@@ -17,6 +17,11 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	// ---- 公开路由 ----
 	mux.HandleFunc("GET /api/health", handlers.Health)
 	mux.HandleFunc("POST /api/auth/login", handlers.Login(cfg))
+	// 会务公开报名（匿名，无需登录）
+	mux.HandleFunc("GET /api/public/meetings/{id}", handlers.PublicMeeting)
+	mux.HandleFunc("POST /api/public/meetings/{id}/register", handlers.PublicRegisterMeeting)
+	mux.HandleFunc("POST /api/public/meetings/{id}/remove", handlers.PublicRemoveAttendee)
+	mux.HandleFunc("POST /api/public/meetings/{id}/cancel", handlers.PublicCancelMeetingRegister)
 
 	// ---- 认证与用户 ----
 	mux.Handle("GET /api/auth/profile", middleware.Auth(http.HandlerFunc(handlers.GetProfile)))
@@ -89,6 +94,15 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	// ---- 年休假管理（管理员配置，普通用户可查看）----
 	mux.Handle("GET /api/annual-leave-configs", middleware.Auth(http.HandlerFunc(handlers.ListAnnualLeaveConfigs)))
 	mux.Handle("POST /api/annual-leave-configs", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.SaveAnnualLeaveConfig))))
+
+	// ---- 会务管理（仅管理员）----
+	mux.Handle("GET /api/meetings", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.ListMeetings))))
+	mux.Handle("POST /api/meetings", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.CreateMeeting))))
+	mux.Handle("PUT /api/meetings", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.UpdateMeeting))))
+	mux.Handle("DELETE /api/meetings/{id}", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.DeleteMeeting))))
+	mux.Handle("GET /api/meetings/{id}", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.GetMeeting))))
+	mux.Handle("GET /api/meetings/{id}/registrations", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.MeetingRegistrations))))
+	mux.Handle("GET /api/export/meetings/{id}/registration", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.ExportMeetingRegistration))))
 
 	// ---- 考勤（管理员晨会点到）----
 	mux.Handle("POST /api/attendance/mark", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.MarkAttendance))))

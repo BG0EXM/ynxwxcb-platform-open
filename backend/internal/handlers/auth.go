@@ -481,6 +481,14 @@ func DeleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 	database.DB.Exec("DELETE FROM vehicle_applies WHERE reporter_id=?", id)
 	database.DB.Exec("DELETE FROM incoming_docs WHERE registrar_id=?", id)
+	// 新模块表（按创建者/发布者清理）
+	database.DB.Exec("DELETE FROM calendar_tasks WHERE created_by=?", id)
+	database.DB.Exec("DELETE FROM major_events WHERE created_by=?", id)
+	database.DB.Exec("DELETE FROM weekly_summaries WHERE created_by=?", id)
+	database.DB.Exec("DELETE FROM overtime_records WHERE user_id=?", id)
+	database.DB.Exec("DELETE FROM annual_leave_configs WHERE user_id=?", id)
+	database.DB.Exec("DELETE FROM standing_committee_events WHERE created_by=?", id)
+	database.DB.Exec("DELETE FROM study_materials WHERE publisher_id=?", id)
 
 	// 物理删除用户
 	_, err = database.DB.Exec("DELETE FROM users WHERE id=?", id)
@@ -500,7 +508,8 @@ func resetAutoIncrement() {
 	tables := []string{"users", "departments", "attendances", "leave_records", "vehicles", "vehicle_applies",
 		"contacts", "duty_schedules", "incoming_docs", "circulation_records",
 		"study_materials", "attachments", "calendar_tasks", "standing_committee_events",
-		"major_events", "weekly_summaries"}
+		"major_events", "weekly_summaries", "overtime_records", "annual_leave_configs",
+		"meetings", "meeting_registrations"}
 	for _, t := range tables {
 		// 将序列设为当前最大 ID（若表为空则为 0）
 		database.DB.Exec("DELETE FROM sqlite_sequence WHERE name=?", t)

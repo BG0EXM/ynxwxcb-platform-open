@@ -8,6 +8,12 @@ const routes = [
     meta: { title: '登录' }
   },
   {
+    path: '/meeting/:id',
+    name: 'meeting-register',
+    component: () => import('../views/MeetingRegister.vue'),
+    meta: { title: '会议报名' }
+  },
+  {
     path: '/incoming/print/:id',
     name: 'incoming-print',
     component: () => import('../views/IncomingPrint.vue'),
@@ -133,6 +139,12 @@ const routes = [
         meta: { title: '公车管理', icon: 'Van' }
       },
       {
+        path: 'meetings',
+        name: 'meetings',
+        component: () => import('../views/Meetings.vue'),
+        meta: { title: '会务管理', icon: 'OfficeBuilding', admin: true }
+      },
+      {
         path: 'users',
         name: 'users',
         component: () => import('../views/Users.vue'),
@@ -153,16 +165,20 @@ const router = createRouter({
   routes
 })
 
+// 公开路径（无需登录）
+const publicPaths = ['/login', '/meeting/']
+
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('token')
-  if (to.path !== '/login' && !token) {
+  const isPublic = publicPaths.some(p => to.path.startsWith(p))
+  if (!token && !isPublic) {
     next('/login')
   } else if (to.path === '/login' && token) {
     next('/dashboard')
   } else {
-    // 强制改密拦截：未修改默认密码前只能访问个人中心
+    // 强制改密拦截：未修改默认密码前只能访问个人中心（公开页不受此限制）
     const mustChange = localStorage.getItem('must_change') === '1'
-    if (mustChange && to.path !== '/profile') {
+    if (mustChange && !isPublic && to.path !== '/profile') {
       next('/profile')
       return
     }
@@ -173,7 +189,7 @@ router.beforeEach((to, from, next) => {
         return
       }
     }
-    document.title = to.meta.title ? `${to.meta.title} - 伊宁县委宣传部部务工作平台 V1.3.9` : '伊宁县委宣传部部务工作平台 V1.3.9'
+    document.title = to.meta.title ? `${to.meta.title} - 伊宁县委宣传部部务工作平台 V1.4.0` : '伊宁县委宣传部部务工作平台 V1.4.0'
     next()
   }
 })
