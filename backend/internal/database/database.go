@@ -101,6 +101,7 @@ var migrations = []migration{
 	{8, "新增年休假配置表（每人每年年休假天数）", migrateV8},
 	{9, "新增会务管理表（会议与参会报名）", migrateV9},
 	{10, "会务会议增加每单位参会人数上限", migrateV10},
+	{11, "请假记录支持按小时/半天（增加 leave_hours）", migrateV11},
 }
 
 // migrateV2 版本2：用车报备支持科室人开车（增加 driver_name 字段）
@@ -349,6 +350,16 @@ func migrateV9() error {
 func migrateV10() error {
 	if !hasColumn("meetings", "unit_limit") {
 		if _, err := DB.Exec("ALTER TABLE meetings ADD COLUMN unit_limit INTEGER DEFAULT 1"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// migrateV11 版本11：请假记录支持按小时/半天请假（leave_hours 记录小时数，8 小时=1 天）
+func migrateV11() error {
+	if !hasColumn("leave_records", "leave_hours") {
+		if _, err := DB.Exec("ALTER TABLE leave_records ADD COLUMN leave_hours REAL DEFAULT 0"); err != nil {
 			return err
 		}
 	}
@@ -633,6 +644,7 @@ func createTables() error {
 			start_date TEXT,
 			end_date TEXT,
 			days REAL DEFAULT 0,
+			leave_hours REAL DEFAULT 0,
 			reason TEXT,
 			status INTEGER DEFAULT 1,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,

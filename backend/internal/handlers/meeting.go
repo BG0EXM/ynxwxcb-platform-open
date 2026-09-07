@@ -241,15 +241,30 @@ func PublicMeeting(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// parseMeetingTime 解析会议开始时间（YYYY-MM-DD + HH:mm），返回时间与是否可解析
+// parseMeetingTime 解析会议开始时间（YYYY-MM-DD + HH:mm）
+// 未填时间时截止到当天 23:59:59（当天报名仍有效），返回时间与是否可解析
 func parseMeetingTime(date, tm string) (time.Time, bool) {
-	layout := "2006-01-02"
 	full := date
+	layout := "2006-01-02"
 	if tm != "" {
 		if _, err := time.Parse("15:04", tm); err == nil {
 			layout = "2006-01-02 15:04"
 			full = date + " " + tm
+		} else {
+			// 时间格式非法：按当天末
+			t, err := time.ParseInLocation("2006-01-02", date, time.Local)
+			if err != nil {
+				return time.Time{}, false
+			}
+			return t.Add(24*time.Hour - time.Second), true
 		}
+	} else {
+		// 未填时间：截止到当天 23:59:59
+		t, err := time.ParseInLocation("2006-01-02", date, time.Local)
+		if err != nil {
+			return time.Time{}, false
+		}
+		return t.Add(24*time.Hour - time.Second), true
 	}
 	t, err := time.ParseInLocation(layout, full, time.Local)
 	if err != nil {
@@ -434,7 +449,18 @@ func PublicCancelMeetingRegister(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少单位"})
 		return
 	}
-	_, err := database.DB.Exec("DELETE FROM meeting_registrations WHERE meeting_id=? AND unit=?", id, req.Unit)
+	// 校验会议未过期（会议开始后不可再取消）
+	var md, mt string
+	err := database.DB.QueryRow("SELECT meeting_date, meeting_time FROM meetings WHERE id=?", id).Scan(&md, &mt)
+	if err != nil {
+		middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "会议不存在"})
+		return
+	}
+	if t, ok := parseMeetingTime(md, mt); ok && time.Now().After(t) {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "会议已开始，报名已截止"})
+		return
+	}
+	_, err = database.DB.Exec("DELETE FROM meeting_registrations WHERE meeting_id=? AND unit=?", id, req.Unit)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "取消失败"})
 		return

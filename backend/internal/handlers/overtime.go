@@ -169,11 +169,11 @@ func getCompRemainDays(userID int64) float64 {
 
 	var used float64
 	database.DB.QueryRow(
-		`SELECT COALESCE(SUM(overlap_days),0) FROM (
-			SELECT CAST(julianday(end_date) - julianday(start_date) + 1 AS INTEGER) as overlap_days
+		`SELECT COALESCE(SUM(eff),0) FROM (
+			SELECT MIN(days, CAST(julianday(end_date) - julianday(start_date) + 1 AS INTEGER)) as eff
 			FROM leave_records
 			WHERE status = 1 AND leave_type = 'comp' AND user_id = ?
-		) WHERE overlap_days > 0`, userID).Scan(&used)
+		) WHERE eff > 0`, userID).Scan(&used)
 	return compDays - used
 }
 
@@ -250,14 +250,15 @@ func OvertimeStats(w http.ResponseWriter, r *http.Request) {
 	} else {
 		rangeEnd = year + "-12-31"
 	}
-	compQuery := `SELECT user_id, SUM(overlap_days) FROM (
+	compQuery := `SELECT user_id, SUM(eff) FROM (
 			SELECT user_id,
-				CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
-					- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER) as overlap_days
+				-- 已补休 = MIN(登记天数, 期间重叠整天)，半天补休(0.5)精确扣减
+				MIN(days, CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
+					- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER)) as eff
 			FROM leave_records
 			WHERE status = 1 AND leave_type = 'comp' AND start_date <= ? AND end_date >= ?
 			GROUP BY id
-		) WHERE overlap_days > 0 GROUP BY user_id`
+		) WHERE eff > 0 GROUP BY user_id`
 	crows, err := database.DB.Query(compQuery, rangeEnd, rangeEnd, rangeStart, rangeStart, rangeEnd, rangeStart)
 	if err == nil {
 		for crows.Next() {

@@ -155,6 +155,10 @@ func ExportLeaveRecords(w http.ResponseWriter, r *http.Request) {
 		query += ` AND l.leave_type = ?`
 		args = append(args, t)
 	}
+	if m := r.URL.Query().Get("month"); m != "" {
+		query += ` AND l.start_date LIKE ?`
+		args = append(args, m+"%")
+	}
 	query += ` ORDER BY l.id DESC`
 
 	rows, err := database.DB.Query(query, args...)
@@ -166,7 +170,7 @@ func ExportLeaveRecords(w http.ResponseWriter, r *http.Request) {
 
 	leaveTypeNames := map[string]string{
 		"annual": "年假", "sick": "病假", "personal": "事假", "marriage": "婚假",
-		"maternity": "产假", "bereavement": "丧假", "prenatal": "产检假", "family": "探亲假",
+		"maternity": "产假", "bereavement": "丧假", "prenatal": "产检假", "family": "探亲假", "training": "培训",
 		"comp": "补休", "other": "其他",
 	}
 
@@ -225,10 +229,10 @@ func ExportAttendances(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	statusNames := map[int]string{1: "出勤", 2: "请假", 3: "出差", 4: "未到", 5: "迟到"}
+	statusNames := map[int]string{1: "出勤", 2: "请假", 3: "出差", 4: "未到", 5: "迟到", 6: "培训"}
 	leaveTypeNames := map[string]string{
 		"annual": "年假", "sick": "病假", "personal": "事假", "marriage": "婚假",
-		"maternity": "产假", "bereavement": "丧假", "prenatal": "产检假", "family": "探亲假",
+		"maternity": "产假", "bereavement": "丧假", "prenatal": "产检假", "family": "探亲假", "training": "培训",
 		"comp": "补休", "other": "其他",
 	}
 

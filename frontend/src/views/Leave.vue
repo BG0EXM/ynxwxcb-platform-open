@@ -48,15 +48,37 @@
             <el-option v-for="(name, val) in leaveTypeNames" :key="val" :label="name" :value="val" />
           </el-select>
         </el-form-item>
-        <el-form-item label="开始">
-          <el-date-picker v-model="form.start_date" type="date" value-format="YYYY-MM-DD" style="width:150px" @change="calcDays" />
+        <el-form-item label="时长类型">
+          <el-radio-group v-model="form.duration_type" size="small" @change="onDurationChange">
+            <el-radio-button label="day">按天</el-radio-button>
+            <el-radio-button label="hour">按小时</el-radio-button>
+          </el-radio-group>
         </el-form-item>
-        <el-form-item label="结束">
-          <el-date-picker v-model="form.end_date" type="date" value-format="YYYY-MM-DD" style="width:150px" @change="calcDays" />
-        </el-form-item>
-        <el-form-item label="天数">
-          <el-input-number v-model="form.days" :min="0.5" :max="365" :step="0.5" style="width:100px" />
-        </el-form-item>
+        <template v-if="form.duration_type === 'day'">
+          <el-form-item label="开始">
+            <el-date-picker v-model="form.start_date" type="date" value-format="YYYY-MM-DD" style="width:150px" @change="calcDays" />
+          </el-form-item>
+          <el-form-item label="结束">
+            <el-date-picker v-model="form.end_date" type="date" value-format="YYYY-MM-DD" style="width:150px" @change="calcDays" />
+          </el-form-item>
+          <el-form-item label="天数">
+            <el-input-number v-model="form.days" :min="0.5" :max="365" :step="0.5" style="width:100px" />
+          </el-form-item>
+        </template>
+        <template v-else>
+          <el-form-item label="请假日期">
+            <el-date-picker v-model="form.start_date" type="date" value-format="YYYY-MM-DD" style="width:150px" @change="syncHourDate" />
+          </el-form-item>
+          <el-form-item label="请假时长">
+            <el-input-number v-model="form.leave_hours" :min="0.5" :max="8" :step="0.5" style="width:100px" @change="calcByHour" />
+            <span class="form-unit">小时</span>
+          </el-form-item>
+          <el-form-item label="快捷">
+            <el-button size="small" @click="setHours(4)">半天(4h)</el-button>
+            <el-button size="small" @click="setHours(1)">1小时</el-button>
+            <el-button size="small" @click="setHours(2)">2小时</el-button>
+          </el-form-item>
+        </template>
         <el-form-item label="事由">
           <el-input v-model="form.reason" placeholder="请假事由" style="width:200px" />
         </el-form-item>
@@ -73,7 +95,8 @@
         <div class="card-header">
           <span class="card-title">请假记录</span>
           <div class="header-right">
-            <el-select v-model="filterType" placeholder="全部类型" clearable style="width:130px" @change="loadData">
+            <el-date-picker v-model="monthFilter" type="month" value-format="YYYY-MM" placeholder="按年月筛选" clearable style="width:140px" @change="loadData" />
+            <el-select v-model="filterType" placeholder="全部类型" clearable style="width:130px" class="ml-8" @change="loadData">
               <el-option v-for="(name, val) in leaveTypeNames" :key="val" :label="name" :value="val" />
             </el-select>
             <el-select v-if="authStore.isAdmin" v-model="userFilter" placeholder="全部人员" clearable style="width:140px" class="ml-8" @change="loadData">
@@ -121,19 +144,20 @@ const stats = reactive({ year: dayjs().format('YYYY'), total_count: 0, total_day
 const statsYear = ref(dayjs().format('YYYY'))
 const filterType = ref('')
 const userFilter = ref('')
+const monthFilter = ref('')
 const assignees = ref([])
-const form = reactive({ user_id: null, leave_type: 'annual', start_date: dayjs().format('YYYY-MM-DD'), end_date: '', days: 1, reason: '' })
+const form = reactive({ user_id: null, leave_type: 'annual', duration_type: 'day', start_date: dayjs().format('YYYY-MM-DD'), end_date: '', days: 1, leave_hours: 4, reason: '' })
 
 const leaveTypeNames = {
   annual: '年假', sick: '病假', personal: '事假', marriage: '婚假',
   maternity: '产假', bereavement: '丧假', prenatal: '产检假', family: '探亲假',
-  comp: '补休', other: '其他'
+  training: '培训', comp: '补休', other: '其他'
 }
 
 const statColors = {
   annual: '#409eff', sick: '#67c23a', personal: '#e6a23c', marriage: '#f56c6c',
   maternity: '#909399', bereavement: '#303133', prenatal: '#722ed1', family: '#13c2c2',
-  comp: '#fa8c16', other: '#b88230'
+  training: '#1d8a99', comp: '#fa8c16', other: '#b88230'
 }
 
 const statItems = computed(() => Object.keys(leaveTypeNames).map(k => ({
@@ -150,6 +174,7 @@ const loadData = async () => {
     const params = {}
     if (filterType.value) params.leave_type = filterType.value
     if (userFilter.value) params.user_id = userFilter.value
+    if (monthFilter.value) params.month = monthFilter.value
     const res = await request.get('/leave-records', { params })
     list.value = res.list || []
   } catch (e) {
@@ -192,11 +217,45 @@ const calcDays = () => {
   form.days = end.diff(start, 'day') + 1
 }
 
+// 切换时长类型：按小时时自动补 end_date=start_date、折算 days
+const onDurationChange = (val) => {
+  if (val === 'hour') {
+    form.end_date = form.start_date
+    calcByHour()
+  } else {
+    calcDays()
+  }
+}
+
+// 按小时请假：选日期后 end_date=start_date
+const syncHourDate = () => {
+  form.end_date = form.start_date
+  calcByHour()
+}
+
+// 小时折算天数：8 小时=1 天
+const calcByHour = () => {
+  if (!form.leave_hours || form.leave_hours <= 0) return
+  form.days = form.leave_hours / 8
+}
+
+const setHours = (h) => {
+  form.leave_hours = h
+  calcByHour()
+}
+
 const saveLeave = async () => {
   if (!authStore.isAdmin && !form.leave_type) return ElMessage.warning('请选择请假类型')
   if (authStore.isAdmin && !form.user_id) return ElMessage.warning('请选择人员')
   if (!form.leave_type) return ElMessage.warning('请选择请假类型')
-  if (!form.end_date) form.end_date = form.start_date
+  if (form.duration_type === 'hour') {
+    if (!form.leave_hours || form.leave_hours <= 0) return ElMessage.warning('请填写请假小时数')
+    form.end_date = form.start_date
+    form.days = form.leave_hours / 8
+  } else {
+    form.leave_hours = 0
+    if (!form.end_date) form.end_date = form.start_date
+  }
   // 日期重复校验：同一人员相同日期区间已有请假则提醒
   const checkUserID = authStore.isAdmin ? form.user_id : authStore.user?.id
   if (checkUserID) {
@@ -223,7 +282,7 @@ const saveLeave = async () => {
       await request.post('/leave-records', payload)
       ElMessage.success('请假登记成功')
     }
-    Object.assign(form, { user_id: null, leave_type: 'annual', start_date: dayjs().format('YYYY-MM-DD'), end_date: '', days: 1, reason: '' })
+    Object.assign(form, { user_id: null, leave_type: 'annual', duration_type: 'day', start_date: dayjs().format('YYYY-MM-DD'), end_date: '', days: 1, leave_hours: 0, reason: '' })
     editId.value = 0
     loadData()
     loadStats()
@@ -233,15 +292,17 @@ const saveLeave = async () => {
 // 编辑请假：填入表单
 const openEdit = (row) => {
   editId.value = row.id
+  const isHour = row.leave_hours && row.leave_hours > 0
   Object.assign(form, {
-    user_id: row.user_id, leave_type: row.leave_type, start_date: row.start_date,
-    end_date: row.end_date || row.start_date, days: row.days, reason: row.reason || ''
+    user_id: row.user_id, leave_type: row.leave_type, duration_type: isHour ? 'hour' : 'day',
+    start_date: row.start_date, end_date: row.end_date || row.start_date,
+    days: row.days, leave_hours: row.leave_hours || 4, reason: row.reason || ''
   })
 }
 
 const cancelEdit = () => {
   editId.value = 0
-  Object.assign(form, { user_id: null, leave_type: 'annual', start_date: dayjs().format('YYYY-MM-DD'), end_date: '', days: 1, reason: '' })
+  Object.assign(form, { user_id: null, leave_type: 'annual', duration_type: 'day', start_date: dayjs().format('YYYY-MM-DD'), end_date: '', days: 1, leave_hours: 0, reason: '' })
 }
 
 const openPrint = (row) => {
@@ -288,6 +349,7 @@ onMounted(() => {
 const exportData = () => {
   const params = {}
   if (filterType.value) params.leave_type = filterType.value
+  if (monthFilter.value) params.month = monthFilter.value
   exportFile('/export/leave-records', params)
 }
 </script>

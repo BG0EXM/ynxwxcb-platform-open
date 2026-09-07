@@ -156,7 +156,7 @@ func AttendanceStats(w http.ResponseWriter, r *http.Request) {
 		date = time.Now().Format("2006-01-02")
 	}
 
-	stats := map[string]int{"total": 0, "present": 0, "leave": 0, "trip": 0, "absent": 0, "late": 0}
+	stats := map[string]int{"total": 0, "present": 0, "leave": 0, "trip": 0, "absent": 0, "late": 0, "training": 0}
 	rows, err := database.DB.Query("SELECT status, COUNT(*) FROM attendances WHERE attend_date=? GROUP BY status", date)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
@@ -179,6 +179,8 @@ func AttendanceStats(w http.ResponseWriter, r *http.Request) {
 			stats["absent"] = count
 		case 5:
 			stats["late"] = count
+		case 6:
+			stats["training"] = count
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -292,7 +294,7 @@ func MarkUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 // 请假类型常量
-var LeaveTypes = []string{"annual", "sick", "personal", "marriage", "maternity", "bereavement", "prenatal", "family", "comp", "other"}
+var LeaveTypes = []string{"annual", "sick", "personal", "marriage", "maternity", "bereavement", "prenatal", "family", "training", "comp", "other"}
 
 // CreateLeaveRecord 登记请假
 // 管理员可为任意人员登记；普通用户只能为自己提交请假
@@ -316,6 +318,11 @@ func CreateLeaveRecord(w http.ResponseWriter, r *http.Request) {
 	if req.EndDate == "" {
 		req.EndDate = req.StartDate
 	}
+	// 起止日期合法性校验（防止 start>end 脏数据）
+	if req.EndDate < req.StartDate {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "结束日期不能早于开始日期"})
+		return
+	}
 	if req.Days <= 0 {
 		req.Days = 1
 	}
@@ -328,13 +335,12 @@ func CreateLeaveRecord(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	_, err := database.DB.Exec(
-		`INSERT INTO leave_records (user_id, leave_type, start_date, end_date, days, reason, status) VALUES (?, ?, ?, ?, ?, ?, 1)`,
-		req.UserID, req.LeaveType, req.StartDate, req.EndDate, req.Days, req.Reason)
+		`INSERT INTO leave_records (user_id, leave_type, start_date, end_date, days, leave_hours, reason, status) VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+		req.UserID, req.LeaveType, req.StartDate, req.EndDate, req.Days, req.LeaveHours, req.Reason)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "登记失败"})
 		return
 	}
-	_ = operatorID
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "请假登记成功"})
 }
 
@@ -345,12 +351,17 @@ func ListLeaveRecords(w http.ResponseWriter, r *http.Request) {
 
 	leaveType := r.URL.Query().Get("leave_type")
 	userIDFilter := r.URL.Query().Get("user_id")
+	month := r.URL.Query().Get("month") // YYYY-MM 按开始日期所在月筛选
 
 	where := ` WHERE 1=1`
 	args := []interface{}{}
 	if leaveType != "" {
 		where += ` AND l.leave_type = ?`
 		args = append(args, leaveType)
+	}
+	if month != "" {
+		where += ` AND l.start_date LIKE ?`
+		args = append(args, month+"%")
 	}
 	if roleCode != "admin" {
 		where += ` AND l.user_id = ?`
@@ -366,7 +377,7 @@ func ListLeaveRecords(w http.ResponseWriter, r *http.Request) {
 	var total int
 	database.DB.QueryRow("SELECT COUNT(*) FROM leave_records l"+where, args...).Scan(&total)
 
-	query := `SELECT l.id, l.user_id, u.real_name, d.name, l.leave_type, l.start_date, l.end_date, l.days, l.reason, l.status, l.created_at, l.updated_at
+	query := `SELECT l.id, l.user_id, u.real_name, d.name, l.leave_type, l.start_date, l.end_date, l.days, l.leave_hours, l.reason, l.status, l.created_at, l.updated_at
 		FROM leave_records l LEFT JOIN users u ON l.user_id = u.id
 		LEFT JOIN departments d ON u.department_id = d.id` + where +
 		` ORDER BY l.id DESC LIMIT ? OFFSET ?`
@@ -384,7 +395,7 @@ func ListLeaveRecords(w http.ResponseWriter, r *http.Request) {
 		var l models.LeaveRecord
 		var deptName sql.NullString
 		rows.Scan(&l.ID, &l.UserID, &l.UserName, &deptName, &l.LeaveType, &l.StartDate, &l.EndDate,
-			&l.Days, &l.Reason, &l.Status, &l.CreatedAt, &l.UpdatedAt)
+			&l.Days, &l.LeaveHours, &l.Reason, &l.Status, &l.CreatedAt, &l.UpdatedAt)
 		if deptName.Valid {
 			l.Department = deptName.String
 		}
@@ -427,12 +438,17 @@ func UpdateLeaveRecord(w http.ResponseWriter, r *http.Request) {
 	if req.EndDate == "" {
 		req.EndDate = req.StartDate
 	}
+	// 起止日期合法性校验（防止 start>end 脏数据）
+	if req.EndDate < req.StartDate {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "结束日期不能早于开始日期"})
+		return
+	}
 	if req.Days <= 0 {
 		req.Days = 1
 	}
 	_, err := database.DB.Exec(
-		`UPDATE leave_records SET user_id=?, leave_type=?, start_date=?, end_date=?, days=?, reason=? WHERE id=?`,
-		req.UserID, req.LeaveType, req.StartDate, req.EndDate, req.Days, req.Reason, req.ID)
+		`UPDATE leave_records SET user_id=?, leave_type=?, start_date=?, end_date=?, days=?, leave_hours=?, reason=? WHERE id=?`,
+		req.UserID, req.LeaveType, req.StartDate, req.EndDate, req.Days, req.LeaveHours, req.Reason, req.ID)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "修改失败"})
 		return
@@ -470,15 +486,23 @@ func LeaveStats(w http.ResponseWriter, r *http.Request) {
 		year = time.Now().Format("2006")
 	}
 
-	// 各类型天数统计
-	query := `SELECT leave_type, COUNT(*) as cnt, SUM(days) as total_days FROM leave_records
-		WHERE strftime('%Y', start_date) = ?`
-	args := []interface{}{year}
+	// 各类型天数统计（跨年假按当年实际覆盖天数拆分，与年休假/考勤口径一致；支持半天假）
+	// 请假笔数 = 当年有覆盖的记录数；天数 = MIN(登记days, 当年重叠整天)，保留小数(半天/小时假)
+	yearStart := year + "-01-01"
+	yearEnd := year + "-12-31"
+	query := `SELECT leave_type, COUNT(*) as cnt, SUM(eff) as total_days FROM (
+			SELECT id, leave_type,
+				MIN(days, CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
+					- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER)) as eff
+			FROM leave_records
+			WHERE status = 1 AND start_date <= ? AND end_date >= ?`
+	args := []interface{}{yearEnd, yearEnd, yearStart, yearStart, yearEnd, yearStart}
 	if roleCode != "admin" {
 		query += ` AND user_id = ?`
 		args = append(args, userID)
 	}
-	query += ` GROUP BY leave_type`
+	query += ` GROUP BY id
+		) WHERE eff > 0 GROUP BY leave_type`
 
 	rows, err := database.DB.Query(query, args...)
 	if err != nil {
@@ -532,7 +556,8 @@ func AttendanceMonthly(w http.ResponseWriter, r *http.Request) {
 			COALESCE(SUM(CASE WHEN a.status=2 THEN 1 ELSE 0 END),0) as leave,
 			COALESCE(SUM(CASE WHEN a.status=3 THEN 1 ELSE 0 END),0) as trip,
 			COALESCE(SUM(CASE WHEN a.status=4 THEN 1 ELSE 0 END),0) as absent,
-			COALESCE(SUM(CASE WHEN a.status=5 THEN 1 ELSE 0 END),0) as late
+			COALESCE(SUM(CASE WHEN a.status=5 THEN 1 ELSE 0 END),0) as late,
+			COALESCE(SUM(CASE WHEN a.status=6 THEN 1 ELSE 0 END),0) as training
 		FROM users u
 		LEFT JOIN departments d ON u.department_id = d.id
 		LEFT JOIN attendances a ON a.user_id = u.id AND a.attend_date LIKE ?
@@ -553,6 +578,7 @@ func AttendanceMonthly(w http.ResponseWriter, r *http.Request) {
 		Trip         int     `json:"trip"`
 		Absent       int     `json:"absent"`
 		Late         int     `json:"late"`
+		Training     int     `json:"training"`
 		AnnualDays   float64 `json:"annual_days"`
 		SickDays     float64 `json:"sick_days"`
 		PersonalDays float64 `json:"personal_days"`
@@ -565,7 +591,7 @@ func AttendanceMonthly(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var rw Row
 		var dept sql.NullString
-		rows.Scan(&rw.UserID, &rw.UserName, &dept, &rw.Present, &rw.Leave, &rw.Trip, &rw.Absent, &rw.Late)
+		rows.Scan(&rw.UserID, &rw.UserName, &dept, &rw.Present, &rw.Leave, &rw.Trip, &rw.Absent, &rw.Late, &rw.Training)
 		if dept.Valid {
 			rw.Department = dept.String
 		}
@@ -596,18 +622,20 @@ func AttendanceMonthly(w http.ResponseWriter, r *http.Request) {
 	}
 
 	leaveQuery := `SELECT user_id,
-			COALESCE(SUM(CASE WHEN leave_type='annual' THEN overlap_days ELSE 0 END),0),
-			COALESCE(SUM(CASE WHEN leave_type='sick' THEN overlap_days ELSE 0 END),0),
-			COALESCE(SUM(CASE WHEN leave_type='personal' THEN overlap_days ELSE 0 END),0),
-			COALESCE(SUM(CASE WHEN leave_type NOT IN ('annual','sick','personal') THEN overlap_days ELSE 0 END),0)
+			COALESCE(SUM(CASE WHEN leave_type='annual' THEN eff_days ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN leave_type='sick' THEN eff_days ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN leave_type='personal' THEN eff_days ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN leave_type NOT IN ('annual','sick','personal') THEN eff_days ELSE 0 END),0)
 		FROM (
 			SELECT user_id, leave_type,
-				CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
-					- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER) as overlap_days
+				-- 有效请假天数 = MIN(登记天数 days, 与统计期间重叠的整天数)
+				-- 支持半天/小时假（days=0.5/0.25），整天假不受影响
+				MIN(days, CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
+					- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER)) as eff_days
 			FROM leave_records
 			WHERE status = 1 AND start_date <= ? AND end_date >= ?
 			GROUP BY id
-		) WHERE overlap_days > 0 GROUP BY user_id`
+		) WHERE eff_days > 0 GROUP BY user_id`
 	lrows, err := database.DB.Query(leaveQuery, monthEnd, monthEnd, monthStart, monthStart, monthEnd, monthStart)
 	if err == nil {
 		for lrows.Next() {
@@ -631,7 +659,7 @@ func AttendanceMonthly(w http.ResponseWriter, r *http.Request) {
 	}
 
 	list := []Row{}
-	var totalPresent, totalLeave, totalTrip, totalAbsent, totalLate int
+	var totalPresent, totalLeave, totalTrip, totalAbsent, totalLate, totalTraining int
 	for _, uid := range userIDs {
 		if rw, ok := base[uid]; ok {
 			list = append(list, *rw)
@@ -640,12 +668,13 @@ func AttendanceMonthly(w http.ResponseWriter, r *http.Request) {
 			totalTrip += rw.Trip
 			totalAbsent += rw.Absent
 			totalLate += rw.Late
+			totalTraining += rw.Training
 		}
 	}
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{
 		"month": month, "list": list,
 		"total": map[string]int{
-			"present": totalPresent, "leave": totalLeave, "trip": totalTrip, "absent": totalAbsent, "late": totalLate,
+			"present": totalPresent, "leave": totalLeave, "trip": totalTrip, "absent": totalAbsent, "late": totalLate, "training": totalTraining,
 		},
 	})
 }
@@ -664,7 +693,8 @@ func AttendanceYearly(w http.ResponseWriter, r *http.Request) {
 			SUM(CASE WHEN a.status=2 THEN 1 ELSE 0 END) as leave,
 			SUM(CASE WHEN a.status=3 THEN 1 ELSE 0 END) as trip,
 			SUM(CASE WHEN a.status=4 THEN 1 ELSE 0 END) as absent,
-			SUM(CASE WHEN a.status=5 THEN 1 ELSE 0 END) as late
+			SUM(CASE WHEN a.status=5 THEN 1 ELSE 0 END) as late,
+			SUM(CASE WHEN a.status=6 THEN 1 ELSE 0 END) as training
 		FROM attendances a
 		WHERE a.attend_date LIKE ?
 		GROUP BY ym ORDER BY ym`
@@ -676,24 +706,26 @@ func AttendanceYearly(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type MonthRow struct {
-		Month   string `json:"month"`
-		Present int    `json:"present"`
-		Leave   int    `json:"leave"`
-		Trip    int    `json:"trip"`
-		Absent  int    `json:"absent"`
-		Late    int    `json:"late"`
+		Month    string `json:"month"`
+		Present  int    `json:"present"`
+		Leave    int    `json:"leave"`
+		Trip     int    `json:"trip"`
+		Absent   int    `json:"absent"`
+		Late     int    `json:"late"`
+		Training int    `json:"training"`
 	}
 	monthly := []MonthRow{}
-	var totalPresent, totalLeave, totalTrip, totalAbsent, totalLate int
+	var totalPresent, totalLeave, totalTrip, totalAbsent, totalLate, totalTraining int
 	for rows.Next() {
 		var rw MonthRow
-		rows.Scan(&rw.Month, &rw.Present, &rw.Leave, &rw.Trip, &rw.Absent, &rw.Late)
+		rows.Scan(&rw.Month, &rw.Present, &rw.Leave, &rw.Trip, &rw.Absent, &rw.Late, &rw.Training)
 		monthly = append(monthly, rw)
 		totalPresent += rw.Present
 		totalLeave += rw.Leave
 		totalTrip += rw.Trip
 		totalAbsent += rw.Absent
 		totalLate += rw.Late
+		totalTraining += rw.Training
 	}
 	if err := rows.Err(); err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
@@ -705,22 +737,23 @@ func AttendanceYearly(w http.ResponseWriter, r *http.Request) {
 	yearStart := year + "-01-01"
 	yearEnd := year + "-12-31"
 	leaveQuery := `SELECT l.id, l.real_name, d.name,
-			COALESCE(SUM(CASE WHEN od.leave_type='annual' THEN od.overlap ELSE 0 END),0),
-			COALESCE(SUM(CASE WHEN od.leave_type='sick' THEN od.overlap ELSE 0 END),0),
-			COALESCE(SUM(CASE WHEN od.leave_type='personal' THEN od.overlap ELSE 0 END),0),
-			COALESCE(SUM(CASE WHEN od.leave_type NOT IN ('annual','sick','personal') THEN od.overlap ELSE 0 END),0),
-			COALESCE(SUM(od.overlap),0)
+			COALESCE(SUM(CASE WHEN od.leave_type='annual' THEN od.eff ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN od.leave_type='sick' THEN od.eff ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN od.leave_type='personal' THEN od.eff ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN od.leave_type NOT IN ('annual','sick','personal') THEN od.eff ELSE 0 END),0),
+			COALESCE(SUM(od.eff),0)
 		FROM (
 			SELECT user_id, leave_type,
-				CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
-					- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER) as overlap
+				-- 有效天数 = MIN(登记 days, 当年重叠整天)，支持半天/小时假
+				MIN(days, CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
+					- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER)) as eff
 			FROM leave_records
 			WHERE status = 1 AND start_date <= ? AND end_date >= ?
 			GROUP BY id
 		) od
 		LEFT JOIN users l ON l.id = od.user_id
 		LEFT JOIN departments d ON l.department_id = d.id
-		WHERE od.overlap > 0
+		WHERE od.eff > 0
 		GROUP BY od.user_id ORDER BY od.user_id`
 	lrows, err := database.DB.Query(leaveQuery, yearEnd, yearEnd, yearStart, yearStart, yearEnd, yearStart)
 	if err != nil {
@@ -764,7 +797,7 @@ func AttendanceYearly(w http.ResponseWriter, r *http.Request) {
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{
 		"year": year, "monthly": monthly,
 		"total": map[string]int{
-			"present": totalPresent, "leave": totalLeave, "trip": totalTrip, "absent": totalAbsent, "late": totalLate,
+			"present": totalPresent, "leave": totalLeave, "trip": totalTrip, "absent": totalAbsent, "late": totalLate, "training": totalTraining,
 		},
 		"persons": persons,
 		"leave_total": map[string]float64{

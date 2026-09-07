@@ -132,7 +132,7 @@
     </div>
 
     <div class="reg-footer">
-      <div class="reg-footer-platform">伊宁县委宣传部部务工作平台 V1.4.0</div>
+      <div class="reg-footer-platform">伊宁县委宣传部部务工作平台 V1.4.1</div>
       <div class="reg-footer-beian">
         <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">ICP备案号占位</a>
         <span class="footer-sep">|</span>

@@ -31,6 +31,7 @@
               <th>出差</th>
               <th>未到</th>
               <th>迟到</th>
+              <th>培训</th>
               <th>年假</th>
               <th>病假</th>
               <th>事假</th>
@@ -47,13 +48,14 @@
               <td class="center">{{ r.trip }}</td>
               <td class="center">{{ r.absent }}</td>
               <td class="center">{{ r.late }}</td>
+              <td class="center">{{ r.training }}</td>
               <td class="center">{{ r.annual_days }}</td>
               <td class="center">{{ r.sick_days }}</td>
               <td class="center">{{ r.personal_days }}</td>
               <td class="center">{{ r.other_days }}</td>
             </tr>
             <tr v-if="!monthly.list || !monthly.list.length">
-              <td colspan="12" class="center empty">暂无考勤数据</td>
+              <td colspan="13" class="center empty">暂无考勤数据</td>
             </tr>
           </tbody>
           <tfoot v-if="monthly.total">
@@ -65,6 +67,7 @@
               <td class="center"><b>{{ monthly.total.trip }}</b></td>
               <td class="center"><b>{{ monthly.total.absent }}</b></td>
               <td class="center"><b>{{ monthly.total.late }}</b></td>
+              <td class="center"><b>{{ monthly.total.training }}</b></td>
               <td colspan="4"></td>
             </tr>
           </tfoot>
@@ -83,6 +86,7 @@
               <th>出差</th>
               <th>未到</th>
               <th>迟到</th>
+              <th>培训</th>
             </tr>
           </thead>
           <tbody>
@@ -93,9 +97,10 @@
               <td class="center">{{ r.trip }}</td>
               <td class="center">{{ r.absent }}</td>
               <td class="center">{{ r.late }}</td>
+              <td class="center">{{ r.training }}</td>
             </tr>
             <tr v-if="!yearly.monthly || !yearly.monthly.length">
-              <td colspan="6" class="center empty">暂无考勤数据</td>
+              <td colspan="7" class="center empty">暂无考勤数据</td>
             </tr>
           </tbody>
           <tfoot v-if="yearly.total">
@@ -106,6 +111,7 @@
               <td class="center"><b>{{ yearly.total.trip }}</b></td>
               <td class="center"><b>{{ yearly.total.absent }}</b></td>
               <td class="center"><b>{{ yearly.total.late }}</b></td>
+              <td class="center"><b>{{ yearly.total.training }}</b></td>
             </tr>
           </tfoot>
         </table>
@@ -155,7 +161,7 @@
         <span>统计期间：{{ period }} · 打印日期：{{ today }}</span>
         <span class="footer-right">
           <div>中共伊宁县委宣传部办公室</div>
-          <div>伊宁县委宣传部部务工作平台V1.4.0</div>
+          <div>伊宁县委宣传部部务工作平台V1.4.1</div>
         </span>
       </div>
     </div>

@@ -66,17 +66,18 @@ func ListAnnualLeaveConfigs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 查询已休年假天数（leave_type='annual'，按当年实际覆盖天数，跨年假期用 julianday 拆分）
+	// 查询已休年假天数（leave_type='annual'，按当年实际覆盖天数，支持半天/小时假）
 	yearStart := year + "-01-01"
 	yearEnd := year + "-12-31"
-	usedQuery := `SELECT user_id, SUM(overlap_days) FROM (
+	usedQuery := `SELECT user_id, SUM(eff) FROM (
 			SELECT user_id,
-				CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
-					- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER) as overlap_days
+				-- 已休 = MIN(登记天数, 当年重叠整天)，半天/小时假(0.5/0.25)精确扣减
+				MIN(days, CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
+					- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER)) as eff
 			FROM leave_records
 			WHERE status = 1 AND leave_type = 'annual' AND start_date <= ? AND end_date >= ?
 			GROUP BY id
-		) WHERE overlap_days > 0 GROUP BY user_id`
+		) WHERE eff > 0 GROUP BY user_id`
 	usedRows, err := database.DB.Query(usedQuery, yearEnd, yearEnd, yearStart, yearStart, yearEnd, yearStart)
 	if err == nil {
 		for usedRows.Next() {
@@ -125,18 +126,18 @@ func ExportAnnualLeaveConfigs(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	// 已休天数（联动请假 annual）
+	// 已休天数（联动请假 annual，支持半天/小时假）
 	yearStart := year + "-01-01"
 	yearEnd := year + "-12-31"
 	usedMap := map[int64]float64{}
-	usedQuery := `SELECT user_id, SUM(overlap_days) FROM (
+	usedQuery := `SELECT user_id, SUM(eff) FROM (
 			SELECT user_id,
-				CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
-					- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER) as overlap_days
+				MIN(days, CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
+					- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER)) as eff
 			FROM leave_records
 			WHERE status = 1 AND leave_type = 'annual' AND start_date <= ? AND end_date >= ?
 			GROUP BY id
-		) WHERE overlap_days > 0 GROUP BY user_id`
+		) WHERE eff > 0 GROUP BY user_id`
 	urows, err := database.DB.Query(usedQuery, yearEnd, yearEnd, yearStart, yearStart, yearEnd, yearStart)
 	if err == nil {
 		for urows.Next() {

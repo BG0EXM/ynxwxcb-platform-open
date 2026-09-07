@@ -261,17 +261,18 @@ type Attendance struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
-// LeaveRecord 请假记录（年假、特殊假期等）
+// LeaveRecord 请假记录（年假、特殊假期、按小时/半天等）
 type LeaveRecord struct {
 	ID           int64     `json:"id"`
 	UserID       int64     `json:"user_id"`
 	UserName     string    `json:"user_name,omitempty"`
 	DepartmentID int64     `json:"department_id,omitempty"`
 	Department   string    `json:"department_name,omitempty"`
-	LeaveType    string    `json:"leave_type"` // annual年假 / sick病假 / personal事假 / marriage婚假 / maternity产假 / bereavement丧假 / other其他
+	LeaveType    string    `json:"leave_type"` // annual年假 / sick病假 / personal事假 / marriage婚假 / maternity产假 / bereavement丧假 / prenatal产检 / family探亲 / training培训 / comp补休 / other其他
 	StartDate    string    `json:"start_date"`
 	EndDate      string    `json:"end_date"`
 	Days         float64   `json:"days"`
+	LeaveHours   float64   `json:"leave_hours,omitempty"` // 请假小时数（8小时=1天，0=按天）
 	Reason       string    `json:"reason"`
 	Status       int       `json:"status"` // 1已登记
 	CreatedAt    time.Time `json:"created_at"`
