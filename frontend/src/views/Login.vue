@@ -20,7 +20,7 @@
           </el-button>
         </el-form-item>
       </el-form>
-      <p class="login-tip">伊宁县委宣传部部务工作平台 V1.4.1</p>
+      <p class="login-tip">伊宁县委宣传部部务工作平台 V1.4.2</p>
     </div>
     <div class="login-footer">
       <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">ICP备案号占位</a>
@@ -28,6 +28,8 @@
       <a href="https://beian.mps.gov.cn/#/query/webSearch" target="_blank" rel="noopener">
         公网安备号占位
       </a>
+      <span class="footer-sep">|</span>
+      <span class="ipv6-tip">本站支持IPv6</span>
     </div>
   </div>
 </template>
@@ -176,6 +178,9 @@ const handleLogin = async () => {
   padding: 6px 16px;
   border-radius: 6px;
   white-space: nowrap;
+}
+.login-footer .ipv6-tip {
+  color: rgba(255, 255, 255, 0.92);
 }
 .login-footer a {
   color: rgba(255, 255, 255, 0.92);

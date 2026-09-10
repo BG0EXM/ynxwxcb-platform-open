@@ -15,7 +15,7 @@
         <div>
           <el-date-picker v-model="currentMonth" type="month" value-format="YYYY-MM"
             placeholder="选择月份" @change="loadData" />
-          <span class="ml-8 tip">{{ authStore.isAdmin ? '点击日历格子安排当日值守人员' : '排班仅供查看，由管理员安排' }}</span>
+          <span class="ml-8 tip">{{ authStore.hasPerm('duty.manage') ? '点击日历格子安排当日值守人员' : '排班仅供查看，由管理员安排' }}</span>
         </div>
         <div>
           <el-tag type="warning" effect="light" class="mr-8">值守至21:00收文</el-tag>
@@ -32,8 +32,8 @@
             :class="{ 'empty': !cell.date, 'today': cell.isToday }">
             <template v-if="cell.date">
               <div class="day-num">{{ cell.day }}</div>
-              <div class="duty-box" :class="[cell.schedules.length ? 'assigned' : 'empty-shift', { 'clickable': authStore.isAdmin }]"
-                @click="authStore.isAdmin && openEdit(cell.dateStr)">
+              <div class="duty-box" :class="[cell.schedules.length ? 'assigned' : 'empty-shift', { 'clickable': authStore.hasPerm('duty.manage') }]"
+                @click="authStore.hasPerm('duty.manage') && openEdit(cell.dateStr)">
                 <template v-if="cell.schedules.length">
                   <div v-for="s in cell.schedules" :key="s.id" class="duty-person">
                     <div class="duty-person-line">
@@ -44,7 +44,7 @@
                   </div>
                 </template>
                 <template v-else>
-                  <div class="duty-empty">{{ authStore.isAdmin ? '安排值守' : '未排班' }}</div>
+                  <div class="duty-empty">{{ authStore.hasPerm('duty.manage') ? '安排值守' : '未排班' }}</div>
                 </template>
               </div>
             </template>

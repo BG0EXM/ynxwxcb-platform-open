@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -14,8 +15,10 @@ import (
 // OvertimeHoursPerDay 补休换算：8 小时加班 = 1 天补休
 const OvertimeHoursPerDay = 8.0
 
-// ListOvertimeRecords 加班记录列表（管理员看全部，可按人/日期范围/年份筛选）
+// ListOvertimeRecords 加班记录列表（管理员看全部，普通用户仅本人）
 func ListOvertimeRecords(w http.ResponseWriter, r *http.Request) {
+	currentUser, _ := r.Context().Value(middleware.ContextUserID).(int64)
+	roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
 	userID := r.URL.Query().Get("user_id")
 	start := r.URL.Query().Get("start")
 	end := r.URL.Query().Get("end")
@@ -23,7 +26,11 @@ func ListOvertimeRecords(w http.ResponseWriter, r *http.Request) {
 
 	where := ` WHERE 1=1`
 	args := []interface{}{}
-	if userID != "" {
+	if roleCode != "admin" {
+		// 普通用户强制只看本人，忽略传入的 user_id
+		where += ` AND o.user_id = ?`
+		args = append(args, currentUser)
+	} else if userID != "" {
 		where += ` AND o.user_id = ?`
 		args = append(args, userID)
 	}
@@ -54,13 +61,18 @@ func ListOvertimeRecords(w http.ResponseWriter, r *http.Request) {
 	list := []models.OvertimeRecord{}
 	for rows.Next() {
 		var o models.OvertimeRecord
-		var name sql.NullString
-		var createdAt time.Time
-		rows.Scan(&o.ID, &o.UserID, &name, &o.OvertimeDate, &o.Hours, &o.Reason, &o.CreatedBy, &createdAt)
-		if name.Valid {
-			o.UserName = name.String
+		var name, reason sql.NullString
+		var overtimeDate sql.NullString
+		var createdAt sql.NullTime
+		if err := rows.Scan(&o.ID, &o.UserID, &name, &overtimeDate, &o.Hours, &reason, &o.CreatedBy, &createdAt); err != nil {
+			continue
 		}
-		o.CreatedAt = createdAt
+		o.UserName = name.String
+		o.OvertimeDate = overtimeDate.String
+		o.Reason = reason.String
+		if createdAt.Valid {
+			o.CreatedAt = createdAt.Time
+		}
 		list = append(list, o)
 	}
 	if err := rows.Err(); err != nil {
@@ -82,12 +94,12 @@ func CreateOvertimeRecord(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请选择人员"})
 		return
 	}
-	if req.OvertimeDate == "" {
-		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请选择加班日期"})
+	if !isValidDate(req.OvertimeDate) {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "加班日期格式应为 YYYY-MM-DD"})
 		return
 	}
-	if req.Hours <= 0 {
-		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请填写加班时长"})
+	if req.Hours <= 0 || req.Hours > 24 {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "加班时长应在 0~24 小时之间"})
 		return
 	}
 	_, err := database.DB.Exec(
@@ -97,6 +109,9 @@ func CreateOvertimeRecord(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "创建失败"})
 		return
 	}
+	var personName string
+	database.DB.QueryRow("SELECT real_name FROM users WHERE id=?", req.UserID).Scan(&personName)
+	logOperation(r, "加班管理", "新增", fmt.Sprintf("为「%s」录入加班 %.1f 小时（%s）", personName, req.Hours, req.OvertimeDate))
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "添加成功"})
 }
 
@@ -107,11 +122,16 @@ func DeleteOvertimeRecord(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
 		return
 	}
+	var personName, overtimeDate string
+	database.DB.QueryRow(
+		`SELECT u.real_name, o.overtime_date FROM overtime_records o LEFT JOIN users u ON o.user_id=u.id WHERE o.id=?`, id).
+		Scan(&personName, &overtimeDate)
 	_, err := database.DB.Exec("DELETE FROM overtime_records WHERE id=?", id)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
 		return
 	}
+	logOperation(r, "加班管理", "删除", "删除「"+personName+"」的加班记录（"+overtimeDate+"）")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "删除成功"})
 }
 
@@ -146,10 +166,12 @@ func ExportOvertimeRecords(w http.ResponseWriter, r *http.Request) {
 		var id int64
 		var name, overtimeDate, reason sql.NullString
 		var hours float64
-		var createdAt time.Time
-		rows.Scan(&id, &name, &overtimeDate, &hours, &reason, &createdAt)
+		var createdAt sql.NullTime
+		if err := rows.Scan(&id, &name, &overtimeDate, &hours, &reason, &createdAt); err != nil {
+			continue
+		}
 		data = append(data, []interface{}{
-			idx, name.String, formatDateStr(overtimeDate.String), hours, reason.String, formatDateTime(createdAt),
+			idx, name.String, formatDateStr(overtimeDate.String), hours, reason.String, formatDateTime(createdAt.Time),
 		})
 		idx++
 	}
@@ -157,6 +179,7 @@ func ExportOvertimeRecords(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "查询失败", http.StatusInternalServerError)
 		return
 	}
+	logOperation(r, "加班管理", "导出", "导出加班记录")
 	exportExcel(w, "加班记录", "加班记录.xlsx", headers, data)
 }
 
@@ -164,16 +187,20 @@ func ExportOvertimeRecords(w http.ResponseWriter, r *http.Request) {
 // = 加班折合补休天数 - 已用补休天数
 func getCompRemainDays(userID int64) float64 {
 	var hours float64
-	database.DB.QueryRow("SELECT COALESCE(SUM(hours),0) FROM overtime_records WHERE user_id=?", userID).Scan(&hours)
+	if err := database.DB.QueryRow("SELECT COALESCE(SUM(hours),0) FROM overtime_records WHERE user_id=?", userID).Scan(&hours); err != nil {
+		return 0
+	}
 	compDays := hours / OvertimeHoursPerDay
 
 	var used float64
-	database.DB.QueryRow(
+	if err := database.DB.QueryRow(
 		`SELECT COALESCE(SUM(eff),0) FROM (
 			SELECT MIN(days, CAST(julianday(end_date) - julianday(start_date) + 1 AS INTEGER)) as eff
 			FROM leave_records
 			WHERE status = 1 AND leave_type = 'comp' AND user_id = ?
-		) WHERE eff > 0`, userID).Scan(&used)
+		) WHERE eff > 0`, userID).Scan(&used); err != nil {
+		return 0
+	}
 	return compDays - used
 }
 
@@ -181,6 +208,8 @@ func getCompRemainDays(userID int64) float64 {
 // 返回每人：加班小时数、折合补休天数、已补休天数、剩余可补天数
 // 补休从 leave_records 的 leave_type='comp'（按日期范围实际覆盖天数计算）
 func OvertimeStats(w http.ResponseWriter, r *http.Request) {
+	currentUser, _ := r.Context().Value(middleware.ContextUserID).(int64)
+	roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
 	year := r.URL.Query().Get("year")   // YYYY
 	month := r.URL.Query().Get("month") // YYYY-MM（可选，不填则统计全年）
 	dateLike := ""
@@ -203,9 +232,15 @@ func OvertimeStats(w http.ResponseWriter, r *http.Request) {
 		FROM users u
 		LEFT JOIN departments d ON u.department_id = d.id
 		LEFT JOIN overtime_records o ON o.user_id = u.id AND o.overtime_date LIKE ?
-		WHERE u.status = 1
-		GROUP BY u.id ORDER BY u.id`
-	rows, err := database.DB.Query(otQuery, dateLike)
+		WHERE u.status = 1`
+	otArgs := []interface{}{dateLike}
+	if roleCode != "admin" {
+		// 普通用户仅统计本人
+		otQuery += ` AND u.id = ?`
+		otArgs = append(otArgs, currentUser)
+	}
+	otQuery += ` GROUP BY u.id ORDER BY u.id`
+	rows, err := database.DB.Query(otQuery, otArgs...)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
@@ -223,20 +258,21 @@ func OvertimeStats(w http.ResponseWriter, r *http.Request) {
 	var userIDs []int64
 	for rows.Next() {
 		var rw Row
-		var dept sql.NullString
-		rows.Scan(&rw.UserID, &rw.UserName, &dept, &rw.OvertimeHours)
-		if dept.Valid {
-			rw.Department = dept.String
+		var userName, dept sql.NullString
+		if err := rows.Scan(&rw.UserID, &userName, &dept, &rw.OvertimeHours); err != nil {
+			continue
 		}
+		rw.UserName = userName.String
+		rw.Department = dept.String
 		rw.CompDays = rw.OvertimeHours / OvertimeHoursPerDay
 		base[rw.UserID] = &rw
 		userIDs = append(userIDs, rw.UserID)
 	}
-	rows.Close()
 	if err := rows.Err(); err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
+	rows.Close()
 
 	// 2. 查询已用补休天数（leave_type='comp'，按日期范围实际覆盖天数计算）
 	rangeStart := datePrefix + "-01"
@@ -260,17 +296,53 @@ func OvertimeStats(w http.ResponseWriter, r *http.Request) {
 			GROUP BY id
 		) WHERE eff > 0 GROUP BY user_id`
 	crows, err := database.DB.Query(compQuery, rangeEnd, rangeEnd, rangeStart, rangeStart, rangeEnd, rangeStart)
-	if err == nil {
-		for crows.Next() {
+	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+	for crows.Next() {
+		var uid int64
+		var used float64
+		if err := crows.Scan(&uid, &used); err != nil {
+			continue
+		}
+		if rw, ok := base[uid]; ok {
+			rw.UsedDays = used
+		}
+	}
+	if err := crows.Err(); err != nil {
+		crows.Close()
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+	crows.Close()
+
+	// 2b. 全时口径的剩余可补天数（与补休登记校验 getCompRemainDays 一致，避免按钮状态与后端校验不一致）
+	allHours := map[int64]float64{}
+	if hr, err := database.DB.Query("SELECT user_id, COALESCE(SUM(hours),0) FROM overtime_records GROUP BY user_id"); err == nil {
+		for hr.Next() {
 			var uid int64
-			var used float64
-			if crows.Scan(&uid, &used) == nil {
-				if rw, ok := base[uid]; ok {
-					rw.UsedDays = used
-				}
+			var h float64
+			if hr.Scan(&uid, &h) == nil {
+				allHours[uid] = h
 			}
 		}
-		crows.Close()
+		hr.Close()
+	}
+	allUsed := map[int64]float64{}
+	if ur, err := database.DB.Query(
+		`SELECT user_id, COALESCE(SUM(eff),0) FROM (
+			SELECT user_id, MIN(days, CAST(julianday(end_date) - julianday(start_date) + 1 AS INTEGER)) as eff
+			FROM leave_records WHERE status = 1 AND leave_type = 'comp' GROUP BY id
+		) WHERE eff > 0 GROUP BY user_id`); err == nil {
+		for ur.Next() {
+			var uid int64
+			var d float64
+			if ur.Scan(&uid, &d) == nil {
+				allUsed[uid] = d
+			}
+		}
+		ur.Close()
 	}
 
 	// 3. 组装
@@ -278,7 +350,8 @@ func OvertimeStats(w http.ResponseWriter, r *http.Request) {
 	var totalHours, totalUsed float64
 	for _, uid := range userIDs {
 		if rw, ok := base[uid]; ok {
-			rw.RemainDays = rw.CompDays - rw.UsedDays
+			// 剩余可补统一按全时口径（全部加班折合 - 全部已补休）
+			rw.RemainDays = allHours[uid]/OvertimeHoursPerDay - allUsed[uid]
 			list = append(list, *rw)
 			totalHours += rw.OvertimeHours
 			totalUsed += rw.UsedDays

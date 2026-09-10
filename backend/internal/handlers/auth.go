@@ -85,18 +85,22 @@ func Login(cfg *config.Config) http.HandlerFunc {
 		}
 
 		var user models.User
+		var deptName, roleName, roleCode, phone sql.NullString
+		var tokenVersion int
 		err := database.DB.QueryRow(
-			`SELECT u.id, u.username, u.password_hash, u.real_name, u.phone, u.department_id, d.name, u.role_id, r.name, r.code, u.status
+			`SELECT u.id, u.username, u.password_hash, u.real_name, u.phone, u.department_id, d.name, u.role_id, r.name, r.code, u.status, u.token_version
 			 FROM users u
 			 LEFT JOIN departments d ON u.department_id = d.id
 			 LEFT JOIN roles r ON u.role_id = r.id
 			 WHERE u.username = ?`, req.Username).
-			Scan(&user.ID, &user.Username, &user.PasswordHash, &user.RealName, &user.Phone,
-				&user.DepartmentID, &user.Department, &user.RoleID, &user.RoleName, &user.RoleCode,
-				&user.Status)
-
+			Scan(&user.ID, &user.Username, &user.PasswordHash, &user.RealName, &phone,
+				&user.DepartmentID, &deptName, &user.RoleID, &roleName, &roleCode,
+				&user.Status, &tokenVersion)
 		if err == sql.ErrNoRows {
+			// 用户不存在也执行一次 bcrypt，避免通过响应时间枚举用户名
+			database.HashPassword(req.Password)
 			loginLimiter.recordFail(req.Username)
+			logWithUser(0, req.Username, "登录", "登录", "登录失败：用户名或密码错误", clientIP(r))
 			middleware.JSON(w, http.StatusUnauthorized, map[string]string{"error": "用户名或密码错误"})
 			return
 		}
@@ -104,27 +108,28 @@ func Login(cfg *config.Config) http.HandlerFunc {
 			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "系统错误"})
 			return
 		}
+		user.Phone = phone.String
+		user.Department = deptName.String
+		user.RoleName = roleName.String
+		user.RoleCode = roleCode.String
+		user.Permissions = middleware.RolePermissions(user.RoleCode)
 		if user.Status != 1 {
+			logWithUser(user.ID, user.Username, "登录", "登录", "登录失败：账号已被禁用", clientIP(r))
 			middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "账号已被禁用"})
 			return
 		}
 		if !database.CheckPassword(user.PasswordHash, req.Password) {
 			loginLimiter.recordFail(req.Username)
+			logWithUser(user.ID, user.Username, "登录", "登录", "登录失败：用户名或密码错误", clientIP(r))
 			middleware.JSON(w, http.StatusUnauthorized, map[string]string{"error": "用户名或密码错误"})
 			return
 		}
 
 		// 登录成功，清除失败记录
 		loginLimiter.recordSuccess(req.Username)
+		logWithUser(user.ID, user.Username, "登录", "登录", "登录成功", clientIP(r))
 
-		// 特殊：管理员首次登录使用配置的默认密码
-		if user.Username == cfg.Admin.Username && req.Password == cfg.Admin.Password {
-			// 使用配置中的管理员密码登录
-			hash, _ := database.HashPassword(cfg.Admin.Password)
-			database.DB.Exec("UPDATE users SET password_hash = ? WHERE id = ?", hash, user.ID)
-		}
-
-		token, err := auth.GenerateToken(user.ID, user.Username, user.RealName, user.RoleCode)
+		token, err := auth.GenerateToken(user.ID, user.Username, user.RealName, user.RoleCode, tokenVersion)
 		if err != nil {
 			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "生成令牌失败"})
 			return
@@ -149,22 +154,39 @@ func Login(cfg *config.Config) http.HandlerFunc {
 	}
 }
 
+// Logout 退出登录：递增令牌版本，使该用户所有旧令牌立即失效
+func Logout(w http.ResponseWriter, r *http.Request) {
+	userID, _ := r.Context().Value(middleware.ContextUserID).(int64)
+	if userID != 0 {
+		database.DB.Exec("UPDATE users SET token_version = token_version + 1 WHERE id = ?", userID)
+		middleware.InvalidateTokenVersion(userID)
+		logWithUser(userID, "", "登录", "登录", "退出登录", clientIP(r))
+	}
+	middleware.JSON(w, http.StatusOK, map[string]string{"message": "已退出登录"})
+}
+
 // GetProfile 获取当前用户信息
 func GetProfile(w http.ResponseWriter, r *http.Request) {
 	userID, _ := r.Context().Value(middleware.ContextUserID).(int64)
 	var user models.User
+	var phone, deptName, roleName, roleCode sql.NullString
 	err := database.DB.QueryRow(
 		`SELECT u.id, u.username, u.real_name, u.phone, u.department_id, d.name, u.role_id, r.name, r.code
 		 FROM users u
 		 LEFT JOIN departments d ON u.department_id = d.id
 		 LEFT JOIN roles r ON u.role_id = r.id
 		 WHERE u.id = ?`, userID).
-		Scan(&user.ID, &user.Username, &user.RealName, &user.Phone,
-			&user.DepartmentID, &user.Department, &user.RoleID, &user.RoleName, &user.RoleCode)
+		Scan(&user.ID, &user.Username, &user.RealName, &phone,
+			&user.DepartmentID, &deptName, &user.RoleID, &roleName, &roleCode)
 	if err != nil {
 		middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "用户不存在"})
 		return
 	}
+	user.Phone = phone.String
+	user.Department = deptName.String
+	user.RoleName = roleName.String
+	user.RoleCode = roleCode.String
+	user.Permissions = middleware.RolePermissions(user.RoleCode)
 	middleware.JSON(w, http.StatusOK, user)
 }
 
@@ -179,8 +201,8 @@ func ChangePassword(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请求格式错误"})
 		return
 	}
-	if len(req.NewPassword) < 6 {
-		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "新密码至少6位"})
+	if len(req.NewPassword) < 8 {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "新密码至少8位"})
 		return
 	}
 	var hash string
@@ -194,7 +216,9 @@ func ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	newHash, _ := database.HashPassword(req.NewPassword)
-	database.DB.Exec("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?", newHash, time.Now(), userID)
+	database.DB.Exec("UPDATE users SET password_hash = ?, token_version = token_version + 1, updated_at = ? WHERE id = ?", newHash, time.Now(), userID)
+	middleware.InvalidateTokenVersion(userID)
+	logOperation(r, "认证", "修改", "修改本人登录密码")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "密码修改成功"})
 }
 
@@ -224,8 +248,14 @@ func ListUsers(w http.ResponseWriter, r *http.Request) {
 	users := []models.User{}
 	for rows.Next() {
 		var u models.User
-		rows.Scan(&u.ID, &u.Username, &u.RealName, &u.Phone, &u.DepartmentID, &u.Department,
-			&u.RoleID, &u.RoleName, &u.Status, &u.CreatedAt)
+		var phone, deptName, roleName sql.NullString
+		if err := rows.Scan(&u.ID, &u.Username, &u.RealName, &phone, &u.DepartmentID, &deptName,
+			&u.RoleID, &roleName, &u.Status, &u.CreatedAt); err != nil {
+			continue
+		}
+		u.Phone = phone.String
+		u.Department = deptName.String
+		u.RoleName = roleName.String
 		users = append(users, u)
 	}
 	if err := rows.Err(); err != nil {
@@ -249,16 +279,17 @@ func CreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	password := "123456" // 默认初始密码
 	hash, _ := database.HashPassword(password)
-	// 显式指定 id = 当前最大 id + 1，避免 SQLite 自增序列在删除用户后跳号
-	var nextID int64
-	database.DB.QueryRow("SELECT COALESCE(MAX(id), 0) + 1 FROM users").Scan(&nextID)
+	// 显式指定 id = 当前最大 id + 1，避免 SQLite 自增序列在删除用户后跳号；
+	// 用单条 INSERT...SELECT 保证取号与插入原子，避免并发竞态
 	_, err := database.DB.Exec(
-		"INSERT INTO users (id, username, password_hash, real_name, phone, department_id, role_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		nextID, req.Username, hash, req.RealName, req.Phone, req.DepartmentID, req.RoleID, 1)
+		`INSERT INTO users (id, username, password_hash, real_name, phone, department_id, role_id, status)
+		 SELECT COALESCE(MAX(id), 0) + 1, ?, ?, ?, ?, ?, ?, 1 FROM users`,
+		req.Username, hash, req.RealName, req.Phone, req.DepartmentID, req.RoleID)
 	if err != nil {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "创建失败，用户名可能已存在"})
 		return
 	}
+	logOperation(r, "用户管理", "新增", "新增用户「"+req.RealName+"」")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "创建成功，初始密码 123456"})
 }
 
@@ -273,6 +304,10 @@ func UpdateUser(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少用户ID"})
 		return
 	}
+	// 读取原状态/角色，用于判断是否需要使旧令牌失效
+	var oldStatus int
+	var oldRoleID int64
+	database.DB.QueryRow("SELECT status, role_id FROM users WHERE id = ?", req.ID).Scan(&oldStatus, &oldRoleID)
 	_, err := database.DB.Exec(
 		"UPDATE users SET real_name = ?, phone = ?, department_id = ?, role_id = ?, status = ?, updated_at = ? WHERE id = ?",
 		req.RealName, req.Phone, req.DepartmentID, req.RoleID, req.Status, time.Now(), req.ID)
@@ -280,6 +315,12 @@ func UpdateUser(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "更新失败"})
 		return
 	}
+	// 禁用或角色变更时，使该用户旧令牌立即失效
+	if req.Status != oldStatus || req.RoleID != oldRoleID {
+		database.DB.Exec("UPDATE users SET token_version = token_version + 1 WHERE id = ?", req.ID)
+		middleware.InvalidateTokenVersion(req.ID)
+	}
+	logOperation(r, "用户管理", "修改", "修改用户「"+req.RealName+"」的信息")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "更新成功"})
 }
 
@@ -292,12 +333,24 @@ func ResetPassword(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请求格式错误"})
 		return
 	}
+	if req.ID == 0 {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少用户ID"})
+		return
+	}
+	var targetName string
+	database.DB.QueryRow("SELECT real_name FROM users WHERE id = ?", req.ID).Scan(&targetName)
 	hash, _ := database.HashPassword("123456")
-	_, err := database.DB.Exec("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?", hash, time.Now(), req.ID)
+	res, err := database.DB.Exec("UPDATE users SET password_hash = ?, token_version = token_version + 1, updated_at = ? WHERE id = ?", hash, time.Now(), req.ID)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "重置失败"})
 		return
 	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "用户不存在"})
+		return
+	}
+	middleware.InvalidateTokenVersion(req.ID)
+	logOperation(r, "用户管理", "修改", "重置用户「"+targetName+"」的登录密码")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "密码已重置为 123456"})
 }
 
@@ -312,7 +365,11 @@ func ListRoles(w http.ResponseWriter, r *http.Request) {
 	roles := []models.Role{}
 	for rows.Next() {
 		var role models.Role
-		rows.Scan(&role.ID, &role.Name, &role.Code, &role.Description)
+		var description sql.NullString
+		if err := rows.Scan(&role.ID, &role.Name, &role.Code, &description); err != nil {
+			continue
+		}
+		role.Description = description.String
 		roles = append(roles, role)
 	}
 	if err := rows.Err(); err != nil {
@@ -448,9 +505,10 @@ func DeleteUser(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "不能删除当前登录账号"})
 		return
 	}
-	// 检查用户是否存在
+	// 检查用户是否存在，并取姓名用于日志
 	var exists int
-	err := database.DB.QueryRow("SELECT COUNT(*) FROM users WHERE id=?", id).Scan(&exists)
+	var targetName string
+	err := database.DB.QueryRow("SELECT COUNT(*), COALESCE(MAX(real_name),'') FROM users WHERE id=?", id).Scan(&exists, &targetName)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
@@ -471,28 +529,51 @@ func DeleteUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 清理该用户的关联数据（物理删除，避免残留）
+	// 清理该用户的关联数据并物理删除用户，整体事务保证一致性
+	tx, err := database.DB.Begin()
+	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+		return
+	}
 	tables := []string{
 		"attendances", "leave_records", "circulation_records",
-		"duty_schedules", "vehicle_applies",
+		"duty_schedules",
 	}
 	for _, t := range tables {
-		database.DB.Exec("DELETE FROM "+t+" WHERE user_id=?", id)
+		if _, err := tx.Exec("DELETE FROM "+t+" WHERE user_id=?", id); err != nil {
+			tx.Rollback()
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+			return
+		}
 	}
-	database.DB.Exec("DELETE FROM vehicle_applies WHERE reporter_id=?", id)
-	database.DB.Exec("DELETE FROM incoming_docs WHERE registrar_id=?", id)
-	// 新模块表（按创建者/发布者清理）
-	database.DB.Exec("DELETE FROM calendar_tasks WHERE created_by=?", id)
-	database.DB.Exec("DELETE FROM major_events WHERE created_by=?", id)
-	database.DB.Exec("DELETE FROM weekly_summaries WHERE created_by=?", id)
-	database.DB.Exec("DELETE FROM overtime_records WHERE user_id=?", id)
-	database.DB.Exec("DELETE FROM annual_leave_configs WHERE user_id=?", id)
-	database.DB.Exec("DELETE FROM standing_committee_events WHERE created_by=?", id)
-	database.DB.Exec("DELETE FROM study_materials WHERE publisher_id=?", id)
-
-	// 物理删除用户
-	_, err = database.DB.Exec("DELETE FROM users WHERE id=?", id)
-	if err != nil {
+	// 按不同归属列清理其余表
+	cleanup := []struct {
+		table string
+		col   string
+	}{
+		{"vehicle_applies", "reporter_id"},
+		{"incoming_docs", "registrar_id"},
+		{"calendar_tasks", "created_by"},
+		{"major_events", "created_by"},
+		{"weekly_summaries", "created_by"},
+		{"overtime_records", "user_id"},
+		{"annual_leave_configs", "user_id"},
+		{"standing_committee_events", "created_by"},
+		{"study_materials", "publisher_id"},
+	}
+	for _, c := range cleanup {
+		if _, err := tx.Exec("DELETE FROM "+c.table+" WHERE "+c.col+"=?", id); err != nil {
+			tx.Rollback()
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+			return
+		}
+	}
+	if _, err := tx.Exec("DELETE FROM users WHERE id=?", id); err != nil {
+		tx.Rollback()
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+		return
+	}
+	if err := tx.Commit(); err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
 		return
 	}
@@ -500,6 +581,7 @@ func DeleteUser(w http.ResponseWriter, r *http.Request) {
 	// 重置自增序列，使被删除的最大 ID 可被复用（真删除 + 释放 ID）
 	resetAutoIncrement()
 
+	logOperation(r, "用户管理", "删除", "删除用户「"+targetName+"」")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "用户已删除"})
 }
 
@@ -510,11 +592,22 @@ func resetAutoIncrement() {
 		"study_materials", "attachments", "calendar_tasks", "standing_committee_events",
 		"major_events", "weekly_summaries", "overtime_records", "annual_leave_configs",
 		"meetings", "meeting_registrations"}
+	tx, err := database.DB.Begin()
+	if err != nil {
+		return
+	}
 	for _, t := range tables {
 		// 将序列设为当前最大 ID（若表为空则为 0）
-		database.DB.Exec("DELETE FROM sqlite_sequence WHERE name=?", t)
-		database.DB.Exec("INSERT OR REPLACE INTO sqlite_sequence (name, seq) VALUES (?, (SELECT COALESCE(MAX(id),0) FROM "+t+"))", t)
+		if _, err := tx.Exec("DELETE FROM sqlite_sequence WHERE name=?", t); err != nil {
+			tx.Rollback()
+			return
+		}
+		if _, err := tx.Exec("INSERT OR REPLACE INTO sqlite_sequence (name, seq) VALUES (?, (SELECT COALESCE(MAX(id),0) FROM "+t+"))", t); err != nil {
+			tx.Rollback()
+			return
+		}
 	}
+	tx.Commit()
 }
 
 // 分页参数

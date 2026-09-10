@@ -102,6 +102,9 @@ var migrations = []migration{
 	{9, "新增会务管理表（会议与参会报名）", migrateV9},
 	{10, "会务会议增加每单位参会人数上限", migrateV10},
 	{11, "请假记录支持按小时/半天（增加 leave_hours）", migrateV11},
+	{12, "新增操作日志表（管理员审计）", migrateV12},
+	{13, "新增权限点与角色-权限矩阵", migrateV13},
+	{14, "用户令牌版本（token_version，支持改密/禁用后旧令牌失效）", migrateV14},
 }
 
 // migrateV2 版本2：用车报备支持科室人开车（增加 driver_name 字段）
@@ -366,6 +369,79 @@ func migrateV11() error {
 	return nil
 }
 
+// migrateV12 版本12：新增操作日志表（记录关键写操作/登录/导出，供管理员审计）
+func migrateV12() error {
+	if _, err := DB.Exec(`CREATE TABLE IF NOT EXISTS operation_logs (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id INTEGER,
+		user_name TEXT,
+		department TEXT,
+		module TEXT,
+		action TEXT,
+		detail TEXT,
+		ip TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		return err
+	}
+	DB.Exec(`CREATE INDEX IF NOT EXISTS idx_oplog_created ON operation_logs(created_at)`)
+	DB.Exec(`CREATE INDEX IF NOT EXISTS idx_oplog_module ON operation_logs(module)`)
+	return nil
+}
+
+// migrateV13 版本13：权限点目录 + 角色-权限矩阵（首次写入默认勾选，等于升级前行为）
+func migrateV13() error {
+	if _, err := DB.Exec(`CREATE TABLE IF NOT EXISTS permissions (
+		code TEXT PRIMARY KEY,
+		name TEXT,
+		module TEXT,
+		sort INTEGER DEFAULT 0
+	)`); err != nil {
+		return err
+	}
+	if _, err := DB.Exec(`CREATE TABLE IF NOT EXISTS role_permissions (
+		role_id INTEGER,
+		permission_code TEXT,
+		PRIMARY KEY (role_id, permission_code)
+	)`); err != nil {
+		return err
+	}
+	// 同步权限点目录（名称/模块可更新）
+	for _, p := range PermissionCatalog {
+		if _, err := DB.Exec(
+			`INSERT INTO permissions (code, name, module, sort) VALUES (?, ?, ?, ?)
+			 ON CONFLICT(code) DO UPDATE SET name=excluded.name, module=excluded.module, sort=excluded.sort`,
+			p.Code, p.Name, p.Module, p.Sort); err != nil {
+			return err
+		}
+	}
+	// 仅在空表时写入默认勾选，避免覆盖用户后续自定义
+	var cnt int
+	DB.QueryRow("SELECT COUNT(*) FROM role_permissions").Scan(&cnt)
+	if cnt == 0 {
+		for roleCode, codes := range DefaultRolePermissions {
+			var roleID int64
+			if err := DB.QueryRow("SELECT id FROM roles WHERE code = ?", roleCode).Scan(&roleID); err != nil {
+				continue
+			}
+			for _, c := range codes {
+				DB.Exec("INSERT OR IGNORE INTO role_permissions (role_id, permission_code) VALUES (?, ?)", roleID, c)
+			}
+		}
+	}
+	return nil
+}
+
+// migrateV14 版本14：用户令牌版本号，用于改密/禁用/登出后使旧 JWT 立即失效
+func migrateV14() error {
+	if !hasColumn("users", "token_version") {
+		if _, err := DB.Exec("ALTER TABLE users ADD COLUMN token_version INTEGER DEFAULT 0"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // migrateV1 版本1：历史兼容迁移
 // 新库由 createTables() 直接建出最新结构；老库通过条件判断补齐/重建
 func migrateV1() error {
@@ -518,6 +594,7 @@ func createTables() error {
 			department_id INTEGER DEFAULT 0,
 			role_id INTEGER DEFAULT 3,
 			status INTEGER DEFAULT 1,
+			token_version INTEGER DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
@@ -748,6 +825,30 @@ func createTables() error {
 		`CREATE INDEX IF NOT EXISTS idx_al_config_user ON annual_leave_configs(user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_al_config_year ON annual_leave_configs(year)`,
 		`CREATE INDEX IF NOT EXISTS idx_meeting_id ON meeting_registrations(meeting_id)`,
+		`CREATE TABLE IF NOT EXISTS operation_logs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER,
+			user_name TEXT,
+			department TEXT,
+			module TEXT,
+			action TEXT,
+			detail TEXT,
+			ip TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_oplog_created ON operation_logs(created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_oplog_module ON operation_logs(module)`,
+		`CREATE TABLE IF NOT EXISTS permissions (
+			code TEXT PRIMARY KEY,
+			name TEXT,
+			module TEXT,
+			sort INTEGER DEFAULT 0
+		)`,
+		`CREATE TABLE IF NOT EXISTS role_permissions (
+			role_id INTEGER,
+			permission_code TEXT,
+			PRIMARY KEY (role_id, permission_code)
+		)`,
 	}
 
 	for _, s := range stmts {

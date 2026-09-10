@@ -28,15 +28,15 @@ func ListIncomingDocs(w http.ResponseWriter, r *http.Request) {
 		kw := "%" + keyword + "%"
 		args = append(args, kw, kw, kw, kw, kw)
 	}
-	if status != "" && status != "0" {
+	if status != "" {
 		where += ` AND d.status = ?`
 		args = append(args, status)
 	}
-	if returned != "" && returned != "0" {
+	if returned != "" {
 		where += ` AND d.returned = ?`
 		args = append(args, returned)
 	}
-	if needReturn != "" && needReturn != "0" {
+	if needReturn != "" {
 		where += ` AND d.need_return = ?`
 		args = append(args, needReturn)
 	}
@@ -54,7 +54,10 @@ func ListIncomingDocs(w http.ResponseWriter, r *http.Request) {
 
 	// 总数
 	var total int
-	database.DB.QueryRow("SELECT COUNT(*) FROM incoming_docs d"+where, args...).Scan(&total)
+	if err := database.DB.QueryRow("SELECT COUNT(*) FROM incoming_docs d"+where, args...).Scan(&total); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
 
 	// 数据
 	query := `SELECT d.id, d.receive_no, d.received_date, d.from_unit, d.from_doc_no, d.doc_no, d.title,
@@ -75,10 +78,26 @@ func ListIncomingDocs(w http.ResponseWriter, r *http.Request) {
 	docs := []models.IncomingDoc{}
 	for rows.Next() {
 		var d models.IncomingDoc
-		rows.Scan(&d.ID, &d.ReceiveNo, &d.ReceivedDate, &d.FromUnit, &d.FromDocNo, &d.DocNo, &d.Title,
-			&d.Copies, &d.SecretLevel, &d.Urgency, &d.Suggest, &d.LeaderComment, &d.Processing,
-			&d.ReturnDate, &d.Returned, &d.NeedReturn,
-			&d.RegistrarID, &d.Registrar, &d.Status, &d.CreatedAt, &d.UpdatedAt)
+		var receiveNo, receivedDate, fromUnit, fromDocNo, docNo, title, secretLevel, urgency, suggest, leaderComment, processing, returnDate, registrar sql.NullString
+		if err := rows.Scan(&d.ID, &receiveNo, &receivedDate, &fromUnit, &fromDocNo, &docNo, &title,
+			&d.Copies, &secretLevel, &urgency, &suggest, &leaderComment, &processing,
+			&returnDate, &d.Returned, &d.NeedReturn,
+			&d.RegistrarID, &registrar, &d.Status, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			continue
+		}
+		d.ReceiveNo = receiveNo.String
+		d.ReceivedDate = receivedDate.String
+		d.FromUnit = fromUnit.String
+		d.FromDocNo = fromDocNo.String
+		d.DocNo = docNo.String
+		d.Title = title.String
+		d.SecretLevel = secretLevel.String
+		d.Urgency = urgency.String
+		d.Suggest = suggest.String
+		d.LeaderComment = leaderComment.String
+		d.Processing = processing.String
+		d.ReturnDate = returnDate.String
+		d.Registrar = registrar.String
 		docs = append(docs, d)
 	}
 	if err := rows.Err(); err != nil {
@@ -97,16 +116,17 @@ func GetIncomingDoc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var d models.IncomingDoc
+	var receiveNo, receivedDate, fromUnit, fromDocNo, docNo, title, secretLevel, urgency, suggest, leaderComment, processing, returnDate, registrar sql.NullString
 	err := database.DB.QueryRow(
 		`SELECT d.id, d.receive_no, d.received_date, d.from_unit, d.from_doc_no, d.doc_no, d.title,
 		d.copies, d.secret_level, d.urgency, d.suggest, d.leader_comment, d.processing,
 		d.return_date, d.returned, d.need_return,
 		d.registrar_id, u.real_name, d.status, d.created_at, d.updated_at
 		FROM incoming_docs d LEFT JOIN users u ON d.registrar_id = u.id WHERE d.id = ?`, id).
-		Scan(&d.ID, &d.ReceiveNo, &d.ReceivedDate, &d.FromUnit, &d.FromDocNo, &d.DocNo, &d.Title,
-			&d.Copies, &d.SecretLevel, &d.Urgency, &d.Suggest, &d.LeaderComment, &d.Processing,
-			&d.ReturnDate, &d.Returned, &d.NeedReturn,
-			&d.RegistrarID, &d.Registrar, &d.Status, &d.CreatedAt, &d.UpdatedAt)
+		Scan(&d.ID, &receiveNo, &receivedDate, &fromUnit, &fromDocNo, &docNo, &title,
+			&d.Copies, &secretLevel, &urgency, &suggest, &leaderComment, &processing,
+			&returnDate, &d.Returned, &d.NeedReturn,
+			&d.RegistrarID, &registrar, &d.Status, &d.CreatedAt, &d.UpdatedAt)
 	if err == sql.ErrNoRows {
 		middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "文件不存在"})
 		return
@@ -115,6 +135,19 @@ func GetIncomingDoc(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
+	d.ReceiveNo = receiveNo.String
+	d.ReceivedDate = receivedDate.String
+	d.FromUnit = fromUnit.String
+	d.FromDocNo = fromDocNo.String
+	d.DocNo = docNo.String
+	d.Title = title.String
+	d.SecretLevel = secretLevel.String
+	d.Urgency = urgency.String
+	d.Suggest = suggest.String
+	d.LeaderComment = leaderComment.String
+	d.Processing = processing.String
+	d.ReturnDate = returnDate.String
+	d.Registrar = registrar.String
 	d.CircList = getCirculations(d.ID)
 	middleware.JSON(w, http.StatusOK, d)
 }
@@ -159,6 +192,7 @@ func CreateIncomingDoc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, _ := res.LastInsertId()
+	logOperation(r, "收文管理", "新增", "登记收文《"+req.Title+"》")
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{"message": "登记成功", "id": id})
 }
 
@@ -177,6 +211,10 @@ func UpdateIncomingDoc(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
 		return
 	}
+	if req.Title == "" {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "文件标题必填"})
+		return
+	}
 	_, err := database.DB.Exec(
 		`UPDATE incoming_docs SET receive_no=?, received_date=?, from_unit=?, from_doc_no=?, doc_no=?, title=?, copies=?,
 			secret_level=?, urgency=?, suggest=?, leader_comment=?, processing=?, return_date=?, returned=?, need_return=?, status=?, updated_at=? WHERE id=?`,
@@ -188,6 +226,7 @@ func UpdateIncomingDoc(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "更新失败"})
 		return
 	}
+	logOperation(r, "收文管理", "修改", "修改收文《"+req.Title+"》")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "更新成功"})
 }
 
@@ -202,12 +241,28 @@ func DeleteIncomingDoc(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
 		return
 	}
-	database.DB.Exec("DELETE FROM circulation_records WHERE doc_id=?", id)
-	_, err := database.DB.Exec("DELETE FROM incoming_docs WHERE id=?", id)
+	var title string
+	database.DB.QueryRow("SELECT title FROM incoming_docs WHERE id=?", id).Scan(&title)
+	tx, err := database.DB.Begin()
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
 		return
 	}
+	if _, err := tx.Exec("DELETE FROM circulation_records WHERE doc_id=?", id); err != nil {
+		tx.Rollback()
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+		return
+	}
+	if _, err := tx.Exec("DELETE FROM incoming_docs WHERE id=?", id); err != nil {
+		tx.Rollback()
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+		return
+	}
+	logOperation(r, "收文管理", "删除", "删除收文《"+title+"》")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "删除成功"})
 }
 
@@ -225,7 +280,13 @@ func getCirculations(docID int64) []models.CirculationRecord {
 	list := []models.CirculationRecord{}
 	for rows.Next() {
 		var c models.CirculationRecord
-		rows.Scan(&c.ID, &c.DocID, &c.UserID, &c.UserName, &c.OrderNo, &c.ReadDate, &c.Signature)
+		var userName, readDate, signature sql.NullString
+		if err := rows.Scan(&c.ID, &c.DocID, &c.UserID, &userName, &c.OrderNo, &readDate, &signature); err != nil {
+			continue
+		}
+		c.UserName = userName.String
+		c.ReadDate = readDate.String
+		c.Signature = signature.String
 		list = append(list, c)
 	}
 	if err := rows.Err(); err != nil {
@@ -237,6 +298,10 @@ func getCirculations(docID int64) []models.CirculationRecord {
 
 // AddCirculation 添加传阅人
 func AddCirculation(w http.ResponseWriter, r *http.Request) {
+	if !isOfficeUser(r) {
+		middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "仅办公室可管理传阅"})
+		return
+	}
 	var req models.CirculationRecord
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请求格式错误"})
@@ -263,11 +328,19 @@ func AddCirculation(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "添加失败"})
 		return
 	}
+	var docTitle, personName string
+	database.DB.QueryRow("SELECT title FROM incoming_docs WHERE id=?", req.DocID).Scan(&docTitle)
+	database.DB.QueryRow("SELECT real_name FROM users WHERE id=?", req.UserID).Scan(&personName)
+	logOperation(r, "收文管理", "新增", "为收文《"+docTitle+"》添加传阅人「"+personName+"」")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "已添加"})
 }
 
 // UpdateCirculation 更新传阅记录（传阅日期/签名）
 func UpdateCirculation(w http.ResponseWriter, r *http.Request) {
+	if !isOfficeUser(r) {
+		middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "仅办公室可管理传阅"})
+		return
+	}
 	var req models.CirculationRecord
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请求格式错误"})
@@ -284,21 +357,37 @@ func UpdateCirculation(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "更新失败"})
 		return
 	}
+	var docTitle, personName string
+	database.DB.QueryRow(
+		`SELECT d.title, u.real_name FROM circulation_records c
+		 LEFT JOIN incoming_docs d ON c.doc_id=d.id LEFT JOIN users u ON c.user_id=u.id WHERE c.id=?`, req.ID).
+		Scan(&docTitle, &personName)
+	logOperation(r, "收文管理", "修改", "登记传阅回执：收文《"+docTitle+"》-「"+personName+"」")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "更新成功"})
 }
 
 // DeleteCirculation 删除传阅记录
 func DeleteCirculation(w http.ResponseWriter, r *http.Request) {
+	if !isOfficeUser(r) {
+		middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "仅办公室可管理传阅"})
+		return
+	}
 	id := pathID(r)
 	if id == 0 {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
 		return
 	}
+	var docTitle, personName string
+	database.DB.QueryRow(
+		`SELECT d.title, u.real_name FROM circulation_records c
+		 LEFT JOIN incoming_docs d ON c.doc_id=d.id LEFT JOIN users u ON c.user_id=u.id WHERE c.id=?`, id).
+		Scan(&docTitle, &personName)
 	_, err := database.DB.Exec("DELETE FROM circulation_records WHERE id=?", id)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
 		return
 	}
+	logOperation(r, "收文管理", "删除", "从收文《"+docTitle+"》移除传阅人「"+personName+"」")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "删除成功"})
 }
 

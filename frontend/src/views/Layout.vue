@@ -70,6 +70,8 @@
         <a href="https://beian.mps.gov.cn/#/query/webSearch" target="_blank" rel="noopener">
           公网安备号占位
         </a>
+        <span class="footer-sep">|</span>
+        <span class="ipv6-tip">本站支持IPv6</span>
       </el-footer>
     </el-container>
   </el-container>
@@ -103,40 +105,39 @@ const closeMobile = () => {
 const dashboardMenu = { path: '/dashboard', title: '工作台', icon: 'Odometer' }
 
 const menuGroups = computed(() => {
+  const hp = (code) => authStore.hasPerm(code)
+  const business = [
+    hp('incoming.view') && { path: '/incoming', title: '收文管理', icon: 'FolderOpened' },
+    hp('vehicle.view') && { path: '/vehicles', title: '公车管理', icon: 'Van' },
+    hp('duty.view') && { path: '/duty', title: '值守排班', icon: 'AlarmClock' },
+    hp('calendar.view') && { path: '/calendar', title: '工作日历', icon: 'Calendar' },
+    hp('meeting.manage') && { path: '/meetings', title: '会务管理', icon: 'OfficeBuilding' },
+    hp('contact.view') && { path: '/contacts', title: '通讯录', icon: 'Phone' }
+  ].filter(Boolean)
+  const attendance = [
+    hp('attendance.view') && { path: '/attendance', title: '考勤点到', icon: 'AlarmClock' },
+    hp('leave.view') && { path: '/leave', title: '请假管理', icon: 'Calendar' },
+    hp('overtime.view') && { path: '/overtime', title: '加班管理', icon: 'Clock' },
+    hp('annualleave.view') && { path: '/annualleave', title: '年休假管理', icon: 'Sunny' }
+  ].filter(Boolean)
+  const materials = [
+    hp('event.view') && { path: '/reports', title: '大事记', icon: 'Tickets' },
+    hp('weekly.view') && { path: '/weekly', title: '每周工作总结', icon: 'Document' },
+    hp('study.view') && { path: '/study', title: '公共资料', icon: 'Reading' }
+  ].filter(Boolean)
   const groups = [
-    {
-      title: '业务办理', icon: 'FolderOpened', items: [
-        { path: '/incoming', title: '收文管理', icon: 'FolderOpened' },
-        { path: '/vehicles', title: '公车管理', icon: 'Van' },
-        { path: '/duty', title: '值守排班', icon: 'AlarmClock' },
-        { path: '/calendar', title: '工作日历', icon: 'Calendar' },
-        { path: '/meetings', title: '会务管理', icon: 'OfficeBuilding' },
-        { path: '/contacts', title: '通讯录', icon: 'Phone' }
-      ]
-    },
-    {
-      title: '考勤休假', icon: 'AlarmClock', items: [
-        { path: '/attendance', title: '考勤点到', icon: 'AlarmClock' },
-        { path: '/leave', title: '请假管理', icon: 'Calendar' },
-        { path: '/overtime', title: '加班管理', icon: 'Clock' },
-        { path: '/annualleave', title: '年休假管理', icon: 'Sunny' }
-      ]
-    },
-    {
-      title: '材料报送', icon: 'Document', items: [
-        { path: '/reports', title: '大事记', icon: 'Tickets' },
-        { path: '/weekly', title: '每周工作总结', icon: 'Document' },
-        { path: '/study', title: '公共资料', icon: 'Reading' }
-      ]
-    }
-  ]
-  if (authStore.isAdmin) {
-    groups.push({
-      title: '系统管理', icon: 'Setting', items: [
-        { path: '/standing', title: '常委管理', icon: 'UserFilled' },
-        { path: '/users', title: '用户管理', icon: 'User' }
-      ]
-    })
+    { title: '业务办理', icon: 'FolderOpened', items: business },
+    { title: '考勤休假', icon: 'AlarmClock', items: attendance },
+    { title: '材料报送', icon: 'Document', items: materials }
+  ].filter(g => g.items.length > 0)
+  const sys = [
+    hp('standing.manage') && { path: '/standing', title: '常委管理', icon: 'UserFilled' },
+    hp('user.manage') && { path: '/users', title: '用户管理', icon: 'User' },
+    hp('user.manage') && { path: '/permissions', title: '权限管理', icon: 'Lock' },
+    hp('oplog.view') && { path: '/operation-logs', title: '操作日志', icon: 'Document' }
+  ].filter(Boolean)
+  if (sys.length) {
+    groups.push({ title: '系统管理', icon: 'Setting', items: sys })
   }
   return groups
 })
@@ -157,6 +158,7 @@ const refreshUnread = () => {
 }
 
 onMounted(() => {
+  authStore.refreshProfile()
   loadUnread()
   checkMobile()
   window.addEventListener('resize', checkMobile)

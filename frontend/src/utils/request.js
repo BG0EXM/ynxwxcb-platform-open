@@ -88,3 +88,47 @@ export async function exportFile(url, params = {}) {
 }
 
 export default request
+
+// 通用文件下载（带 token，用于附件等需要鉴权的文件）
+export async function downloadFile(url, defaultName = '下载文件') {
+  const token = localStorage.getItem('token')
+  try {
+    const res = await axios.get(url, {
+      baseURL: '/api',
+      responseType: 'blob',
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: 60000
+    })
+    if (res.data && res.data.type === 'application/json') {
+      const text = await res.data.text()
+      const err = JSON.parse(text)
+      ElMessage.error(err.error || '下载失败')
+      return
+    }
+    let fileName = defaultName
+    const cd = res.headers['content-disposition']
+    if (cd) {
+      const match = cd.match(/filename\*=UTF-8''([^;]+)/)
+      if (match && match[1]) {
+        try { fileName = decodeURIComponent(match[1]) } catch (e) {}
+      }
+    }
+    const blob = new Blob([res.data], { type: res.headers['content-type'] || 'application/octet-stream' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = fileName
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000)
+  } catch (e) {
+    if (e.response?.status === 401) {
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
+      router.push('/login')
+      ElMessage.error('登录已过期，请重新登录')
+    } else {
+      ElMessage.error('下载失败，请重试')
+    }
+  }
+}

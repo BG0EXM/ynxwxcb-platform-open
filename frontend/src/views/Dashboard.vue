@@ -133,6 +133,8 @@ const attStatusText = computed(() => {
   if (s === 2) return '已请假'
   if (s === 3) return '出差中'
   if (s === 4) return '未到'
+  if (s === 5) return '迟到'
+  if (s === 6) return '培训'
   return '未点到'
 })
 const attStatusType = computed(() => {
@@ -141,6 +143,8 @@ const attStatusType = computed(() => {
   if (s === 2) return 'warning'
   if (s === 3) return 'primary'
   if (s === 4) return 'danger'
+  if (s === 5) return 'warning'
+  if (s === 6) return 'info'
   return 'info'
 })
 

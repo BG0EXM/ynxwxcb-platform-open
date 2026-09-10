@@ -95,11 +95,11 @@
         <div class="card-header">
           <span class="card-title">请假记录</span>
           <div class="header-right">
-            <el-date-picker v-model="monthFilter" type="month" value-format="YYYY-MM" placeholder="按年月筛选" clearable style="width:140px" @change="loadData" />
-            <el-select v-model="filterType" placeholder="全部类型" clearable style="width:130px" class="ml-8" @change="loadData">
+            <el-date-picker v-model="monthFilter" type="month" value-format="YYYY-MM" placeholder="按年月筛选" clearable style="width:140px" @change="reloadFirstPage" />
+            <el-select v-model="filterType" placeholder="全部类型" clearable style="width:130px" class="ml-8" @change="reloadFirstPage">
               <el-option v-for="(name, val) in leaveTypeNames" :key="val" :label="name" :value="val" />
             </el-select>
-            <el-select v-if="authStore.isAdmin" v-model="userFilter" placeholder="全部人员" clearable style="width:140px" class="ml-8" @change="loadData">
+            <el-select v-if="authStore.isAdmin" v-model="userFilter" placeholder="全部人员" clearable style="width:140px" class="ml-8" @change="reloadFirstPage">
               <el-option v-for="a in assignees" :key="a.id" :label="a.real_name" :value="a.id" />
             </el-select>
             <el-button type="success" :icon="'Download'" class="ml-8" @click="exportData">导出Excel</el-button>
@@ -119,12 +119,15 @@
         <el-table-column prop="reason" label="事由" min-width="150" show-overflow-tooltip />
         <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="authStore.isAdmin || row.user_id === authStore.user?.id" link type="warning" size="small" @click="openEdit(row)">编辑</el-button>
+            <el-button v-if="authStore.hasPerm('leave.manage') && (authStore.isAdmin || row.user_id === authStore.user?.id)" link type="warning" size="small" @click="openEdit(row)">编辑</el-button>
             <el-button link type="primary" size="small" @click="openPrint(row)">打印假条</el-button>
-            <el-button v-if="authStore.isAdmin" link type="danger" size="small" @click="removeLeave(row)">删除</el-button>
+            <el-button v-if="authStore.hasPerm('leave.delete')" link type="danger" size="small" @click="removeLeave(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
+      <div class="pagination-wrap" v-if="total > 0">
+        <el-pagination background layout="total, prev, pager, next" :total="total" :page-size="pageSize" :current-page="page" @current-change="onPageChange" />
+      </div>
     </el-card>
   </div>
 </template>
@@ -139,6 +142,9 @@ import { useAuthStore } from '../store/auth'
 const authStore = useAuthStore()
 const list = ref([])
 const loading = ref(false)
+const page = ref(1)
+const pageSize = 20
+const total = ref(0)
 const editId = ref(0)
 const stats = reactive({ year: dayjs().format('YYYY'), total_count: 0, total_days: 0 })
 const statsYear = ref(dayjs().format('YYYY'))
@@ -168,15 +174,19 @@ const statItems = computed(() => Object.keys(leaveTypeNames).map(k => ({
   color: statColors[k]
 })))
 
+const reloadFirstPage = () => { page.value = 1; loadData() }
+const onPageChange = (p) => { page.value = p; loadData() }
+
 const loadData = async () => {
   loading.value = true
   try {
-    const params = {}
+    const params = { page: page.value, page_size: pageSize }
     if (filterType.value) params.leave_type = filterType.value
     if (userFilter.value) params.user_id = userFilter.value
     if (monthFilter.value) params.month = monthFilter.value
     const res = await request.get('/leave-records', { params })
     list.value = res.list || []
+    total.value = res.total || 0
   } catch (e) {
   } finally {
     loading.value = false
@@ -350,6 +360,7 @@ const exportData = () => {
   const params = {}
   if (filterType.value) params.leave_type = filterType.value
   if (monthFilter.value) params.month = monthFilter.value
+  if (userFilter.value) params.user_id = userFilter.value
   exportFile('/export/leave-records', params)
 }
 </script>
@@ -396,5 +407,10 @@ const exportData = () => {
   color: #909399;
   font-size: 12px;
   margin-top: 4px;
+}
+.pagination-wrap {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
 }
 </style>

@@ -36,10 +36,13 @@
               <el-button link type="info" size="small" @click="changeUnit">更换单位</el-button>
             </div>
 
-            <!-- 提交成功提示条 -->
+            <!-- 提交成功提示条（不可关闭，常驻显示确认状态） -->
             <transition name="fade">
-              <el-alert v-if="submitted" type="success" :closable="true" show-icon class="success-alert"
-                :title="submittedTitle" :description="submittedText" @close="submitted = false" />
+              <div v-if="submitted" class="success-block">
+                <el-alert type="success" :closable="false" show-icon class="success-alert"
+                  :title="submittedTitle" :description="submittedText" />
+                <div class="success-hint">{{ editHint }}</div>
+              </div>
             </transition>
 
             <!-- 参加/不参加切换（所有模式可用） -->
@@ -93,7 +96,7 @@
                   <el-input v-model="personForm.attendee_title" placeholder="填写职务" />
                 </el-form-item>
                 <el-form-item label="联系电话" required>
-                  <el-input v-model="personForm.phone" maxlength="11" placeholder="填写11位手机号" />
+                  <el-input v-model="personForm.phone" maxlength="11" :placeholder="phonePlaceholder || '填写11位手机号'" />
                 </el-form-item>
                 <el-form-item v-if="editingRegId">
                   <div class="form-actions">
@@ -132,11 +135,13 @@
     </div>
 
     <div class="reg-footer">
-      <div class="reg-footer-platform">伊宁县委宣传部部务工作平台 V1.4.1</div>
+      <div class="reg-footer-platform">伊宁县委宣传部部务工作平台 V1.4.2</div>
       <div class="reg-footer-beian">
         <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">ICP备案号占位</a>
         <span class="footer-sep">|</span>
         <a href="https://beian.mps.gov.cn/#/query/webSearch" target="_blank" rel="noopener">公网安备号占位</a>
+        <span class="footer-sep">|</span>
+        <span class="ipv6-tip">本站支持IPv6</span>
       </div>
     </div>
   </div>
@@ -165,10 +170,12 @@ const submitting = ref(false)
 const submitted = ref(false)
 const submittedTitle = ref('')
 const submittedText = ref('')
+const editHint = ref('')
 const submittedShowBack = ref(false) // 成功后显示"返回修改"
 
 const form = ref({ unit: '' })
 const personForm = ref({ attendee_name: '', attendee_title: '', phone: '' })
+const phonePlaceholder = ref('')
 const editingRegId = ref(0)
 const editingRegName = ref('')
 const absentReason = ref('')
@@ -180,7 +187,7 @@ const loadMeeting = async () => {
     const res = await request.get(`/public/meetings/${meetingId}`)
     meeting.value = res.meeting
     units.value = res.units || []
-    unitLimit.value = res.meeting.unit_limit || 1
+    unitLimit.value = res.meeting.unit_limit ?? 1
     expired.value = !!res.expired
   } catch (e) {
     meeting.value = null
@@ -217,11 +224,30 @@ const loadUnitStatus = async () => {
     if (notAttendAll.value) {
       notAttend.value = 1
       absentReason.value = notAttendReason.value
+      // 刷新/重新选中该单位时，常驻显示"已确认不参加"
+      submitted.value = true
+      submittedTitle.value = '已确认不参加'
+      submittedText.value = notAttendReason.value ? '已记录不参加原因：' + notAttendReason.value : '已记录不参加'
+      editHint.value = '如需改为参加，请点击下方"参加"切换后填写参会人员。'
+      return
     }
-    // 单人模式已有报名：回显
+    // 单人模式已有报名：回显 + 常驻成功提示（手机号脱敏，留空则不修改）
     if (unitLimit.value === 1 && registrations.value.length > 0) {
       const rg = registrations.value[0]
-      personForm.value = { attendee_name: rg.attendee_name, attendee_title: rg.attendee_title, phone: rg.phone }
+      editingRegId.value = rg.id
+      editingRegName.value = rg.attendee_name
+      personForm.value = { attendee_name: rg.attendee_name, attendee_title: rg.attendee_title, phone: '' }
+      phonePlaceholder.value = rg.phone ? '原号码 ' + rg.phone + '（不修改请留空）' : ''
+      submitted.value = true
+      submittedTitle.value = '报名成功'
+      submittedText.value = `已确认「${rg.attendee_name}」参会，请准时参加。`
+      editHint.value = '如需修改参会人员信息，请在下方修改后重新提交。'
+    } else if (unitLimit.value !== 1 && registrations.value.length > 0) {
+      // 多人与会已有报名：常驻成功提示
+      submitted.value = true
+      submittedTitle.value = '已提交报名'
+      submittedText.value = `该单位已报 ${registrations.value.length} 人${remain.value > 0 ? '，还可补报 ' + remain.value + ' 人' : ''}。`
+      editHint.value = '如需修改或移除参会人员，请在下方已报人员列表中操作。'
     }
   } catch (e) {}
 }
@@ -254,17 +280,19 @@ const watchNotAttend = (val) => {
   }
 }
 
-// 修改某条报名
+// 修改某条报名（手机号脱敏，留空则不修改）
 const editReg = (rg) => {
   editingRegId.value = rg.id
   editingRegName.value = rg.attendee_name
-  personForm.value = { attendee_name: rg.attendee_name, attendee_title: rg.attendee_title, phone: rg.phone }
+  personForm.value = { attendee_name: rg.attendee_name, attendee_title: rg.attendee_title, phone: '' }
+  phonePlaceholder.value = rg.phone ? '原号码 ' + rg.phone + '（不修改请留空）' : ''
 }
 
 const cancelEditReg = () => {
   editingRegId.value = 0
   editingRegName.value = ''
   personForm.value = { attendee_name: '', attendee_title: '', phone: '' }
+  phonePlaceholder.value = ''
 }
 
 // 移除某条报名（询问确认）
@@ -283,7 +311,10 @@ const removeReg = async (rg) => {
 const savePerson = async () => {
   if (!personForm.value.attendee_name) return ElMessage.warning('请填写参会人员姓名')
   if (!personForm.value.attendee_title) return ElMessage.warning('请填写职务')
-  if (!/^1[3-9]\d{9}$/.test(personForm.value.phone)) return ElMessage.warning('请输入正确的11位手机号')
+  // 修改已有报名时手机号可留空（保持原号）；新增/替换必须填
+  if (!editingRegId.value || personForm.value.phone) {
+    if (!/^1[3-9]\d{9}$/.test(personForm.value.phone)) return ElMessage.warning('请输入正确的11位手机号')
+  }
   submitting.value = true
   try {
     const payload = {
@@ -298,26 +329,28 @@ const savePerson = async () => {
     const res = await request.post(`/public/meetings/${meetingId}/register`, payload)
     await loadUnitStatus()
     if (editingRegId.value) {
-      showSuccess('修改成功', `「${personForm.value.attendee_name}」的信息已更新`)
+      showSuccess('修改成功', `「${personForm.value.attendee_name}」的信息已更新`, '如需再次修改，请在下方修改后重新提交。')
     } else if (unitLimit.value === 1) {
-      showSuccess('报名成功', `已确认「${personForm.value.attendee_name}」参会，请准时参加。`)
+      showSuccess('报名成功', `已确认「${personForm.value.attendee_name}」参会，请准时参加。`, '如需修改参会人员信息，请在下方修改后重新提交。')
     } else {
-      showSuccess('添加成功', `该单位当前已报 ${registrations.value.length} 人${remain.value > 0 ? '，还可补报 ' + remain.value + ' 人' : ''}`)
+      showSuccess('添加成功', `该单位当前已报 ${registrations.value.length} 人${remain.value > 0 ? '，还可补报 ' + remain.value + ' 人' : ''}`, '如需修改或移除参会人员，请在下方已报人员列表中操作。')
     }
     if (editingRegId.value) {
       editingRegId.value = 0
       editingRegName.value = ''
     }
     personForm.value = { attendee_name: '', attendee_title: '', phone: '' }
+    phonePlaceholder.value = ''
   } catch (e) {
   } finally {
     submitting.value = false
   }
 }
 
-const showSuccess = (title, text) => {
+const showSuccess = (title, text, hint) => {
   submittedTitle.value = title
   submittedText.value = text
+  editHint.value = hint || ''
   submitted.value = true
 }
 
@@ -332,7 +365,7 @@ const saveAbsent = async () => {
     // 刷新状态：切换为"已不参加"横幅展示（notAttend=1），隐藏填写表单
     await loadUnitStatus()
     notAttend.value = 1
-    showSuccess('已确认不参加', absentReason.value ? '已记录不参加原因。' : '')
+    showSuccess('已确认不参加', absentReason.value ? '已记录不参加原因。' : '', '如需改为参加，请点击下方"参加"切换后填写参会人员。')
   } catch (e) {
   } finally {
     submitting.value = false
@@ -402,6 +435,15 @@ onMounted(loadMeeting)
 }
 .success-alert {
   margin-bottom: 12px;
+}
+.success-block {
+  margin-bottom: 12px;
+}
+.success-hint {
+  font-size: 13px;
+  color: #909399;
+  padding: 6px 4px 0;
+  line-height: 1.6;
 }
 .fade-enter-active,
 .fade-leave-active {
@@ -546,6 +588,9 @@ onMounted(loadMeeting)
 .reg-footer .footer-sep {
   margin: 0 8px;
   color: #c0c4cc;
+}
+.reg-footer .ipv6-tip {
+  color: #606266;
 }
 
 /* 响应式 */

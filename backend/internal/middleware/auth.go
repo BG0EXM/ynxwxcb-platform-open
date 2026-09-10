@@ -36,6 +36,11 @@ func Auth(next http.Handler) http.Handler {
 			http.Error(w, `{"error":"登录已过期，请重新登录"}`, http.StatusUnauthorized)
 			return
 		}
+		// 令牌版本校验：改密/禁用/登出后旧令牌立即失效
+		if ver, ok := currentTokenVersion(claims.UserID); !ok || ver != claims.TokenVersion {
+			http.Error(w, `{"error":"登录已失效，请重新登录"}`, http.StatusUnauthorized)
+			return
+		}
 
 		ctx := context.WithValue(r.Context(), ContextUserID, claims.UserID)
 		ctx = context.WithValue(ctx, ContextUsername, claims.Username)

@@ -85,7 +85,7 @@ func (d *docxBuilder) build() ([]byte, error) {
 </Relationships>`
 
 	document := `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` + body.String()
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` + body.String() + `</w:document>`
 
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)

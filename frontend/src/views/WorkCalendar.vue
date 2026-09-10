@@ -30,8 +30,11 @@
         <el-table-column prop="created_name" label="录入人" width="90" />
         <el-table-column label="操作" width="140" fixed="right">
           <template #default="{ row }">
-            <el-button link type="warning" size="small" @click="openEdit(row)">编辑</el-button>
-            <el-button link type="danger" size="small" @click="removeTask(row)">删除</el-button>
+            <template v-if="canEdit(row)">
+              <el-button link type="warning" size="small" @click="openEdit(row)">编辑</el-button>
+              <el-button link type="danger" size="small" @click="removeTask(row)">删除</el-button>
+            </template>
+            <span v-else>—</span>
           </template>
         </el-table-column>
       </el-table>
@@ -80,7 +83,7 @@
     <!-- 添加/编辑工作 -->
     <el-dialog v-model="dialogVisible" :title="editId ? '编辑工作' : '添加工作'" width="520px">
       <el-form :model="form" label-width="90px">
-        <el-form-item label="所属科室" required>
+        <el-form-item label="所属科室" required v-if="authStore.isAdmin">
           <el-select v-model="form.department_id" placeholder="选择科室" style="width:100%">
             <el-option v-for="d in departments" :key="d.id" :label="d.name" :value="d.id" />
           </el-select>
@@ -111,6 +114,12 @@ import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request, { exportFile } from '../utils/request'
 import dayjs from 'dayjs'
+import { useAuthStore } from '../store/auth'
+
+const authStore = useAuthStore()
+// 是否可改删该任务：管理员或本科室
+const canEdit = (row) => authStore.isAdmin || (row && row.department_id === authStore.user?.department_id)
+const myDeptId = () => authStore.user?.department_id || ''
 
 const viewMode = ref('month')
 const month = ref(dayjs().format('YYYY-MM'))
@@ -230,28 +239,33 @@ const nextPeriod = () => {
 
 const openCreate = () => {
   editId.value = 0
-  form.value = { department_id: '', title: '', content: '', start_date: dayjs().format('YYYY-MM-DD'), end_date: dayjs().format('YYYY-MM-DD') }
+  form.value = { department_id: authStore.isAdmin ? '' : myDeptId(), title: '', content: '', start_date: dayjs().format('YYYY-MM-DD'), end_date: dayjs().format('YYYY-MM-DD') }
   dialogVisible.value = true
 }
 
 const openCreateOnDate = (date) => {
   if (!date) return
   editId.value = 0
-  form.value = { department_id: '', title: '', content: '', start_date: date, end_date: date }
+  form.value = { department_id: authStore.isAdmin ? '' : myDeptId(), title: '', content: '', start_date: date, end_date: date }
   dialogVisible.value = true
 }
 
 const openEdit = (row) => {
+  if (!canEdit(row)) {
+    ElMessage.warning('只能修改本科室录入的工作')
+    return
+  }
   editId.value = row.id
   form.value = {
-    department_id: row.department_id, title: row.title, content: row.content || '',
+    department_id: authStore.isAdmin ? row.department_id : myDeptId(),
+    title: row.title, content: row.content || '',
     start_date: row.start_date, end_date: row.end_date
   }
   dialogVisible.value = true
 }
 
 const save = async () => {
-  if (!form.value.department_id) return ElMessage.warning('请选择科室')
+  if (authStore.isAdmin && !form.value.department_id) return ElMessage.warning('请选择科室')
   if (!form.value.title) return ElMessage.warning('请输入工作内容')
   if (!form.value.start_date) return ElMessage.warning('请选择开始日期')
   try {
@@ -270,6 +284,10 @@ const save = async () => {
 }
 
 const removeTask = async (row) => {
+  if (!canEdit(row)) {
+    ElMessage.warning('只能删除本科室录入的工作')
+    return
+  }
   try {
     await ElMessageBox.confirm(`确认删除工作「${row.title}」？`, '删除确认', { type: 'warning', confirmButtonText: '删除' })
   } catch (e) { return }
@@ -283,7 +301,7 @@ const removeTask = async (row) => {
 const reloadExport = () => {}
 
 const exportData = () => {
-  const params = {}
+  const params = { start: range.value.start, end: range.value.end }
   if (exportDept.value) params.department_id = exportDept.value
   exportFile('/export/calendar-tasks', params)
 }

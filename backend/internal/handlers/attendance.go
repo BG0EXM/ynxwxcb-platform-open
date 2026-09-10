@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"ynxwxcb-platform/internal/database"
@@ -43,45 +44,66 @@ func MarkAttendance(w http.ResponseWriter, r *http.Request) {
 		req.AttendDate = time.Now().Format("2006-01-02")
 	}
 
-	// 批量
+	validStatus := func(s int) bool { return s >= 1 && s <= 6 }
+
+	// 组装待写入记录
+	type markRec struct {
+		UserID    int64
+		Status    int
+		LeaveType string
+		Remark    string
+	}
+	recs := []markRec{}
 	if len(req.Records) > 0 {
 		for _, rec := range req.Records {
 			status := rec.Status
 			if status == 0 {
 				status = 1
 			}
-			_, err := database.DB.Exec(
-				`INSERT INTO attendances (user_id, attend_date, status, leave_type, remark, marked_by) VALUES (?, ?, ?, ?, ?, ?)
-				 ON CONFLICT(user_id, attend_date) DO UPDATE SET status=?, leave_type=?, remark=?, marked_by=?, updated_at=CURRENT_TIMESTAMP`,
-				rec.UserID, req.AttendDate, status, rec.LeaveType, rec.Remark, operatorID,
-				status, rec.LeaveType, rec.Remark, operatorID)
-			if err != nil {
-				middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "点到失败"})
+			if rec.UserID == 0 || !validStatus(status) {
+				middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "点到参数不合法"})
 				return
 			}
+			recs = append(recs, markRec{rec.UserID, status, rec.LeaveType, rec.Remark})
 		}
-		middleware.JSON(w, http.StatusOK, map[string]string{"message": "点到成功"})
-		return
+	} else {
+		if req.UserID == 0 {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少人员"})
+			return
+		}
+		status := req.Status
+		if status == 0 {
+			status = 1
+		}
+		if !validStatus(status) {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "点到参数不合法"})
+			return
+		}
+		recs = append(recs, markRec{req.UserID, status, req.LeaveType, req.Remark})
 	}
 
-	// 单条
-	if req.UserID == 0 {
-		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少人员"})
-		return
-	}
-	status := req.Status
-	if status == 0 {
-		status = 1
-	}
-	_, err := database.DB.Exec(
-		`INSERT INTO attendances (user_id, attend_date, status, leave_type, remark, marked_by) VALUES (?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(user_id, attend_date) DO UPDATE SET status=?, leave_type=?, remark=?, marked_by=?, updated_at=CURRENT_TIMESTAMP`,
-		req.UserID, req.AttendDate, status, req.LeaveType, req.Remark, operatorID,
-		status, req.LeaveType, req.Remark, operatorID)
+	// 批量写入，整体事务
+	tx, err := database.DB.Begin()
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "点到失败"})
 		return
 	}
+	for _, rec := range recs {
+		if _, err := tx.Exec(
+			`INSERT INTO attendances (user_id, attend_date, status, leave_type, remark, marked_by) VALUES (?, ?, ?, ?, ?, ?)
+			 ON CONFLICT(user_id, attend_date) DO UPDATE SET status=?, leave_type=?, remark=?, marked_by=?, updated_at=CURRENT_TIMESTAMP`,
+			rec.UserID, req.AttendDate, rec.Status, rec.LeaveType, rec.Remark, operatorID,
+			rec.Status, rec.LeaveType, rec.Remark, operatorID); err != nil {
+			tx.Rollback()
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "点到失败"})
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "点到失败"})
+		return
+	}
+	logOperation(r, "考勤管理", "新增", "考勤点到（"+req.AttendDate+"，共 "+strconv.Itoa(len(recs))+" 人）")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "点到成功"})
 }
 
@@ -116,7 +138,10 @@ func ListAttendances(w http.ResponseWriter, r *http.Request) {
 	p := parsePage(r)
 
 	var total int
-	database.DB.QueryRow("SELECT COUNT(*) FROM attendances a"+where, args...).Scan(&total)
+	if err := database.DB.QueryRow("SELECT COUNT(*) FROM attendances a"+where, args...).Scan(&total); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
 
 	query := `SELECT a.id, a.user_id, u.real_name, a.attend_date, a.status, a.leave_type, a.remark, a.created_at, a.updated_at
 		FROM attendances a LEFT JOIN users u ON a.user_id = u.id` + where +
@@ -133,7 +158,13 @@ func ListAttendances(w http.ResponseWriter, r *http.Request) {
 	list := []models.Attendance{}
 	for rows.Next() {
 		var a models.Attendance
-		rows.Scan(&a.ID, &a.UserID, &a.UserName, &a.AttendDate, &a.Status, &a.LeaveType, &a.Remark, &a.CreatedAt, &a.UpdatedAt)
+		var userName, leaveType, remark sql.NullString
+		if err := rows.Scan(&a.ID, &a.UserID, &userName, &a.AttendDate, &a.Status, &leaveType, &remark, &a.CreatedAt, &a.UpdatedAt); err != nil {
+			continue
+		}
+		a.UserName = userName.String
+		a.LeaveType = leaveType.String
+		a.Remark = remark.String
 		list = append(list, a)
 	}
 	if err := rows.Err(); err != nil {
@@ -296,6 +327,49 @@ func MarkUsers(w http.ResponseWriter, r *http.Request) {
 // 请假类型常量
 var LeaveTypes = []string{"annual", "sick", "personal", "marriage", "maternity", "bereavement", "prenatal", "family", "training", "comp", "other"}
 
+// 请假类型中文名（日志/友好展示用）
+var leaveTypeLabels = map[string]string{
+	"annual": "年假", "sick": "病假", "personal": "事假", "marriage": "婚假",
+	"maternity": "产假", "bereavement": "丧假", "prenatal": "产检假", "family": "探亲假",
+	"training": "培训", "comp": "补休", "other": "其他",
+}
+
+func leaveTypeLabel(t string) string {
+	if v, ok := leaveTypeLabels[t]; ok {
+		return v
+	}
+	return t
+}
+
+// isValidLeaveType 校验请假类型是否在白名单内
+func isValidLeaveType(t string) bool {
+	for _, lt := range LeaveTypes {
+		if lt == t {
+			return true
+		}
+	}
+	return false
+}
+
+// isValidDate 校验日期格式是否为 YYYY-MM-DD
+func isValidDate(s string) bool {
+	_, err := time.Parse("2006-01-02", s)
+	return err == nil
+}
+
+// isValidYear 校验年份格式是否为 YYYY
+func isValidYear(s string) bool {
+	if len(s) != 4 {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // CreateLeaveRecord 登记请假
 // 管理员可为任意人员登记；普通用户只能为自己提交请假
 func CreateLeaveRecord(w http.ResponseWriter, r *http.Request) {
@@ -315,8 +389,16 @@ func CreateLeaveRecord(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请填写完整信息"})
 		return
 	}
+	if !isValidLeaveType(req.LeaveType) {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请假类型不合法"})
+		return
+	}
 	if req.EndDate == "" {
 		req.EndDate = req.StartDate
+	}
+	if !isValidDate(req.StartDate) || !isValidDate(req.EndDate) {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "日期格式应为 YYYY-MM-DD"})
+		return
 	}
 	// 起止日期合法性校验（防止 start>end 脏数据）
 	if req.EndDate < req.StartDate {
@@ -341,6 +423,9 @@ func CreateLeaveRecord(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "登记失败"})
 		return
 	}
+	var personName string
+	database.DB.QueryRow("SELECT real_name FROM users WHERE id=?", req.UserID).Scan(&personName)
+	logOperation(r, "请假管理", "新增", "登记请假："+personName+" "+leaveTypeLabel(req.LeaveType)+"（"+req.StartDate+" 至 "+req.EndDate+"）")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "请假登记成功"})
 }
 
@@ -375,7 +460,10 @@ func ListLeaveRecords(w http.ResponseWriter, r *http.Request) {
 	p := parsePage(r)
 
 	var total int
-	database.DB.QueryRow("SELECT COUNT(*) FROM leave_records l"+where, args...).Scan(&total)
+	if err := database.DB.QueryRow("SELECT COUNT(*) FROM leave_records l"+where, args...).Scan(&total); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
 
 	query := `SELECT l.id, l.user_id, u.real_name, d.name, l.leave_type, l.start_date, l.end_date, l.days, l.leave_hours, l.reason, l.status, l.created_at, l.updated_at
 		FROM leave_records l LEFT JOIN users u ON l.user_id = u.id
@@ -393,12 +481,14 @@ func ListLeaveRecords(w http.ResponseWriter, r *http.Request) {
 	list := []models.LeaveRecord{}
 	for rows.Next() {
 		var l models.LeaveRecord
-		var deptName sql.NullString
-		rows.Scan(&l.ID, &l.UserID, &l.UserName, &deptName, &l.LeaveType, &l.StartDate, &l.EndDate,
-			&l.Days, &l.LeaveHours, &l.Reason, &l.Status, &l.CreatedAt, &l.UpdatedAt)
-		if deptName.Valid {
-			l.Department = deptName.String
+		var userName, deptName, reason sql.NullString
+		if err := rows.Scan(&l.ID, &l.UserID, &userName, &deptName, &l.LeaveType, &l.StartDate, &l.EndDate,
+			&l.Days, &l.LeaveHours, &reason, &l.Status, &l.CreatedAt, &l.UpdatedAt); err != nil {
+			continue
 		}
+		l.UserName = userName.String
+		l.Department = deptName.String
+		l.Reason = reason.String
 		list = append(list, l)
 	}
 	if err := rows.Err(); err != nil {
@@ -407,6 +497,43 @@ func ListLeaveRecords(w http.ResponseWriter, r *http.Request) {
 	}
 
 	middleware.JSON(w, http.StatusOK, paginateResult(list, total, p.Page, p.PageSize))
+}
+
+// GetLeaveRecord 单条请假记录（打印页按 ID 获取，本人或管理员）
+func GetLeaveRecord(w http.ResponseWriter, r *http.Request) {
+	userID, _ := r.Context().Value(middleware.ContextUserID).(int64)
+	roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
+	id := pathID(r)
+	if id == 0 {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
+		return
+	}
+	var l models.LeaveRecord
+	var userName, deptName, reason sql.NullString
+	err := database.DB.QueryRow(
+		`SELECT l.id, l.user_id, u.real_name, d.name, l.leave_type, l.start_date, l.end_date, l.days, l.leave_hours, l.reason, l.status, l.created_at, l.updated_at
+		 FROM leave_records l
+		 LEFT JOIN users u ON l.user_id = u.id
+		 LEFT JOIN departments d ON u.department_id = d.id
+		 WHERE l.id = ?`, id).
+		Scan(&l.ID, &l.UserID, &userName, &deptName, &l.LeaveType, &l.StartDate, &l.EndDate,
+			&l.Days, &l.LeaveHours, &reason, &l.Status, &l.CreatedAt, &l.UpdatedAt)
+	if err == sql.ErrNoRows {
+		middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "记录不存在"})
+		return
+	}
+	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+	if roleCode != "admin" && l.UserID != userID {
+		middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "无权查看该记录"})
+		return
+	}
+	l.UserName = userName.String
+	l.Department = deptName.String
+	l.Reason = reason.String
+	middleware.JSON(w, http.StatusOK, l)
 }
 
 // UpdateLeaveRecord 修改请假（提交人本人或管理员）
@@ -426,6 +553,10 @@ func UpdateLeaveRecord(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请填写完整信息"})
 		return
 	}
+	if !isValidLeaveType(req.LeaveType) {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请假类型不合法"})
+		return
+	}
 	// 权限校验：管理员可改任意，普通用户只能改自己的
 	if roleCode != "admin" {
 		var ownerID int64
@@ -434,9 +565,15 @@ func UpdateLeaveRecord(w http.ResponseWriter, r *http.Request) {
 			middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "无权修改该请假记录"})
 			return
 		}
+		// 普通用户不能篡改请假归属人（防止改到他人名下）
+		req.UserID = userID
 	}
 	if req.EndDate == "" {
 		req.EndDate = req.StartDate
+	}
+	if !isValidDate(req.StartDate) || !isValidDate(req.EndDate) {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "日期格式应为 YYYY-MM-DD"})
+		return
 	}
 	// 起止日期合法性校验（防止 start>end 脏数据）
 	if req.EndDate < req.StartDate {
@@ -446,6 +583,18 @@ func UpdateLeaveRecord(w http.ResponseWriter, r *http.Request) {
 	if req.Days <= 0 {
 		req.Days = 1
 	}
+	// 补休校验：改为补休类型时校验余额（排除本记录自身已占用的天数）
+	if req.LeaveType == "comp" {
+		remain := getCompRemainDays(req.UserID)
+		var selfDays float64
+		database.DB.QueryRow(
+			`SELECT COALESCE(MIN(days, CAST(julianday(end_date)-julianday(start_date)+1 AS INTEGER)),0)
+			 FROM leave_records WHERE id=? AND leave_type='comp' AND user_id=?`, req.ID, req.UserID).Scan(&selfDays)
+		if remain+selfDays < req.Days {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "可补休天数不足"})
+			return
+		}
+	}
 	_, err := database.DB.Exec(
 		`UPDATE leave_records SET user_id=?, leave_type=?, start_date=?, end_date=?, days=?, leave_hours=?, reason=? WHERE id=?`,
 		req.UserID, req.LeaveType, req.StartDate, req.EndDate, req.Days, req.LeaveHours, req.Reason, req.ID)
@@ -453,6 +602,9 @@ func UpdateLeaveRecord(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "修改失败"})
 		return
 	}
+	var personName string
+	database.DB.QueryRow("SELECT real_name FROM users WHERE id=?", req.UserID).Scan(&personName)
+	logOperation(r, "请假管理", "修改", "修改请假记录："+personName+" "+leaveTypeLabel(req.LeaveType)+"（"+req.StartDate+" 至 "+req.EndDate+"）")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "修改成功"})
 }
 
@@ -468,11 +620,16 @@ func DeleteLeaveRecord(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
 		return
 	}
+	var personName, ltype, sdate, edate string
+	database.DB.QueryRow(
+		`SELECT u.real_name, l.leave_type, l.start_date, l.end_date FROM leave_records l LEFT JOIN users u ON l.user_id=u.id WHERE l.id=?`, id).
+		Scan(&personName, &ltype, &sdate, &edate)
 	_, err := database.DB.Exec("DELETE FROM leave_records WHERE id=?", id)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
 		return
 	}
+	logOperation(r, "请假管理", "删除", "删除请假记录："+personName+" "+leaveTypeLabel(ltype)+"（"+sdate+" 至 "+edate+"）")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "删除成功"})
 }
 
@@ -522,7 +679,9 @@ func LeaveStats(w http.ResponseWriter, r *http.Request) {
 		var lt string
 		var cnt int
 		var days sql.NullFloat64
-		rows.Scan(&lt, &cnt, &days)
+		if err := rows.Scan(&lt, &cnt, &days); err != nil {
+			continue
+		}
 		d := 0.0
 		if days.Valid {
 			d = days.Float64
@@ -568,6 +727,7 @@ func AttendanceMonthly(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
+	defer rows.Close()
 
 	type Row struct {
 		UserID       int64   `json:"user_id"`
@@ -590,11 +750,12 @@ func AttendanceMonthly(w http.ResponseWriter, r *http.Request) {
 	base := map[int64]*Row{}
 	for rows.Next() {
 		var rw Row
-		var dept sql.NullString
-		rows.Scan(&rw.UserID, &rw.UserName, &dept, &rw.Present, &rw.Leave, &rw.Trip, &rw.Absent, &rw.Late, &rw.Training)
-		if dept.Valid {
-			rw.Department = dept.String
+		var userName, dept sql.NullString
+		if err := rows.Scan(&rw.UserID, &userName, &dept, &rw.Present, &rw.Leave, &rw.Trip, &rw.Absent, &rw.Late, &rw.Training); err != nil {
+			continue
 		}
+		rw.UserName = userName.String
+		rw.Department = dept.String
 		base[rw.UserID] = &rw
 		userIDs = append(userIDs, rw.UserID)
 	}
@@ -602,8 +763,6 @@ func AttendanceMonthly(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
-
-	rows.Close()
 
 	// 单独查询请假明细（跨月假期按当月实际覆盖天数计算）
 	// 请假区间 [start_date, end_date] 与当月 [month_start, month_end] 的重叠天数
@@ -718,7 +877,11 @@ func AttendanceYearly(w http.ResponseWriter, r *http.Request) {
 	var totalPresent, totalLeave, totalTrip, totalAbsent, totalLate, totalTraining int
 	for rows.Next() {
 		var rw MonthRow
-		rows.Scan(&rw.Month, &rw.Present, &rw.Leave, &rw.Trip, &rw.Absent, &rw.Late, &rw.Training)
+		var ym sql.NullString
+		if err := rows.Scan(&ym, &rw.Present, &rw.Leave, &rw.Trip, &rw.Absent, &rw.Late, &rw.Training); err != nil {
+			continue
+		}
+		rw.Month = ym.String
 		monthly = append(monthly, rw)
 		totalPresent += rw.Present
 		totalLeave += rw.Leave
@@ -776,18 +939,20 @@ func AttendanceYearly(w http.ResponseWriter, r *http.Request) {
 	var totalAnnual, totalSick, totalPersonal, totalOther, totalAll float64
 	for lrows.Next() {
 		var p PersonRow
-		var dept sql.NullString
-		if lrows.Scan(&p.UserID, &p.UserName, &dept, &p.AnnualDays, &p.SickDays, &p.PersonalDays, &p.OtherDays, &p.TotalDays) == nil {
-			if dept.Valid {
-				p.Department = dept.String
-			}
-			persons = append(persons, p)
-			totalAnnual += p.AnnualDays
-			totalSick += p.SickDays
-			totalPersonal += p.PersonalDays
-			totalOther += p.OtherDays
-			totalAll += p.TotalDays
+		var userName, dept sql.NullString
+		var uid sql.NullInt64
+		if err := lrows.Scan(&uid, &userName, &dept, &p.AnnualDays, &p.SickDays, &p.PersonalDays, &p.OtherDays, &p.TotalDays); err != nil {
+			continue
 		}
+		p.UserID = uid.Int64
+		p.UserName = userName.String
+		p.Department = dept.String
+		persons = append(persons, p)
+		totalAnnual += p.AnnualDays
+		totalSick += p.SickDays
+		totalPersonal += p.PersonalDays
+		totalOther += p.OtherDays
+		totalAll += p.TotalDays
 	}
 	if err := lrows.Err(); err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})

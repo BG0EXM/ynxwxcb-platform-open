@@ -92,6 +92,13 @@
             <el-table-column prop="reason" label="不参加原因" min-width="200" show-overflow-tooltip />
           </el-table>
         </el-tab-pane>
+        <el-tab-pane :label="`未确认(${unconfirmedUnits.length})`" name="unconfirmed">
+          <el-alert v-if="unconfirmedUnits.length" type="warning" :closable="false" class="unconfirmed-tip"
+            :title="`以下 ${unconfirmedUnits.length} 个单位尚未确认参会，导出签到单时会一并列出（人员留空）`" />
+          <el-table :data="unconfirmedUnits.map(u => ({ unit: u }))" stripe size="small" empty-text="全部单位已确认">
+            <el-table-column prop="unit" label="未确认单位" min-width="200" />
+          </el-table>
+        </el-tab-pane>
       </el-tabs>
       <div class="detail-links">
         <el-button type="success" :icon="'Download'" @click="exportReg(detailMeeting)">导出签到单</el-button>
@@ -116,6 +123,7 @@ const detailTitle = ref('')
 const detailTab = ref('attend')
 const attendRegs = ref([])
 const notAttendRegs = ref([])
+const unconfirmedUnits = ref([])
 const detailMeeting = ref(null)
 
 const loadData = async () => {
@@ -140,7 +148,7 @@ const openEdit = (row) => {
   form.value = {
     title: row.title, meeting_date: row.meeting_date, meeting_time: row.meeting_time || '',
     location: row.location || '', content: row.content || '', units: row.units || '',
-    unit_limit: row.unit_limit || 1
+    unit_limit: row.unit_limit ?? 1
   }
   dialogVisible.value = true
 }
@@ -171,6 +179,7 @@ const openDetail = async (row) => {
     const regs = res.registrations || []
     attendRegs.value = regs.filter(r => r.not_attend !== 1)
     notAttendRegs.value = regs.filter(r => r.not_attend === 1)
+    unconfirmedUnits.value = res.unconfirmed_units || []
   } catch (e) {}
   detailVisible.value = true
 }
@@ -221,5 +230,8 @@ onMounted(loadData)
   margin-top: 16px;
   display: flex;
   gap: 8px;
+}
+.unconfirmed-tip {
+  margin-bottom: 10px;
 }
 </style>

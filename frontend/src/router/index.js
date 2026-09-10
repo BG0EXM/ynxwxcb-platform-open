@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { ElMessage } from 'element-plus'
 
 const routes = [
   {
@@ -151,6 +152,18 @@ const routes = [
         meta: { title: '用户管理', icon: 'User', admin: true }
       },
       {
+        path: 'permissions',
+        name: 'permissions',
+        component: () => import('../views/Permissions.vue'),
+        meta: { title: '权限管理', icon: 'Lock', admin: true }
+      },
+      {
+        path: 'operation-logs',
+        name: 'operation-logs',
+        component: () => import('../views/OperationLogs.vue'),
+        meta: { title: '操作日志', icon: 'Document', admin: true }
+      },
+      {
         path: 'profile',
         name: 'profile',
         component: () => import('../views/Profile.vue'),
@@ -168,6 +181,33 @@ const router = createRouter({
 // 公开路径（无需登录）
 const publicPaths = ['/login', '/meeting/']
 
+// 路由 → 所需权限点（无权限则隐藏菜单并友好提示）
+const routePerms = {
+  incoming: 'incoming.view',
+  'incoming-print': 'incoming.view',
+  'incoming-print-card': 'incoming.view',
+  'incoming-label': 'incoming.view',
+  study: 'study.view',
+  contacts: 'contact.view',
+  duty: 'duty.view',
+  reports: 'event.view',
+  calendar: 'calendar.view',
+  weekly: 'weekly.view',
+  standing: 'standing.manage',
+  overtime: 'overtime.view',
+  annualleave: 'annualleave.view',
+  attendance: 'attendance.view',
+  'attendance-print': 'attendance.stats',
+  leave: 'leave.view',
+  'leave-print': 'leave.view',
+  vehicles: 'vehicle.view',
+  'vehicle-print': 'vehicle.view',
+  meetings: 'meeting.manage',
+  users: 'user.manage',
+  permissions: 'user.manage',
+  'operation-logs': 'oplog.view'
+}
+
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('token')
   const isPublic = publicPaths.some(p => to.path.startsWith(p))
@@ -182,14 +222,22 @@ router.beforeEach((to, from, next) => {
       next('/profile')
       return
     }
-    if (to.meta.admin) {
-      const user = JSON.parse(localStorage.getItem('user') || '{}')
-      if (user.role_code !== 'admin') {
+    const needPerm = routePerms[to.name]
+    if (needPerm) {
+      let user = {}
+      try {
+        user = JSON.parse(localStorage.getItem('user') || '{}')
+      } catch (e) {
+        user = {}
+      }
+      const ok = user.role_code === 'admin' || (user.permissions || []).includes(needPerm)
+      if (!ok) {
+        ElMessage.warning('无权限访问该功能')
         next('/dashboard')
         return
       }
     }
-    document.title = to.meta.title ? `${to.meta.title} - 伊宁县委宣传部部务工作平台 V1.4.1` : '伊宁县委宣传部部务工作平台 V1.4.1'
+    document.title = to.meta.title ? `${to.meta.title} - 伊宁县委宣传部部务工作平台 V1.4.2` : '伊宁县委宣传部部务工作平台 V1.4.2'
     next()
   }
 })

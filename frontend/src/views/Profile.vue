@@ -23,7 +23,7 @@
           <el-input v-model="pwdForm.old_password" type="password" show-password />
         </el-form-item>
         <el-form-item label="新密码">
-          <el-input v-model="pwdForm.new_password" type="password" show-password placeholder="至少6位" />
+          <el-input v-model="pwdForm.new_password" type="password" show-password placeholder="至少8位" />
         </el-form-item>
         <el-form-item label="确认新密码">
           <el-input v-model="pwdForm.confirm" type="password" show-password />
@@ -52,7 +52,7 @@ const avatarText = computed(() => {
 
 const changePwd = async () => {
   if (!pwdForm.old_password || !pwdForm.new_password) return ElMessage.warning('请填写完整')
-  if (pwdForm.new_password.length < 6) return ElMessage.warning('新密码至少6位')
+  if (pwdForm.new_password.length < 8) return ElMessage.warning('新密码至少8位')
   if (pwdForm.new_password !== pwdForm.confirm) return ElMessage.warning('两次密码不一致')
   try {
     await request.post('/auth/change-password', {

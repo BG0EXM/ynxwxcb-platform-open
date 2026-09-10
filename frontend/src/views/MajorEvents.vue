@@ -12,8 +12,8 @@
           </el-select>
         </div>
         <div>
-          <el-button v-if="authStore.isAdmin" type="success" :icon="'Download'" @click="exportData">导出Word（按年汇总）</el-button>
-          <el-button type="primary" :icon="'Plus'" @click="openCreate">录入大事记</el-button>
+          <el-button v-if="authStore.hasPerm('event.export')" type="success" :icon="'Download'" @click="exportData">导出Word（按年汇总）</el-button>
+          <el-button v-if="authStore.hasPerm('event.manage')" type="primary" :icon="'Plus'" @click="openCreate">录入大事记</el-button>
         </div>
       </div>
 
@@ -23,8 +23,8 @@
         <el-table-column prop="title" label="重大事项" min-width="280" show-overflow-tooltip />
         <el-table-column label="操作" width="140" fixed="right">
           <template #default="{ row }">
-            <el-button link type="warning" size="small" @click="openEdit(row)">编辑</el-button>
-            <el-button link type="danger" size="small" @click="removeEvent(row)">删除</el-button>
+            <el-button v-if="authStore.hasPerm('event.manage')" link type="warning" size="small" @click="openEdit(row)">编辑</el-button>
+            <el-button v-if="authStore.hasPerm('event.manage')" link type="danger" size="small" @click="removeEvent(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>

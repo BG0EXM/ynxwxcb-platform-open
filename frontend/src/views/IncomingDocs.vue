@@ -4,27 +4,27 @@
       <div class="toolbar">
         <div>
           <el-input v-model="query.keyword" placeholder="搜索标题/来文单位/字号" clearable style="width: 240px"
-            @keyup.enter="loadData" @clear="loadData">
+            @keyup.enter="reloadFirstPage" @clear="reloadFirstPage">
             <template #append><el-button :icon="'Search'" @click="loadData" /></template>
           </el-input>
-          <el-select v-model="query.status" placeholder="状态" clearable style="width: 120px" class="ml-8" @change="loadData">
+          <el-select v-model="query.status" placeholder="状态" clearable style="width: 120px" class="ml-8" @change="reloadFirstPage">
             <el-option v-for="(name, val) in statusNames" :key="val" :label="name" :value="Number(val)" />
           </el-select>
-          <el-select v-model="query.returned" placeholder="是否已退" clearable style="width: 110px" class="ml-8" @change="loadData">
+          <el-select v-model="query.returned" placeholder="是否已退" clearable style="width: 110px" class="ml-8" @change="reloadFirstPage">
             <el-option label="已退" :value="1" />
             <el-option label="未退" :value="0" />
           </el-select>
-          <el-select v-model="query.need_return" placeholder="是否需退回" clearable style="width: 120px" class="ml-8" @change="loadData">
+          <el-select v-model="query.need_return" placeholder="是否需退回" clearable style="width: 120px" class="ml-8" @change="reloadFirstPage">
             <el-option label="需要退回" :value="1" />
             <el-option label="不需要退回" :value="0" />
           </el-select>
           <el-date-picker v-model="dateRange" type="daterange" value-format="YYYY-MM-DD"
             range-separator="至" start-placeholder="收文起始" end-placeholder="收文结束"
-            class="ml-8" @change="loadData" />
+            class="ml-8" @change="reloadFirstPage" />
         </div>
         <div>
-          <el-button v-if="isOffice" type="primary" @click="openCreate">收文登记</el-button>
-          <el-button type="success" :icon="'Download'" class="ml-8" @click="exportData">导出Excel</el-button>
+          <el-button v-if="authStore.hasPerm('incoming.manage')" type="primary" @click="openCreate">收文登记</el-button>
+          <el-button v-if="authStore.hasPerm('incoming.export')" type="success" :icon="'Download'" class="ml-8" @click="exportData">导出Excel</el-button>
           <el-button :icon="'Refresh'" circle class="ml-8" @click="loadData" />
         </div>
       </div>
@@ -67,11 +67,15 @@
             <el-button link type="primary" size="small" @click.stop="openDetail(row)">详情</el-button>
             <el-button link type="warning" size="small" @click.stop="openPrint(row)">打印</el-button>
             <el-button link type="info" size="small" @click.stop="openLabel(row)">标签</el-button>
-            <el-button v-if="isOffice" link type="success" size="small" @click.stop="openEdit(row)">编辑</el-button>
-            <el-button v-if="isOffice" link type="danger" size="small" @click.stop="remove(row)">删除</el-button>
+            <el-button v-if="authStore.hasPerm('incoming.manage')" link type="success" size="small" @click.stop="openEdit(row)">编辑</el-button>
+            <el-button v-if="authStore.hasPerm('incoming.manage')" link type="danger" size="small" @click.stop="remove(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
+      <div class="pagination-wrap" v-if="total > 0">
+        <el-pagination background layout="total, prev, pager, next" :total="total" :page-size="pageSize"
+          :current-page="page" @current-change="onPageChange" />
+      </div>
     </el-card>
 
     <!-- 收文登记/编辑对话框 -->
@@ -175,7 +179,7 @@
             <el-button type="info" @click="openLabel(detail)">打印标签</el-button>
           </div>
         </el-tab-pane>
-        <el-tab-pane v-if="isOffice" label="传阅登记" name="circ">
+        <el-tab-pane v-if="authStore.hasPerm('incoming.circulation')" label="传阅登记" name="circ">
           <div class="circ-toolbar">
             <el-select v-model="circUser" filterable placeholder="选择传阅人" style="width: 260px">
               <el-option v-for="a in assignees" :key="a.id" :label="a.real_name + (a.department ? ' (' + a.department + ')' : '')" :value="a.id" />
@@ -212,18 +216,19 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request, { exportFile } from '../utils/request'
 import { useAuthStore } from '../store/auth'
 
 const authStore = useAuthStore()
-// 是否办公室用户（办公室才能新增/编辑/删除收文）
-const isOffice = computed(() => authStore.user?.department_name === '办公室')
 
 const list = ref([])
 const loading = ref(false)
 const assignees = ref([])
+const page = ref(1)
+const pageSize = 20
+const total = ref(0)
 const query = reactive({ keyword: '', status: '', returned: '', need_return: '' })
 const dateRange = ref([])
 
@@ -247,17 +252,29 @@ const circUser = ref(null)
 const loadData = async () => {
   loading.value = true
   try {
-    const params = { ...query }
+    const params = { ...query, page: page.value, page_size: pageSize }
     if (dateRange.value && dateRange.value.length === 2) {
       params.start = dateRange.value[0]
       params.end = dateRange.value[1]
     }
     const res = await request.get('/incoming-docs', { params })
     list.value = res.list || []
+    total.value = res.total || 0
   } catch (e) {
   } finally {
     loading.value = false
   }
+}
+
+// 筛选变化时回到第一页
+const reloadFirstPage = () => {
+  page.value = 1
+  loadData()
+}
+
+const onPageChange = (p) => {
+  page.value = p
+  loadData()
 }
 
 const loadAssignees = async () => {
@@ -388,6 +405,13 @@ onMounted(() => {
 const exportData = () => {
   const params = {}
   if (query.keyword) params.keyword = query.keyword
+  if (query.status !== '' && query.status !== null) params.status = query.status
+  if (query.returned !== '' && query.returned !== null) params.returned = query.returned
+  if (query.need_return !== '' && query.need_return !== null) params.need_return = query.need_return
+  if (dateRange.value && dateRange.value.length === 2) {
+    params.start = dateRange.value[0]
+    params.end = dateRange.value[1]
+  }
   exportFile('/export/incoming-docs', params)
 }
 </script>
@@ -399,6 +423,11 @@ const exportData = () => {
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 16px;
+}
+.pagination-wrap {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
 }
 .ml-8 { margin-left: 8px; }
 .mt-16 { margin-top: 16px; }

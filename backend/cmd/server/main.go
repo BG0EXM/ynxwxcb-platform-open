@@ -5,10 +5,14 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
+	"time"
 
 	"ynxwxcb-platform/internal/auth"
 	"ynxwxcb-platform/internal/config"
 	"ynxwxcb-platform/internal/database"
+	"ynxwxcb-platform/internal/handlers"
+	"ynxwxcb-platform/internal/middleware"
 	"ynxwxcb-platform/internal/router"
 )
 
@@ -29,6 +33,12 @@ func main() {
 		log.Printf("已生成默认配置文件 %s，请修改 JWT 密钥和管理员密码", *configPath)
 	}
 
+	// 安全校验：拒绝默认/占位/过短的 JWT 密钥，避免被伪造令牌
+	upper := strings.ToUpper(cfg.JWT.Secret)
+	if len(cfg.JWT.Secret) < 32 || strings.Contains(upper, "CHANGE") || strings.Contains(upper, "PLACEHOLDER") || strings.Contains(upper, "CHANGEME") {
+		log.Fatalf("JWT 密钥不安全：请在 config.json 的 jwt.secret 填入至少 32 位的随机字符串（可用 `openssl rand -base64 48` 生成）")
+	}
+
 	// 初始化 JWT
 	auth.Init(cfg.JWT.Secret)
 
@@ -37,21 +47,44 @@ func main() {
 		log.Fatalf("初始化数据库失败: %v", err)
 	}
 
+	// 加载角色-权限缓存
+	middleware.ReloadPermissions()
+	// 客户端 IP 是否信任 X-Forwarded-For（前置 Caddy/WAF 时配置为 true）
+	middleware.SetTrustProxy(cfg.Server.TrustProxy)
+
 	// 应用配置中的管理员账号覆盖默认管理员
 	applyAdmin(cfg)
 
 	// 确保上传目录存在
 	os.MkdirAll(cfg.Upload.Dir, 0755)
 
-	// 构建路由
+	// 操作日志：启动清理一次，之后每天清理超过 1 年的记录
+	handlers.CleanupOldLogs()
+	go func() {
+		for {
+			time.Sleep(24 * time.Hour)
+			handlers.CleanupOldLogs()
+		}
+	}()
+
+	// 构建路由，并套上安全响应头 + 请求体大小限制（上传接口自行限制，故跳过）
 	r := router.NewRouter(cfg)
-	handler := r
+	handler := middleware.SecurityHeaders(middleware.LimitBody(10<<20, "/api/uploads")(r))
 
 	addr := ":" + cfg.Server.Port
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		WriteTimeout:      180 * time.Second, // 导出大文件留足时间
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
 	log.Printf("伊宁县委宣传部部务工作平台已启动，监听 %s", addr)
 	log.Printf("数据库: %s", cfg.Database.Path)
 
-	if err := http.ListenAndServe(addr, handler); err != nil {
+	if err := srv.ListenAndServe(); err != nil {
 		log.Fatalf("服务启动失败: %v", err)
 	}
 }

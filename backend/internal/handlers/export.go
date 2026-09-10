@@ -122,12 +122,14 @@ func ExportVehicleApplies(w http.ResponseWriter, r *http.Request) {
 		var useDate, useTime, plateNo, brand, userName, destination, purpose sqlStr
 		var passengers int
 		var reporter sqlStr
-		var createdAt time.Time
-		rows.Scan(&id, &useDate, &useTime, &plateNo, &brand, &userName, &destination, &purpose, &passengers, &reporter, &createdAt)
+		var createdAt sql.NullTime
+		if err := rows.Scan(&id, &useDate, &useTime, &plateNo, &brand, &userName, &destination, &purpose, &passengers, &reporter, &createdAt); err != nil {
+			continue
+		}
 		data = append(data, []interface{}{
 			idx, formatDateStr(useDate.String), useTime.String, plateNo.String, brand.String,
 			userName.String, destination.String, purpose.String, passengers, reporter.String,
-			formatDateTime(createdAt),
+			formatDateTime(createdAt.Time),
 		})
 		idx++
 	}
@@ -136,6 +138,7 @@ func ExportVehicleApplies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logOperation(r, "用车管理", "导出", "导出用车报备台账")
 	exportExcel(w, "用车报备", "用车报备台账.xlsx", headers, data)
 }
 
@@ -150,6 +153,9 @@ func ExportLeaveRecords(w http.ResponseWriter, r *http.Request) {
 	if roleCode != "admin" {
 		query += ` AND l.user_id = ?`
 		args = append(args, userID)
+	} else if uid := r.URL.Query().Get("user_id"); uid != "" {
+		query += ` AND l.user_id = ?`
+		args = append(args, uid)
 	}
 	if t := r.URL.Query().Get("leave_type"); t != "" {
 		query += ` AND l.leave_type = ?`
@@ -181,11 +187,13 @@ func ExportLeaveRecords(w http.ResponseWriter, r *http.Request) {
 		var id int64
 		var userName, leaveType, startDate, endDate, reason sqlStr
 		var days float64
-		var createdAt time.Time
-		rows.Scan(&id, &userName, &leaveType, &startDate, &endDate, &days, &reason, &createdAt)
+		var createdAt sql.NullTime
+		if err := rows.Scan(&id, &userName, &leaveType, &startDate, &endDate, &days, &reason, &createdAt); err != nil {
+			continue
+		}
 		data = append(data, []interface{}{
 			idx, userName.String, leaveTypeNames[leaveType.String], formatDateStr(startDate.String),
-			formatDateStr(endDate.String), days, reason.String, formatDateTime(createdAt),
+			formatDateStr(endDate.String), days, reason.String, formatDateTime(createdAt.Time),
 		})
 		idx++
 	}
@@ -194,6 +202,7 @@ func ExportLeaveRecords(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logOperation(r, "请假管理", "导出", "导出请假记录台账")
 	exportExcel(w, "请假记录", "请假记录台账.xlsx", headers, data)
 }
 
@@ -243,8 +252,10 @@ func ExportAttendances(w http.ResponseWriter, r *http.Request) {
 		var id int64
 		var userName, attendDate, leaveType, remark sqlStr
 		var status int
-		var createdAt time.Time
-		rows.Scan(&id, &userName, &attendDate, &status, &leaveType, &remark, &createdAt)
+		var createdAt sql.NullTime
+		if err := rows.Scan(&id, &userName, &attendDate, &status, &leaveType, &remark, &createdAt); err != nil {
+			continue
+		}
 		statusText := statusNames[status]
 		if status == 2 && leaveType.Valid && leaveType.String != "" {
 			statusText += "（" + leaveTypeNames[leaveType.String] + "）"
@@ -259,6 +270,7 @@ func ExportAttendances(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logOperation(r, "考勤管理", "导出", "导出考勤记录台账")
 	exportExcel(w, "考勤记录", "考勤记录台账.xlsx", headers, data)
 }
 
@@ -286,11 +298,12 @@ func ExportDutySchedules(w http.ResponseWriter, r *http.Request) {
 	data := [][]interface{}{}
 	idx := 1
 	for rows.Next() {
-		var id int64
 		var dutyDate, userName, note sqlStr
 		var isDaWangYuan int
-		var createdAt time.Time
-		rows.Scan(&id, &dutyDate, &userName, &isDaWangYuan, &note, &createdAt)
+		var createdAt sql.NullTime
+		if err := rows.Scan(&dutyDate, &userName, &isDaWangYuan, &note, &createdAt); err != nil {
+			continue
+		}
 		dwy := ""
 		if isDaWangYuan == 1 {
 			dwy = "是"
@@ -305,6 +318,7 @@ func ExportDutySchedules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logOperation(r, "值守排班", "导出", "导出值守排班台账")
 	exportExcel(w, "值守排班", "值守排班台账.xlsx", headers, data)
 }
 
@@ -318,6 +332,26 @@ func ExportIncomingDocs(w http.ResponseWriter, r *http.Request) {
 		query += ` AND (d.title LIKE ? OR d.from_unit LIKE ? OR d.receive_no LIKE ?)`
 		kw := "%" + keyword + "%"
 		args = append(args, kw, kw, kw)
+	}
+	if status := r.URL.Query().Get("status"); status != "" {
+		query += ` AND d.status = ?`
+		args = append(args, status)
+	}
+	if returned := r.URL.Query().Get("returned"); returned != "" {
+		query += ` AND d.returned = ?`
+		args = append(args, returned)
+	}
+	if needReturn := r.URL.Query().Get("need_return"); needReturn != "" {
+		query += ` AND d.need_return = ?`
+		args = append(args, needReturn)
+	}
+	if start := r.URL.Query().Get("start"); start != "" {
+		query += ` AND d.received_date >= ?`
+		args = append(args, start)
+	}
+	if end := r.URL.Query().Get("end"); end != "" {
+		query += ` AND d.received_date <= ?`
+		args = append(args, end)
 	}
 	query += ` ORDER BY d.id DESC`
 
@@ -337,13 +371,15 @@ func ExportIncomingDocs(w http.ResponseWriter, r *http.Request) {
 		var id int64
 		var receiveNo, receivedDate, fromUnit, fromDocNo, title, secretLevel, urgency, realName sqlStr
 		var copies, status int
-		var createdAt time.Time
-		rows.Scan(&id, &receiveNo, &receivedDate, &fromUnit, &fromDocNo, &title,
-			&secretLevel, &urgency, &copies, &status, &realName, &createdAt)
+		var createdAt sql.NullTime
+		if err := rows.Scan(&id, &receiveNo, &receivedDate, &fromUnit, &fromDocNo, &title,
+			&secretLevel, &urgency, &copies, &status, &realName, &createdAt); err != nil {
+			continue
+		}
 		data = append(data, []interface{}{
 			idx, receiveNo.String, formatDateStr(receivedDate.String), fromUnit.String, fromDocNo.String,
 			title.String, secretLevel.String, urgency.String, copies, statusNames[status],
-			realName.String, formatDateTime(createdAt),
+			realName.String, formatDateTime(createdAt.Time),
 		})
 		idx++
 	}
@@ -352,5 +388,6 @@ func ExportIncomingDocs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logOperation(r, "收文管理", "导出", "导出收文登记台账")
 	exportExcel(w, "收文登记", "收文登记台账.xlsx", headers, data)
 }

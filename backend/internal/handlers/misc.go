@@ -1,13 +1,31 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"ynxwxcb-platform/internal/database"
 	"ynxwxcb-platform/internal/middleware"
 	"ynxwxcb-platform/internal/models"
 )
+
+// sameDept 校验用户与该记录是否属于同一科室（无科室用户一律拒绝）
+// table 仅传代码内常量表名，无注入风险
+func sameDept(table string, recordID, userID int64) bool {
+	var ownerDept, myDept sql.NullInt64
+	if database.DB.QueryRow("SELECT department_id FROM "+table+" WHERE id = ?", recordID).Scan(&ownerDept) != nil {
+		return false
+	}
+	if database.DB.QueryRow("SELECT department_id FROM users WHERE id = ?", userID).Scan(&myDept) != nil {
+		return false
+	}
+	if !myDept.Valid || myDept.Int64 == 0 || !ownerDept.Valid {
+		return false
+	}
+	return ownerDept.Int64 == myDept.Int64
+}
 
 // ListContacts 通讯录（分页）
 func ListContacts(w http.ResponseWriter, r *http.Request) {
@@ -29,7 +47,10 @@ func ListContacts(w http.ResponseWriter, r *http.Request) {
 	p := parsePage(r)
 
 	var total int
-	database.DB.QueryRow("SELECT COUNT(*) FROM contacts c"+where, args...).Scan(&total)
+	if err := database.DB.QueryRow("SELECT COUNT(*) FROM contacts c"+where, args...).Scan(&total); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
 
 	query := `SELECT c.id, c.name, c.phone, c.department_id, d.name, c.position, c.is_public, c.sort
 		FROM contacts c LEFT JOIN departments d ON c.department_id = d.id` + where +
@@ -46,7 +67,15 @@ func ListContacts(w http.ResponseWriter, r *http.Request) {
 	contacts := []models.Contact{}
 	for rows.Next() {
 		var c models.Contact
-		rows.Scan(&c.ID, &c.Name, &c.Phone, &c.DepartmentID, &c.Department, &c.Position, &c.IsPublic, &c.Sort)
+		var phone, deptName, position sql.NullString
+		var departmentID sql.NullInt64
+		if err := rows.Scan(&c.ID, &c.Name, &phone, &departmentID, &deptName, &position, &c.IsPublic, &c.Sort); err != nil {
+			continue
+		}
+		c.Phone = phone.String
+		c.DepartmentID = departmentID.Int64
+		c.Department = deptName.String
+		c.Position = position.String
 		contacts = append(contacts, c)
 	}
 	if err := rows.Err(); err != nil {
@@ -75,6 +104,7 @@ func CreateContact(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "创建失败"})
 		return
 	}
+	logOperation(r, "通讯录", "新增", "新增联系人「"+req.Name+"」")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "添加成功"})
 }
 
@@ -96,6 +126,7 @@ func UpdateContact(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "更新失败"})
 		return
 	}
+	logOperation(r, "通讯录", "修改", "修改联系人「"+req.Name+"」")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "更新成功"})
 }
 
@@ -106,11 +137,14 @@ func DeleteContact(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
 		return
 	}
+	var contactName string
+	database.DB.QueryRow("SELECT name FROM contacts WHERE id=?", id).Scan(&contactName)
 	_, err := database.DB.Exec("DELETE FROM contacts WHERE id=?", id)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
 		return
 	}
+	logOperation(r, "通讯录", "删除", "删除联系人「"+contactName+"」")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "删除成功"})
 }
 
@@ -142,7 +176,14 @@ func ListDutySchedules(w http.ResponseWriter, r *http.Request) {
 	schedules := []models.DutySchedule{}
 	for rows.Next() {
 		var s models.DutySchedule
-		rows.Scan(&s.ID, &s.DutyDate, &s.UserID, &s.UserName, &s.IsDaWangYuan, &s.Note, &s.Status)
+		var userName, note sql.NullString
+		var uid sql.NullInt64
+		if err := rows.Scan(&s.ID, &s.DutyDate, &uid, &userName, &s.IsDaWangYuan, &note, &s.Status); err != nil {
+			continue
+		}
+		s.UserID = uid.Int64
+		s.UserName = userName.String
+		s.Note = note.String
 		schedules = append(schedules, s)
 	}
 	if err := rows.Err(); err != nil {
@@ -160,8 +201,8 @@ func SaveDutySchedule(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请求格式错误"})
 		return
 	}
-	if req.DutyDate == "" {
-		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "日期必填"})
+	if _, err := time.Parse("2006-01-02", req.DutyDate); err != nil {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "日期格式应为 YYYY-MM-DD"})
 		return
 	}
 	if req.UserID == 0 {
@@ -177,6 +218,9 @@ func SaveDutySchedule(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "保存失败"})
 		return
 	}
+	var dutyUser string
+	database.DB.QueryRow("SELECT real_name FROM users WHERE id=?", req.UserID).Scan(&dutyUser)
+	logOperation(r, "值守排班", "修改", "安排值守："+req.DutyDate+" "+dutyUser)
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "保存成功"})
 }
 
@@ -187,10 +231,15 @@ func DeleteDutySchedule(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
 		return
 	}
+	var dutyDate, dutyUser string
+	database.DB.QueryRow(
+		`SELECT s.duty_date, u.real_name FROM duty_schedules s LEFT JOIN users u ON s.user_id=u.id WHERE s.id=?`, id).
+		Scan(&dutyDate, &dutyUser)
 	_, err := database.DB.Exec("DELETE FROM duty_schedules WHERE id=?", id)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
 		return
 	}
+	logOperation(r, "值守排班", "删除", "删除值守安排："+dutyDate+" "+dutyUser)
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "删除成功"})
 }

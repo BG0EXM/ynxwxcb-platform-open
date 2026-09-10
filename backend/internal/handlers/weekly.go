@@ -56,18 +56,26 @@ func ListWeeklySummaries(w http.ResponseWriter, r *http.Request) {
 	list := []models.WeeklySummary{}
 	for rows.Next() {
 		var s models.WeeklySummary
-		var dept, creator sql.NullString
-		var createdAt, updatedAt time.Time
-		rows.Scan(&s.ID, &s.DepartmentID, &dept, &s.WeekStart, &s.WeekEnd, &s.Content,
-			&s.CreatedBy, &creator, &createdAt, &updatedAt)
-		if dept.Valid {
-			s.Department = dept.String
+		var dept, creator, weekStart, weekEnd, content sql.NullString
+		var deptID, createdBy sql.NullInt64
+		var createdAt, updatedAt sql.NullTime
+		if err := rows.Scan(&s.ID, &deptID, &dept, &weekStart, &weekEnd, &content,
+			&createdBy, &creator, &createdAt, &updatedAt); err != nil {
+			continue
 		}
-		if creator.Valid {
-			s.CreatedName = creator.String
+		s.DepartmentID = deptID.Int64
+		s.Department = dept.String
+		s.WeekStart = weekStart.String
+		s.WeekEnd = weekEnd.String
+		s.Content = content.String
+		s.CreatedBy = createdBy.Int64
+		s.CreatedName = creator.String
+		if createdAt.Valid {
+			s.CreatedAt = createdAt.Time
 		}
-		s.CreatedAt = createdAt
-		s.UpdatedAt = updatedAt
+		if updatedAt.Valid {
+			s.UpdatedAt = updatedAt.Time
+		}
 		list = append(list, s)
 	}
 	if err := rows.Err(); err != nil {
@@ -91,8 +99,12 @@ func CreateWeeklySummary(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "总结内容必填"})
 		return
 	}
-	if req.WeekStart == "" || req.WeekEnd == "" {
-		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请选择本周日期范围"})
+	if !isValidDate(req.WeekStart) || !isValidDate(req.WeekEnd) {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "日期格式应为 YYYY-MM-DD"})
+		return
+	}
+	if req.WeekEnd < req.WeekStart {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "结束日期不能早于开始日期"})
 		return
 	}
 	if roleCode != "admin" {
@@ -111,6 +123,7 @@ func CreateWeeklySummary(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "创建失败"})
 		return
 	}
+	logOperation(r, "每周工作总结", "新增", "录入每周工作总结（"+req.WeekStart+" 至 "+req.WeekEnd+"）")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "添加成功"})
 }
 
@@ -131,27 +144,35 @@ func UpdateWeeklySummary(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "总结内容必填"})
 		return
 	}
+	if !isValidDate(req.WeekStart) || !isValidDate(req.WeekEnd) || req.WeekEnd < req.WeekStart {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "日期范围不合法"})
+		return
+	}
 	if roleCode != "admin" {
-		var ownerDept int64
-		err := database.DB.QueryRow("SELECT department_id FROM weekly_summaries WHERE id = ?", req.ID).Scan(&ownerDept)
-		if err != nil {
-			middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "记录不存在"})
-			return
-		}
-		var myDept int64
-		database.DB.QueryRow("SELECT department_id FROM users WHERE id = ?", userID).Scan(&myDept)
-		if ownerDept != myDept {
+		if !sameDept("weekly_summaries", req.ID, userID) {
 			middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "无权修改其他科室的记录"})
 			return
 		}
 	}
-	_, err := database.DB.Exec(
+	// 管理员可调整所属科室（传 0 时不改）
+	if roleCode == "admin" && req.DepartmentID != 0 {
+		if _, err := database.DB.Exec(
+			`UPDATE weekly_summaries SET week_start=?, week_end=?, content=?, department_id=?, updated_at=? WHERE id=?`,
+			req.WeekStart, req.WeekEnd, req.Content, req.DepartmentID, time.Now(), req.ID); err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "更新失败"})
+			return
+		}
+		logOperation(r, "每周工作总结", "修改", "修改每周工作总结（"+req.WeekStart+" 至 "+req.WeekEnd+"）")
+		middleware.JSON(w, http.StatusOK, map[string]string{"message": "更新成功"})
+		return
+	}
+	if _, err := database.DB.Exec(
 		`UPDATE weekly_summaries SET week_start=?, week_end=?, content=?, updated_at=? WHERE id=?`,
-		req.WeekStart, req.WeekEnd, req.Content, time.Now(), req.ID)
-	if err != nil {
+		req.WeekStart, req.WeekEnd, req.Content, time.Now(), req.ID); err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "更新失败"})
 		return
 	}
+	logOperation(r, "每周工作总结", "修改", "修改每周工作总结（"+req.WeekStart+" 至 "+req.WeekEnd+"）")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "更新成功"})
 }
 
@@ -165,24 +186,19 @@ func DeleteWeeklySummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if roleCode != "admin" {
-		var ownerDept int64
-		err := database.DB.QueryRow("SELECT department_id FROM weekly_summaries WHERE id = ?", id).Scan(&ownerDept)
-		if err != nil {
-			middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "记录不存在"})
-			return
-		}
-		var myDept int64
-		database.DB.QueryRow("SELECT department_id FROM users WHERE id = ?", userID).Scan(&myDept)
-		if ownerDept != myDept {
+		if !sameDept("weekly_summaries", id, userID) {
 			middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "无权删除其他科室的记录"})
 			return
 		}
 	}
+	var ws, we string
+	database.DB.QueryRow("SELECT week_start, week_end FROM weekly_summaries WHERE id=?", id).Scan(&ws, &we)
 	_, err := database.DB.Exec("DELETE FROM weekly_summaries WHERE id=?", id)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
 		return
 	}
+	logOperation(r, "每周工作总结", "删除", "删除每周工作总结（"+ws+" 至 "+we+"）")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "删除成功"})
 }
 
@@ -264,6 +280,7 @@ func ExportWeeklySummaries(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "导出失败", http.StatusInternalServerError)
 		return
 	}
+	logOperation(r, "每周工作总结", "导出", "导出每周工作总结（"+weekLabel+"）")
 	fileName := "每周工作总结-" + weekLabel + ".docx"
 	writeDocx(w, fileName, data)
 }

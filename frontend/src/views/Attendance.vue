@@ -7,12 +7,12 @@
     </el-alert>
 
     <div class="stats-entry">
-      <el-button type="primary" :icon="'DataAnalysis'" @click="goStats">考勤统计（月度/年度，可打印）</el-button>
+      <el-button v-if="authStore.hasPerm('attendance.stats')" type="primary" :icon="'DataAnalysis'" @click="goStats">考勤统计（月度/年度，可打印）</el-button>
       <el-button type="success" :icon="'Download'" @click="exportData">导出Excel</el-button>
     </div>
 
     <!-- 管理员点到操作区 -->
-    <el-card shadow="never" v-if="authStore.isAdmin" class="mt-12">
+    <el-card shadow="never" v-if="authStore.hasPerm('attendance.mark')" class="mt-12">
       <template #header>
         <div class="card-header">
           <span class="card-title">晨会点到</span>
@@ -91,8 +91,8 @@
             <div class="card-header">
               <span class="card-title">考勤记录</span>
               <div class="header-right">
-                <el-date-picker v-model="queryDate" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" style="width:160px" @change="loadData" :cell-class-name="dateCellClass" />
-                <el-select v-if="authStore.isAdmin" v-model="userFilter" placeholder="全部人员" clearable style="width:140px" class="ml-8" @change="loadData">
+                <el-date-picker v-model="queryDate" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" style="width:160px" @change="reloadFirstPage" :cell-class-name="dateCellClass" />
+                <el-select v-if="authStore.isAdmin" v-model="userFilter" placeholder="全部人员" clearable style="width:140px" class="ml-8" @change="reloadFirstPage">
                   <el-option v-for="a in assignees" :key="a.id" :label="a.real_name" :value="a.id" />
                 </el-select>
               </div>
@@ -109,6 +109,9 @@
             </el-table-column>
             <el-table-column prop="remark" label="备注" show-overflow-tooltip />
           </el-table>
+          <div class="pagination-wrap" v-if="total > 0">
+            <el-pagination background layout="total, prev, pager, next" :total="total" :page-size="pageSize" :current-page="page" @current-change="onPageChange" />
+          </div>
         </el-card>
       </el-col>
     </el-row>
@@ -118,7 +121,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import request, { exportFile } from '../utils/request'
 import dayjs from 'dayjs'
 import { useAuthStore } from '../store/auth'
@@ -129,6 +132,9 @@ const markDate = ref(dayjs().format('YYYY-MM-DD'))
 const queryDate = ref(dayjs().format('YYYY-MM-DD'))
 const markUsers = ref([])
 const list = ref([])
+const page = ref(1)
+const pageSize = 20
+const total = ref(0)
 const stats = ref(null)
 const loading = ref(false)
 const saving = ref(false)
@@ -152,7 +158,7 @@ const rowClass = ({ row }) => {
 }
 
 const loadMarkUsers = async () => {
-  if (!authStore.isAdmin) return
+  if (!authStore.hasPerm('attendance.mark')) return
   try {
     const res = await request.get('/attendance/mark-users', { params: { date: markDate.value } })
     markUsers.value = res.list || []
@@ -174,6 +180,9 @@ const markAllPresent = () => {
 
 const saveMark = async () => {
   if (!markUsers.value.length) return ElMessage.warning('没有人员')
+  try {
+    await ElMessageBox.confirm(`确认保存 ${markDate.value} 的考勤点到？保存后仍可再次修改。`, '点到确认', { type: 'warning' })
+  } catch (e) { return }
   saving.value = true
   try {
     const records = markUsers.value.map(u => ({
@@ -191,13 +200,17 @@ const saveMark = async () => {
   }
 }
 
+const reloadFirstPage = () => { page.value = 1; loadData() }
+const onPageChange = (p) => { page.value = p; loadData() }
+
 const loadData = async () => {
   loading.value = true
   try {
-    const params = { date: queryDate.value }
+    const params = { date: queryDate.value, page: page.value, page_size: pageSize }
     if (userFilter.value) params.user_id = userFilter.value
     const res = await request.get('/attendance/list', { params })
     list.value = res.list || []
+    total.value = res.total || 0
   } catch (e) {
   } finally {
     loading.value = false
@@ -205,6 +218,7 @@ const loadData = async () => {
 }
 
 const loadStats = async () => {
+  if (!authStore.hasPerm('attendance.stats')) return
   try {
     const res = await request.get('/attendance/stats', { params: { date: queryDate.value } })
     stats.value = res
@@ -248,7 +262,7 @@ const dateCellClass = (date) => {
 }
 
 onMounted(() => {
-  if (authStore.isAdmin) {
+  if (authStore.hasPerm('attendance.mark')) {
     loadMarkUsers()
     loadAssignees()
   }
@@ -314,6 +328,11 @@ onMounted(() => {
 }
 :deep(.auto-leave-row) {
   background: #fdf6ec;
+}
+.pagination-wrap {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
 }
 </style>
 

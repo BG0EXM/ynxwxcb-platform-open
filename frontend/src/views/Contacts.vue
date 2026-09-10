@@ -4,10 +4,10 @@
       <div class="toolbar">
         <div>
           <el-input v-model="keyword" placeholder="搜索姓名/职务/电话" clearable style="width: 240px"
-            @keyup.enter="loadData" @clear="loadData">
+            @keyup.enter="reloadFirstPage" @clear="reloadFirstPage">
             <template #append><el-button :icon="'Search'" @click="loadData" /></template>
           </el-input>
-          <el-select v-model="department_id" placeholder="按部门" clearable style="width: 160px" class="ml-8" @change="loadData">
+          <el-select v-model="department_id" placeholder="按部门" clearable style="width: 160px" class="ml-8" @change="reloadFirstPage">
             <el-option v-for="d in departments" :key="d.id" :label="d.name" :value="d.id" />
           </el-select>
         </div>
@@ -26,6 +26,9 @@
           </template>
         </el-table-column>
       </el-table>
+      <div class="pagination-wrap" v-if="total > 0">
+        <el-pagination background layout="total, prev, pager, next" :total="total" :page-size="pageSize" :current-page="page" @current-change="onPageChange" />
+      </div>
     </el-card>
 
     <el-dialog v-model="dialogVisible" :title="editId ? '编辑联系人' : '添加联系人'" width="480px">
@@ -60,6 +63,9 @@ import request from '../utils/request'
 
 const list = ref([])
 const loading = ref(false)
+const page = ref(1)
+const pageSize = 20
+const total = ref(0)
 const keyword = ref('')
 const department_id = ref('')
 const departments = ref([])
@@ -70,13 +76,17 @@ const form = reactive({ name: '', position: '', department_id: null, phone: '' }
 const loadData = async () => {
   loading.value = true
   try {
-    const res = await request.get('/contacts', { params: { keyword: keyword.value, department_id: department_id.value } })
+    const res = await request.get('/contacts', { params: { keyword: keyword.value, department_id: department_id.value, page: page.value, page_size: pageSize } })
     list.value = res.list || []
+    total.value = res.total || 0
   } catch (e) {
   } finally {
     loading.value = false
   }
 }
+
+const reloadFirstPage = () => { page.value = 1; loadData() }
+const onPageChange = (p) => { page.value = p; loadData() }
 
 const loadDepartments = async () => {
   try {
@@ -138,4 +148,5 @@ onMounted(() => {
   margin-bottom: 16px;
 }
 .ml-8 { margin-left: 8px; }
+.pagination-wrap { margin-top: 14px; display: flex; justify-content: flex-end; }
 </style>

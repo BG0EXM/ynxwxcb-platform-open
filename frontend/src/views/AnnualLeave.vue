@@ -6,8 +6,8 @@
           <el-date-picker v-model="year" type="year" value-format="YYYY" placeholder="选择年份" style="width:140px" @change="loadData" />
         </div>
         <div>
-          <el-button v-if="authStore.isAdmin" type="success" :icon="'Download'" @click="exportData">导出Excel</el-button>
-          <el-button v-if="authStore.isAdmin" type="primary" :icon="'Plus'" @click="openCreate">配置年休假</el-button>
+          <el-button v-if="authStore.hasPerm('annualleave.export')" type="success" :icon="'Download'" @click="exportData">导出Excel</el-button>
+          <el-button v-if="authStore.hasPerm('annualleave.manage')" type="primary" :icon="'Plus'" @click="openCreate">配置年休假</el-button>
         </div>
       </div>
 
@@ -28,7 +28,7 @@
             <b :style="{ color: row.remain_days < 0 ? '#f56c6c' : '#67c23a' }">{{ row.remain_days }}</b>
           </template>
         </el-table-column>
-        <el-table-column v-if="authStore.isAdmin" label="操作" width="100" fixed="right">
+        <el-table-column v-if="authStore.hasPerm('annualleave.manage')" label="操作" width="100" fixed="right">
           <template #default="{ row }">
             <el-button link type="warning" size="small" @click="openEdit(row)">配置</el-button>
           </template>
@@ -62,7 +62,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import request, { exportFile } from '../utils/request'
 import dayjs from 'dayjs'
 import { useAuthStore } from '../store/auth'
@@ -107,6 +107,9 @@ const save = async () => {
   if (!form.value.user_id) return ElMessage.warning('请选择人员')
   if (!form.value.year) return ElMessage.warning('请选择年份')
   try {
+    await ElMessageBox.confirm(`确认将年休假天数设置为 ${form.value.days} 天？`, '保存确认', { type: 'warning' })
+  } catch (e) { return }
+  try {
     await request.post('/annual-leave-configs', form.value)
     ElMessage.success('保存成功')
     dialogVisible.value = false
@@ -121,7 +124,7 @@ const exportData = () => {
 
 onMounted(() => {
   loadData()
-  if (authStore.isAdmin) loadAssignees()
+  if (authStore.hasPerm('annualleave.manage')) loadAssignees()
 })
 </script>
 

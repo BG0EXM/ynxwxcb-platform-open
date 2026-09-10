@@ -12,8 +12,8 @@
           </el-select>
         </div>
         <div>
-          <el-button v-if="authStore.isAdmin" type="warning" :icon="'Setting'" class="ml-8" @click="openCategory">分类管理</el-button>
-          <el-button type="primary" class="ml-8" @click="dialogVisible = true">发布资料</el-button>
+          <el-button v-if="authStore.hasPerm('study.category')" type="warning" :icon="'Setting'" class="ml-8" @click="openCategory">分类管理</el-button>
+          <el-button v-if="authStore.hasPerm('study.publish')" type="primary" class="ml-8" @click="openCreate">发布资料</el-button>
         </div>
       </div>
 
@@ -36,7 +36,7 @@
         <el-table-column label="操作" width="140" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openDetail(row)">阅读</el-button>
-            <el-button v-if="authStore.isAdmin" link type="danger" size="small" @click="removeMaterial(row)">删除</el-button>
+            <el-button v-if="authStore.hasPerm('study.delete')" link type="danger" size="small" @click="removeMaterial(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -104,7 +104,7 @@
         <h4>附件</h4>
         <div v-for="a in detail.attachments" :key="a.id" class="attach-item">
           <el-icon><Paperclip /></el-icon>
-          <a :href="`/api/uploads/${a.id}`" target="_blank">{{ a.file_name }}</a>
+          <a href="javascript:;" @click="downloadAtt(a)">{{ a.file_name }}</a>
         </div>
       </div>
     </el-dialog>
@@ -114,7 +114,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '../utils/request'
+import request, { downloadFile } from '../utils/request'
 import dayjs from 'dayjs'
 import { useAuthStore } from '../store/auth'
 
@@ -235,6 +235,14 @@ const uploadFile = async (options) => {
   }
 }
 
+// 打开发布框：重置表单与附件，避免残留上次内容
+const openCreate = () => {
+  Object.assign(form, { title: '', content: '', category: 'theory' })
+  fileList.value = []
+  uploadedAttachments.value = []
+  dialogVisible.value = true
+}
+
 const save = async () => {
   if (!form.title) return ElMessage.warning('请输入标题')
   if (!form.content) return ElMessage.warning('请输入内容')
@@ -261,6 +269,11 @@ const openDetail = async (row) => {
     detail.value = res
     detailVisible.value = true
   } catch (e) {}
+}
+
+// 附件下载（带 token，避免直接 <a> 链接 401）
+const downloadAtt = (a) => {
+  downloadFile(`/uploads/${a.id}`, a.file_name || '附件')
 }
 
 onMounted(() => {

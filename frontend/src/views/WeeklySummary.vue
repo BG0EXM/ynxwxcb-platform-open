@@ -10,8 +10,8 @@
           </el-select>
         </div>
         <div>
-          <el-button v-if="authStore.isAdmin" type="success" :icon="'Download'" @click="exportData">导出Word</el-button>
-          <el-button type="primary" :icon="'Plus'" @click="openCreate">录入本周工作</el-button>
+          <el-button v-if="authStore.hasPerm('weekly.export')" type="success" :icon="'Download'" @click="exportData">导出Word</el-button>
+          <el-button v-if="authStore.hasPerm('weekly.manage')" type="primary" :icon="'Plus'" @click="openCreate">录入本周工作</el-button>
         </div>
       </div>
 
@@ -26,8 +26,8 @@
         <el-table-column prop="created_name" label="录入人" width="100" />
         <el-table-column label="操作" width="140" fixed="right">
           <template #default="{ row }">
-            <el-button link type="warning" size="small" @click="openEdit(row)">编辑</el-button>
-            <el-button link type="danger" size="small" @click="removeSummary(row)">删除</el-button>
+            <el-button v-if="authStore.hasPerm('weekly.manage')" link type="warning" size="small" @click="openEdit(row)">编辑</el-button>
+            <el-button v-if="authStore.hasPerm('weekly.manage')" link type="danger" size="small" @click="removeSummary(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>

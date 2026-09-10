@@ -9,10 +9,11 @@ import (
 
 // Claims JWT 声明
 type Claims struct {
-	UserID   int64  `json:"user_id"`
-	Username string `json:"username"`
-	RealName string `json:"real_name"`
-	RoleCode string `json:"role_code"`
+	UserID       int64  `json:"user_id"`
+	Username     string `json:"username"`
+	RealName     string `json:"real_name"`
+	RoleCode     string `json:"role_code"`
+	TokenVersion int    `json:"token_version"` // 令牌版本，改密/禁用/登出后 +1 使旧令牌失效
 	jwt.RegisteredClaims
 }
 
@@ -24,12 +25,13 @@ func Init(secret string) {
 }
 
 // GenerateToken 生成 JWT
-func GenerateToken(userID int64, username, realName, roleCode string) (string, error) {
+func GenerateToken(userID int64, username, realName, roleCode string, tokenVersion int) (string, error) {
 	claims := Claims{
-		UserID:   userID,
-		Username: username,
-		RealName: realName,
-		RoleCode: roleCode,
+		UserID:       userID,
+		Username:     username,
+		RealName:     realName,
+		RoleCode:     roleCode,
+		TokenVersion: tokenVersion,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

@@ -57,18 +57,26 @@ func ListMajorEvents(w http.ResponseWriter, r *http.Request) {
 	list := []models.MajorEvent{}
 	for rows.Next() {
 		var e models.MajorEvent
-		var dept, creator sql.NullString
-		var createdAt, updatedAt time.Time
-		rows.Scan(&e.ID, &e.DepartmentID, &dept, &e.EventType, &e.Period, &e.Title,
-			&e.CreatedBy, &creator, &createdAt, &updatedAt)
-		if dept.Valid {
-			e.Department = dept.String
+		var dept, creator, eventType, period, title sql.NullString
+		var deptID, createdBy sql.NullInt64
+		var createdAt, updatedAt sql.NullTime
+		if err := rows.Scan(&e.ID, &deptID, &dept, &eventType, &period, &title,
+			&createdBy, &creator, &createdAt, &updatedAt); err != nil {
+			continue
 		}
-		if creator.Valid {
-			e.CreatedName = creator.String
+		e.DepartmentID = deptID.Int64
+		e.Department = dept.String
+		e.EventType = eventType.String
+		e.Period = period.String
+		e.Title = title.String
+		e.CreatedBy = createdBy.Int64
+		e.CreatedName = creator.String
+		if createdAt.Valid {
+			e.CreatedAt = createdAt.Time
 		}
-		e.CreatedAt = createdAt
-		e.UpdatedAt = updatedAt
+		if updatedAt.Valid {
+			e.UpdatedAt = updatedAt.Time
+		}
 		list = append(list, e)
 	}
 	if err := rows.Err(); err != nil {
@@ -92,8 +100,8 @@ func CreateMajorEvent(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "事项必填"})
 		return
 	}
-	if req.Period == "" {
-		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请选择周期"})
+	if !isValidDate(req.Period) {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "日期格式应为 YYYY-MM-DD"})
 		return
 	}
 	// 非管理员只能录自己科室
@@ -118,6 +126,7 @@ func CreateMajorEvent(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "创建失败"})
 		return
 	}
+	logOperation(r, "大事记", "新增", "录入大事记：「"+req.Title+"」（"+req.Period+"）")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "添加成功"})
 }
 
@@ -138,28 +147,37 @@ func UpdateMajorEvent(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "事项必填"})
 		return
 	}
+	if !isValidDate(req.Period) {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "日期格式应为 YYYY-MM-DD"})
+		return
+	}
 	// 权限校验：管理员可改任意，普通用户只能改自己科室的记录
 	if roleCode != "admin" {
-		var ownerDept int64
-		err := database.DB.QueryRow("SELECT department_id FROM major_events WHERE id = ?", req.ID).Scan(&ownerDept)
-		if err != nil {
-			middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "记录不存在"})
-			return
-		}
-		var myDept int64
-		database.DB.QueryRow("SELECT department_id FROM users WHERE id = ?", userID).Scan(&myDept)
-		if ownerDept != myDept {
+		if !sameDept("major_events", req.ID, userID) {
 			middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "无权修改其他科室的记录"})
 			return
 		}
 	}
-	_, err := database.DB.Exec(
-		`UPDATE major_events SET event_type=?, period=?, title=?, updated_at=? WHERE id=?`,
-		req.EventType, req.Period, req.Title, time.Now(), req.ID)
-	if err != nil {
+	// 大事记仅按月（event_type 固定 monthly，前端编辑不传该字段，勿被覆盖为空）
+	// 管理员可调整所属科室（传 0 时不改）
+	if roleCode == "admin" && req.DepartmentID != 0 {
+		if _, err := database.DB.Exec(
+			`UPDATE major_events SET event_type='monthly', period=?, title=?, department_id=?, updated_at=? WHERE id=?`,
+			req.Period, req.Title, req.DepartmentID, time.Now(), req.ID); err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "更新失败"})
+			return
+		}
+		logOperation(r, "大事记", "修改", "修改大事记：「"+req.Title+"」（"+req.Period+"）")
+		middleware.JSON(w, http.StatusOK, map[string]string{"message": "更新成功"})
+		return
+	}
+	if _, err := database.DB.Exec(
+		`UPDATE major_events SET event_type='monthly', period=?, title=?, updated_at=? WHERE id=?`,
+		req.Period, req.Title, time.Now(), req.ID); err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "更新失败"})
 		return
 	}
+	logOperation(r, "大事记", "修改", "修改大事记：「"+req.Title+"」（"+req.Period+"）")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "更新成功"})
 }
 
@@ -173,24 +191,19 @@ func DeleteMajorEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if roleCode != "admin" {
-		var ownerDept int64
-		err := database.DB.QueryRow("SELECT department_id FROM major_events WHERE id = ?", id).Scan(&ownerDept)
-		if err != nil {
-			middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "记录不存在"})
-			return
-		}
-		var myDept int64
-		database.DB.QueryRow("SELECT department_id FROM users WHERE id = ?", userID).Scan(&myDept)
-		if ownerDept != myDept {
+		if !sameDept("major_events", id, userID) {
 			middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "无权删除其他科室的记录"})
 			return
 		}
 	}
+	var title string
+	database.DB.QueryRow("SELECT title FROM major_events WHERE id=?", id).Scan(&title)
 	_, err := database.DB.Exec("DELETE FROM major_events WHERE id=?", id)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
 		return
 	}
+	logOperation(r, "大事记", "删除", "删除大事记：「"+title+"」")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "删除成功"})
 }
 
@@ -232,6 +245,8 @@ func ExportMajorEvents(w http.ResponseWriter, r *http.Request) {
 			it.day = fmt.Sprintf("%d月%d日", m, d)
 		} else if len(it.period) == 7 {
 			fmt.Sscanf(it.period, "%d-%d", new(int), &it.month)
+			it.day = fmt.Sprintf("%d月", it.month)
+		} else {
 			it.day = it.period
 		}
 		list = append(list, it)
@@ -251,7 +266,7 @@ func ExportMajorEvents(w http.ResponseWriter, r *http.Request) {
 	builder.addEmpty()
 	var curMonth int
 	for _, it := range list {
-		if it.month != curMonth {
+		if it.month > 0 && it.month != curMonth {
 			curMonth = it.month
 			builder.addBold(fmt.Sprintf("%d月", curMonth))
 		}
@@ -264,5 +279,6 @@ func ExportMajorEvents(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "导出失败", http.StatusInternalServerError)
 		return
 	}
+	logOperation(r, "大事记", "导出", "导出"+year+"年大事记")
 	writeDocx(w, year+"年宣传部大事记.docx", data)
 }

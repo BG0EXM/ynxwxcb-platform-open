@@ -9,7 +9,8 @@ import (
 // Config 应用配置
 type Config struct {
 	Server struct {
-		Port string `json:"port"`
+		Port       string `json:"port"`
+		TrustProxy bool   `json:"trust_proxy"` // 是否信任 X-Forwarded-For（前置 Caddy/WAF 时设为 true）
 	} `json:"server"`
 	Database struct {
 		Path string `json:"path"`

@@ -43,15 +43,23 @@ func ListStandingCommitteeEvents(w http.ResponseWriter, r *http.Request) {
 	list := []models.StandingCommitteeEvent{}
 	for rows.Next() {
 		var e models.StandingCommitteeEvent
-		var creator sql.NullString
-		var createdAt, updatedAt time.Time
-		rows.Scan(&e.ID, &e.EventDate, &e.Title, &e.CreatedBy,
-			&creator, &createdAt, &updatedAt)
-		if creator.Valid {
-			e.CreatedName = creator.String
+		var creator, eventDate, title sql.NullString
+		var createdBy sql.NullInt64
+		var createdAt, updatedAt sql.NullTime
+		if err := rows.Scan(&e.ID, &eventDate, &title, &createdBy,
+			&creator, &createdAt, &updatedAt); err != nil {
+			continue
 		}
-		e.CreatedAt = createdAt
-		e.UpdatedAt = updatedAt
+		e.EventDate = eventDate.String
+		e.Title = title.String
+		e.CreatedBy = createdBy.Int64
+		e.CreatedName = creator.String
+		if createdAt.Valid {
+			e.CreatedAt = createdAt.Time
+		}
+		if updatedAt.Valid {
+			e.UpdatedAt = updatedAt.Time
+		}
 		list = append(list, e)
 	}
 	if err := rows.Err(); err != nil {
@@ -77,6 +85,10 @@ func CreateStandingCommitteeEvent(w http.ResponseWriter, r *http.Request) {
 	if req.EventDate == "" {
 		req.EventDate = time.Now().Format("2006-01-02")
 	}
+	if !isValidDate(req.EventDate) {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "日期格式应为 YYYY-MM-DD"})
+		return
+	}
 	_, err := database.DB.Exec(
 		`INSERT INTO standing_committee_events (event_date, title, created_by) VALUES (?, ?, ?)`,
 		req.EventDate, req.Title, userID)
@@ -84,6 +96,7 @@ func CreateStandingCommitteeEvent(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "创建失败"})
 		return
 	}
+	logOperation(r, "常委管理", "新增", "录入常委大事记：「"+req.Title+"」（"+req.EventDate+"）")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "添加成功"})
 }
 
@@ -102,6 +115,13 @@ func UpdateStandingCommitteeEvent(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "标题必填"})
 		return
 	}
+	if req.EventDate == "" {
+		req.EventDate = time.Now().Format("2006-01-02")
+	}
+	if !isValidDate(req.EventDate) {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "日期格式应为 YYYY-MM-DD"})
+		return
+	}
 	_, err := database.DB.Exec(
 		`UPDATE standing_committee_events SET event_date=?, title=?, updated_at=? WHERE id=?`,
 		req.EventDate, req.Title, time.Now(), req.ID)
@@ -109,6 +129,7 @@ func UpdateStandingCommitteeEvent(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "更新失败"})
 		return
 	}
+	logOperation(r, "常委管理", "修改", "修改常委大事记：「"+req.Title+"」（"+req.EventDate+"）")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "更新成功"})
 }
 
@@ -119,11 +140,14 @@ func DeleteStandingCommitteeEvent(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
 		return
 	}
+	var title string
+	database.DB.QueryRow("SELECT title FROM standing_committee_events WHERE id=?", id).Scan(&title)
 	_, err := database.DB.Exec("DELETE FROM standing_committee_events WHERE id=?", id)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
 		return
 	}
+	logOperation(r, "常委管理", "删除", "删除常委大事记：「"+title+"」")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "删除成功"})
 }
 
@@ -159,9 +183,11 @@ func ExportStandingCommitteeEvents(w http.ResponseWriter, r *http.Request) {
 	list := []scItem{}
 	for rows.Next() {
 		var eventDate, t sql.NullString
-		rows.Scan(&eventDate, &t)
+		if err := rows.Scan(&eventDate, &t); err != nil {
+			continue
+		}
 		it := scItem{eventDate: eventDate.String, title: t.String}
-		if len(it.eventDate) == 10 {
+		if len(it.eventDate) >= 7 {
 			fmt.Sscanf(it.eventDate, "%d-%d", new(int), &it.month)
 		}
 		list = append(list, it)
@@ -187,7 +213,7 @@ func ExportStandingCommitteeEvents(w http.ResponseWriter, r *http.Request) {
 	idx := 1
 	var curMonth int
 	for _, it := range list {
-		if it.month != curMonth {
+		if it.month > 0 && it.month != curMonth {
 			curMonth = it.month
 			builder.addBold(fmt.Sprintf("%d月", curMonth))
 		}
@@ -201,6 +227,7 @@ func ExportStandingCommitteeEvents(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "导出失败", http.StatusInternalServerError)
 		return
 	}
+	logOperation(r, "常委管理", "导出", "导出常委大事记（"+title+"）")
 	fileName := "常委大事记-" + title + ".docx"
 	writeDocx(w, fileName, data)
 }

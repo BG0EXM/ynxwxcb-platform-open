@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"ynxwxcb-platform/internal/config"
 	"ynxwxcb-platform/internal/handlers"
@@ -14,158 +15,174 @@ import (
 func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux := http.NewServeMux()
 
+	// 仅需登录（无需具体权限点）
+	authOnly := func(h http.HandlerFunc) http.Handler {
+		return middleware.Auth(h)
+	}
+	// 需要某权限点
+	perm := func(code string, h http.HandlerFunc) http.Handler {
+		return middleware.Auth(middleware.RequirePerm(code)(h))
+	}
+
 	// ---- 公开路由 ----
 	mux.HandleFunc("GET /api/health", handlers.Health)
-	mux.HandleFunc("POST /api/auth/login", handlers.Login(cfg))
-	// 会务公开报名（匿名，无需登录）
-	mux.HandleFunc("GET /api/public/meetings/{id}", handlers.PublicMeeting)
-	mux.HandleFunc("POST /api/public/meetings/{id}/register", handlers.PublicRegisterMeeting)
-	mux.HandleFunc("POST /api/public/meetings/{id}/remove", handlers.PublicRemoveAttendee)
-	mux.HandleFunc("POST /api/public/meetings/{id}/cancel", handlers.PublicCancelMeetingRegister)
+	// 登录按 IP 限流（防爆破）
+	mux.Handle("POST /api/auth/login", middleware.RateLimit(20, time.Minute)(handlers.Login(cfg)))
+	// 会务公开报名（匿名，无需登录）——按 IP 限流（防刷）
+	mux.Handle("GET /api/public/meetings/{id}", middleware.RateLimit(120, time.Minute)(http.HandlerFunc(handlers.PublicMeeting)))
+	mux.Handle("POST /api/public/meetings/{id}/register", middleware.RateLimit(30, time.Minute)(http.HandlerFunc(handlers.PublicRegisterMeeting)))
+	mux.Handle("POST /api/public/meetings/{id}/remove", middleware.RateLimit(30, time.Minute)(http.HandlerFunc(handlers.PublicRemoveAttendee)))
+	mux.Handle("POST /api/public/meetings/{id}/cancel", middleware.RateLimit(30, time.Minute)(http.HandlerFunc(handlers.PublicCancelMeetingRegister)))
 
-	// ---- 认证与用户 ----
-	mux.Handle("GET /api/auth/profile", middleware.Auth(http.HandlerFunc(handlers.GetProfile)))
-	mux.Handle("POST /api/auth/change-password", middleware.Auth(http.HandlerFunc(handlers.ChangePassword)))
+	// ---- 认证 ----
+	mux.Handle("GET /api/auth/profile", authOnly(handlers.GetProfile))
+	mux.Handle("POST /api/auth/change-password", authOnly(handlers.ChangePassword))
+	mux.Handle("POST /api/auth/logout", authOnly(handlers.Logout))
 
-	// ---- 用户管理（管理员）----
-	mux.Handle("GET /api/users", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.ListUsers))))
-	mux.Handle("POST /api/users", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.CreateUser))))
-	mux.Handle("PUT /api/users", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.UpdateUser))))
-	mux.Handle("DELETE /api/users/{id}", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.DeleteUser))))
-	mux.Handle("POST /api/users/reset-password", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.ResetPassword))))
-	mux.Handle("GET /api/roles", middleware.Auth(http.HandlerFunc(handlers.ListRoles)))
-	mux.Handle("GET /api/departments", middleware.Auth(http.HandlerFunc(handlers.ListDepartments)))
-	mux.Handle("POST /api/departments", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.CreateDepartment))))
-	mux.Handle("PUT /api/departments", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.UpdateDepartment))))
-	mux.Handle("DELETE /api/departments/{id}", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.DeleteDepartment))))
-	mux.Handle("GET /api/assignees", middleware.Auth(http.HandlerFunc(handlers.GetAssignees)))
+	// ---- 用户与系统管理 ----
+	mux.Handle("GET /api/users", perm("user.manage", handlers.ListUsers))
+	mux.Handle("POST /api/users", perm("user.manage", handlers.CreateUser))
+	mux.Handle("PUT /api/users", perm("user.manage", handlers.UpdateUser))
+	mux.Handle("DELETE /api/users/{id}", perm("user.manage", handlers.DeleteUser))
+	mux.Handle("POST /api/users/reset-password", perm("user.manage", handlers.ResetPassword))
+	mux.Handle("GET /api/operation-logs", perm("oplog.view", handlers.ListOperationLogs))
+	mux.Handle("GET /api/permissions", perm("user.manage", handlers.GetPermissionMatrix))
+	mux.Handle("PUT /api/permissions", perm("user.manage", handlers.SavePermissionMatrix))
+	// 下拉数据：登录即可
+	mux.Handle("GET /api/roles", authOnly(handlers.ListRoles))
+	mux.Handle("GET /api/departments", authOnly(handlers.ListDepartments))
+	mux.Handle("GET /api/assignees", authOnly(handlers.GetAssignees))
+	mux.Handle("POST /api/departments", perm("department.manage", handlers.CreateDepartment))
+	mux.Handle("PUT /api/departments", perm("department.manage", handlers.UpdateDepartment))
+	mux.Handle("DELETE /api/departments/{id}", perm("department.manage", handlers.DeleteDepartment))
 
-	// ---- 学习资料 ----
-	mux.Handle("GET /api/study-materials", middleware.Auth(http.HandlerFunc(handlers.ListStudyMaterials)))
-	mux.Handle("POST /api/study-materials", middleware.Auth(http.HandlerFunc(handlers.CreateStudyMaterial)))
-	mux.Handle("GET /api/study-materials/{id}", middleware.Auth(http.HandlerFunc(handlers.GetStudyMaterial)))
-	mux.Handle("DELETE /api/study-materials/{id}", middleware.Auth(http.HandlerFunc(handlers.DeleteStudyMaterial)))
-	mux.Handle("GET /api/study-categories", middleware.Auth(http.HandlerFunc(handlers.ListStudyCategories)))
-	mux.Handle("POST /api/study-categories", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.CreateStudyCategory))))
-	mux.Handle("PUT /api/study-categories", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.UpdateStudyCategory))))
-	mux.Handle("DELETE /api/study-categories/{id}", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.DeleteStudyCategory))))
+	// ---- 公共资料 ----
+	mux.Handle("GET /api/study-materials", perm("study.view", handlers.ListStudyMaterials))
+	mux.Handle("POST /api/study-materials", perm("study.publish", handlers.CreateStudyMaterial))
+	mux.Handle("GET /api/study-materials/{id}", perm("study.view", handlers.GetStudyMaterial))
+	mux.Handle("DELETE /api/study-materials/{id}", perm("study.delete", handlers.DeleteStudyMaterial))
+	mux.Handle("GET /api/study-categories", perm("study.view", handlers.ListStudyCategories))
+	mux.Handle("POST /api/study-categories", perm("study.category", handlers.CreateStudyCategory))
+	mux.Handle("PUT /api/study-categories", perm("study.category", handlers.UpdateStudyCategory))
+	mux.Handle("DELETE /api/study-categories/{id}", perm("study.category", handlers.DeleteStudyCategory))
 
 	// ---- 通讯录 ----
-	mux.Handle("GET /api/contacts", middleware.Auth(http.HandlerFunc(handlers.ListContacts)))
-	mux.Handle("POST /api/contacts", middleware.Auth(http.HandlerFunc(handlers.CreateContact)))
-	mux.Handle("PUT /api/contacts", middleware.Auth(http.HandlerFunc(handlers.UpdateContact)))
-	mux.Handle("DELETE /api/contacts/{id}", middleware.Auth(http.HandlerFunc(handlers.DeleteContact)))
+	mux.Handle("GET /api/contacts", perm("contact.view", handlers.ListContacts))
+	mux.Handle("POST /api/contacts", perm("contact.manage", handlers.CreateContact))
+	mux.Handle("PUT /api/contacts", perm("contact.manage", handlers.UpdateContact))
+	mux.Handle("DELETE /api/contacts/{id}", perm("contact.manage", handlers.DeleteContact))
 
 	// ---- 排班 ----
-	mux.Handle("GET /api/duty-schedules", middleware.Auth(http.HandlerFunc(handlers.ListDutySchedules)))
-	mux.Handle("POST /api/duty-schedules", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.SaveDutySchedule))))
-	mux.Handle("DELETE /api/duty-schedules/{id}", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.DeleteDutySchedule))))
+	mux.Handle("GET /api/duty-schedules", perm("duty.view", handlers.ListDutySchedules))
+	mux.Handle("POST /api/duty-schedules", perm("duty.manage", handlers.SaveDutySchedule))
+	mux.Handle("DELETE /api/duty-schedules/{id}", perm("duty.manage", handlers.DeleteDutySchedule))
 
 	// ---- 工作日历 ----
-	mux.Handle("GET /api/calendar-tasks", middleware.Auth(http.HandlerFunc(handlers.ListCalendarTasks)))
-	mux.Handle("POST /api/calendar-tasks", middleware.Auth(http.HandlerFunc(handlers.CreateCalendarTask)))
-	mux.Handle("PUT /api/calendar-tasks", middleware.Auth(http.HandlerFunc(handlers.UpdateCalendarTask)))
-	mux.Handle("DELETE /api/calendar-tasks/{id}", middleware.Auth(http.HandlerFunc(handlers.DeleteCalendarTask)))
+	mux.Handle("GET /api/calendar-tasks", perm("calendar.view", handlers.ListCalendarTasks))
+	mux.Handle("POST /api/calendar-tasks", perm("calendar.manage", handlers.CreateCalendarTask))
+	mux.Handle("PUT /api/calendar-tasks", perm("calendar.manage", handlers.UpdateCalendarTask))
+	mux.Handle("DELETE /api/calendar-tasks/{id}", perm("calendar.manage", handlers.DeleteCalendarTask))
 
-	// ---- 常委管理（仅管理员）----
-	mux.Handle("GET /api/standing-events", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.ListStandingCommitteeEvents))))
-	mux.Handle("POST /api/standing-events", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.CreateStandingCommitteeEvent))))
-	mux.Handle("PUT /api/standing-events", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.UpdateStandingCommitteeEvent))))
-	mux.Handle("DELETE /api/standing-events/{id}", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.DeleteStandingCommitteeEvent))))
+	// ---- 常委管理 ----
+	mux.Handle("GET /api/standing-events", perm("standing.manage", handlers.ListStandingCommitteeEvents))
+	mux.Handle("POST /api/standing-events", perm("standing.manage", handlers.CreateStandingCommitteeEvent))
+	mux.Handle("PUT /api/standing-events", perm("standing.manage", handlers.UpdateStandingCommitteeEvent))
+	mux.Handle("DELETE /api/standing-events/{id}", perm("standing.manage", handlers.DeleteStandingCommitteeEvent))
 
-	// ---- 大事记（各科室每月/每年）----
-	mux.Handle("GET /api/major-events", middleware.Auth(http.HandlerFunc(handlers.ListMajorEvents)))
-	mux.Handle("POST /api/major-events", middleware.Auth(http.HandlerFunc(handlers.CreateMajorEvent)))
-	mux.Handle("PUT /api/major-events", middleware.Auth(http.HandlerFunc(handlers.UpdateMajorEvent)))
-	mux.Handle("DELETE /api/major-events/{id}", middleware.Auth(http.HandlerFunc(handlers.DeleteMajorEvent)))
+	// ---- 大事记 ----
+	mux.Handle("GET /api/major-events", perm("event.view", handlers.ListMajorEvents))
+	mux.Handle("POST /api/major-events", perm("event.manage", handlers.CreateMajorEvent))
+	mux.Handle("PUT /api/major-events", perm("event.manage", handlers.UpdateMajorEvent))
+	mux.Handle("DELETE /api/major-events/{id}", perm("event.manage", handlers.DeleteMajorEvent))
 
 	// ---- 每周工作总结 ----
-	mux.Handle("GET /api/weekly-summaries", middleware.Auth(http.HandlerFunc(handlers.ListWeeklySummaries)))
-	mux.Handle("POST /api/weekly-summaries", middleware.Auth(http.HandlerFunc(handlers.CreateWeeklySummary)))
-	mux.Handle("PUT /api/weekly-summaries", middleware.Auth(http.HandlerFunc(handlers.UpdateWeeklySummary)))
-	mux.Handle("DELETE /api/weekly-summaries/{id}", middleware.Auth(http.HandlerFunc(handlers.DeleteWeeklySummary)))
+	mux.Handle("GET /api/weekly-summaries", perm("weekly.view", handlers.ListWeeklySummaries))
+	mux.Handle("POST /api/weekly-summaries", perm("weekly.manage", handlers.CreateWeeklySummary))
+	mux.Handle("PUT /api/weekly-summaries", perm("weekly.manage", handlers.UpdateWeeklySummary))
+	mux.Handle("DELETE /api/weekly-summaries/{id}", perm("weekly.manage", handlers.DeleteWeeklySummary))
 
 	// ---- 加班统计与补休 ----
-	mux.Handle("GET /api/overtime-records", middleware.Auth(http.HandlerFunc(handlers.ListOvertimeRecords)))
-	mux.Handle("POST /api/overtime-records", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.CreateOvertimeRecord))))
-	mux.Handle("DELETE /api/overtime-records/{id}", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.DeleteOvertimeRecord))))
-	mux.Handle("GET /api/overtime-stats", middleware.Auth(http.HandlerFunc(handlers.OvertimeStats)))
+	mux.Handle("GET /api/overtime-records", perm("overtime.view", handlers.ListOvertimeRecords))
+	mux.Handle("POST /api/overtime-records", perm("overtime.manage", handlers.CreateOvertimeRecord))
+	mux.Handle("DELETE /api/overtime-records/{id}", perm("overtime.manage", handlers.DeleteOvertimeRecord))
+	mux.Handle("GET /api/overtime-stats", perm("overtime.view", handlers.OvertimeStats))
 
-	// ---- 年休假管理（管理员配置，普通用户可查看）----
-	mux.Handle("GET /api/annual-leave-configs", middleware.Auth(http.HandlerFunc(handlers.ListAnnualLeaveConfigs)))
-	mux.Handle("POST /api/annual-leave-configs", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.SaveAnnualLeaveConfig))))
+	// ---- 年休假管理 ----
+	mux.Handle("GET /api/annual-leave-configs", perm("annualleave.view", handlers.ListAnnualLeaveConfigs))
+	mux.Handle("POST /api/annual-leave-configs", perm("annualleave.manage", handlers.SaveAnnualLeaveConfig))
 
-	// ---- 会务管理（仅管理员）----
-	mux.Handle("GET /api/meetings", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.ListMeetings))))
-	mux.Handle("POST /api/meetings", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.CreateMeeting))))
-	mux.Handle("PUT /api/meetings", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.UpdateMeeting))))
-	mux.Handle("DELETE /api/meetings/{id}", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.DeleteMeeting))))
-	mux.Handle("GET /api/meetings/{id}", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.GetMeeting))))
-	mux.Handle("GET /api/meetings/{id}/registrations", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.MeetingRegistrations))))
-	mux.Handle("GET /api/export/meetings/{id}/registration", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.ExportMeetingRegistration))))
+	// ---- 会务管理 ----
+	mux.Handle("GET /api/meetings", perm("meeting.manage", handlers.ListMeetings))
+	mux.Handle("POST /api/meetings", perm("meeting.manage", handlers.CreateMeeting))
+	mux.Handle("PUT /api/meetings", perm("meeting.manage", handlers.UpdateMeeting))
+	mux.Handle("DELETE /api/meetings/{id}", perm("meeting.manage", handlers.DeleteMeeting))
+	mux.Handle("GET /api/meetings/{id}", perm("meeting.manage", handlers.GetMeeting))
+	mux.Handle("GET /api/meetings/{id}/registrations", perm("meeting.manage", handlers.MeetingRegistrations))
+	mux.Handle("GET /api/export/meetings/{id}/registration", perm("meeting.manage", handlers.ExportMeetingRegistration))
 
-	// ---- 考勤（管理员晨会点到）----
-	mux.Handle("POST /api/attendance/mark", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.MarkAttendance))))
-	mux.Handle("GET /api/attendance/list", middleware.Auth(http.HandlerFunc(handlers.ListAttendances)))
-	mux.Handle("GET /api/attendance/stats", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.AttendanceStats))))
-	mux.Handle("GET /api/attendance/dates", middleware.Auth(http.HandlerFunc(handlers.AttendanceDates)))
-	mux.Handle("GET /api/attendance/mark-users", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.MarkUsers))))
-	mux.Handle("GET /api/attendance/monthly", middleware.Auth(http.HandlerFunc(handlers.AttendanceMonthly)))
-	mux.Handle("GET /api/attendance/yearly", middleware.Auth(http.HandlerFunc(handlers.AttendanceYearly)))
+	// ---- 考勤 ----
+	mux.Handle("POST /api/attendance/mark", perm("attendance.mark", handlers.MarkAttendance))
+	mux.Handle("GET /api/attendance/list", perm("attendance.view", handlers.ListAttendances))
+	mux.Handle("GET /api/attendance/stats", perm("attendance.stats", handlers.AttendanceStats))
+	mux.Handle("GET /api/attendance/dates", perm("attendance.view", handlers.AttendanceDates))
+	mux.Handle("GET /api/attendance/mark-users", perm("attendance.mark", handlers.MarkUsers))
+	mux.Handle("GET /api/attendance/monthly", perm("attendance.stats", handlers.AttendanceMonthly))
+	mux.Handle("GET /api/attendance/yearly", perm("attendance.stats", handlers.AttendanceYearly))
 
 	// ---- 请假管理 ----
-	mux.Handle("POST /api/leave-records", middleware.Auth(http.HandlerFunc(handlers.CreateLeaveRecord)))
-	mux.Handle("PUT /api/leave-records", middleware.Auth(http.HandlerFunc(handlers.UpdateLeaveRecord)))
-	mux.Handle("GET /api/leave-records", middleware.Auth(http.HandlerFunc(handlers.ListLeaveRecords)))
-	mux.Handle("DELETE /api/leave-records/{id}", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.DeleteLeaveRecord))))
-	mux.Handle("GET /api/leave-stats", middleware.Auth(http.HandlerFunc(handlers.LeaveStats)))
+	mux.Handle("GET /api/leave-records/{id}", perm("leave.view", handlers.GetLeaveRecord))
+	mux.Handle("POST /api/leave-records", perm("leave.manage", handlers.CreateLeaveRecord))
+	mux.Handle("PUT /api/leave-records", perm("leave.manage", handlers.UpdateLeaveRecord))
+	mux.Handle("GET /api/leave-records", perm("leave.view", handlers.ListLeaveRecords))
+	mux.Handle("DELETE /api/leave-records/{id}", perm("leave.delete", handlers.DeleteLeaveRecord))
+	mux.Handle("GET /api/leave-stats", perm("leave.view", handlers.LeaveStats))
 
 	// ---- 公车管理 ----
-	mux.Handle("GET /api/vehicles", middleware.Auth(http.HandlerFunc(handlers.ListVehicles)))
-	mux.Handle("POST /api/vehicles", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.CreateVehicle))))
-	mux.Handle("PUT /api/vehicles", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.UpdateVehicle))))
-	mux.Handle("DELETE /api/vehicles/{id}", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.DeleteVehicle))))
-	mux.Handle("POST /api/vehicle-applies", middleware.Auth(http.HandlerFunc(handlers.CreateVehicleApply)))
-	mux.Handle("PUT /api/vehicle-applies", middleware.Auth(http.HandlerFunc(handlers.UpdateVehicleApply)))
-	mux.Handle("GET /api/vehicle-applies", middleware.Auth(http.HandlerFunc(handlers.ListVehicleApplies)))
-	mux.Handle("GET /api/vehicle-applies/{id}", middleware.Auth(http.HandlerFunc(handlers.GetVehicleApply)))
-	mux.Handle("DELETE /api/vehicle-applies/{id}", middleware.Auth(http.HandlerFunc(handlers.DeleteVehicleApply)))
-	mux.Handle("GET /api/vehicle-stats", middleware.Auth(http.HandlerFunc(handlers.VehicleStats)))
+	mux.Handle("GET /api/vehicles", perm("vehicle.view", handlers.ListVehicles))
+	mux.Handle("POST /api/vehicles", perm("vehicle.manage", handlers.CreateVehicle))
+	mux.Handle("PUT /api/vehicles", perm("vehicle.manage", handlers.UpdateVehicle))
+	mux.Handle("DELETE /api/vehicles/{id}", perm("vehicle.manage", handlers.DeleteVehicle))
+	mux.Handle("POST /api/vehicle-applies", perm("vehicle.apply", handlers.CreateVehicleApply))
+	mux.Handle("PUT /api/vehicle-applies", perm("vehicle.apply", handlers.UpdateVehicleApply))
+	mux.Handle("GET /api/vehicle-applies", perm("vehicle.view", handlers.ListVehicleApplies))
+	mux.Handle("GET /api/vehicle-applies/{id}", perm("vehicle.view", handlers.GetVehicleApply))
+	mux.Handle("DELETE /api/vehicle-applies/{id}", perm("vehicle.apply", handlers.DeleteVehicleApply))
+	mux.Handle("GET /api/vehicle-stats", perm("vehicle.view", handlers.VehicleStats))
 
-	// ---- 文件上传 ----
-	mux.Handle("POST /api/uploads", middleware.Auth(handlers.UploadFile(cfg)))
-	mux.Handle("GET /api/uploads/{id}", middleware.Auth(http.HandlerFunc(handlers.DownloadAttachment)))
-	mux.Handle("PUT /api/uploads/link", middleware.Auth(http.HandlerFunc(handlers.LinkAttachment)))
+	// ---- 文件上传（登录即可，供各模块附件）----
+	mux.Handle("POST /api/uploads", authOnly(handlers.UploadFile(cfg)))
+	mux.Handle("GET /api/uploads/{id}", authOnly(handlers.DownloadAttachment(cfg)))
+	mux.Handle("PUT /api/uploads/link", authOnly(handlers.LinkAttachment))
 
 	// ---- 收文登记 ----
-	mux.Handle("GET /api/incoming-docs", middleware.Auth(http.HandlerFunc(handlers.ListIncomingDocs)))
-	mux.Handle("POST /api/incoming-docs", middleware.Auth(http.HandlerFunc(handlers.CreateIncomingDoc)))
-	mux.Handle("GET /api/incoming-docs/{id}", middleware.Auth(http.HandlerFunc(handlers.GetIncomingDoc)))
-	mux.Handle("PUT /api/incoming-docs", middleware.Auth(http.HandlerFunc(handlers.UpdateIncomingDoc)))
-	mux.Handle("DELETE /api/incoming-docs/{id}", middleware.Auth(http.HandlerFunc(handlers.DeleteIncomingDoc)))
-	mux.Handle("GET /api/incoming-doc-stats", middleware.Auth(http.HandlerFunc(handlers.IncomingDocStats)))
+	mux.Handle("GET /api/incoming-docs", perm("incoming.view", handlers.ListIncomingDocs))
+	mux.Handle("POST /api/incoming-docs", perm("incoming.manage", handlers.CreateIncomingDoc))
+	mux.Handle("GET /api/incoming-docs/{id}", perm("incoming.view", handlers.GetIncomingDoc))
+	mux.Handle("PUT /api/incoming-docs", perm("incoming.manage", handlers.UpdateIncomingDoc))
+	mux.Handle("DELETE /api/incoming-docs/{id}", perm("incoming.manage", handlers.DeleteIncomingDoc))
+	mux.Handle("GET /api/incoming-doc-stats", perm("incoming.view", handlers.IncomingDocStats))
 	// 传阅记录
-	mux.Handle("POST /api/circulations", middleware.Auth(http.HandlerFunc(handlers.AddCirculation)))
-	mux.Handle("PUT /api/circulations", middleware.Auth(http.HandlerFunc(handlers.UpdateCirculation)))
-	mux.Handle("DELETE /api/circulations/{id}", middleware.Auth(http.HandlerFunc(handlers.DeleteCirculation)))
+	mux.Handle("POST /api/circulations", perm("incoming.circulation", handlers.AddCirculation))
+	mux.Handle("PUT /api/circulations", perm("incoming.circulation", handlers.UpdateCirculation))
+	mux.Handle("DELETE /api/circulations/{id}", perm("incoming.circulation", handlers.DeleteCirculation))
 
 	// ---- 首页统计 ----
-	mux.Handle("GET /api/dashboard-stats", middleware.Auth(http.HandlerFunc(handlers.DashboardStats)))
+	mux.Handle("GET /api/dashboard-stats", perm("dashboard.view", handlers.DashboardStats))
 
 	// ---- 数据导出（Excel）----
-	mux.Handle("GET /api/export/vehicle-applies", middleware.Auth(http.HandlerFunc(handlers.ExportVehicleApplies)))
-	mux.Handle("GET /api/export/leave-records", middleware.Auth(http.HandlerFunc(handlers.ExportLeaveRecords)))
-	mux.Handle("GET /api/export/attendances", middleware.Auth(http.HandlerFunc(handlers.ExportAttendances)))
-	mux.Handle("GET /api/export/duty-schedules", middleware.Auth(http.HandlerFunc(handlers.ExportDutySchedules)))
-	mux.Handle("GET /api/export/incoming-docs", middleware.Auth(http.HandlerFunc(handlers.ExportIncomingDocs)))
-	mux.Handle("GET /api/export/calendar-tasks", middleware.Auth(http.HandlerFunc(handlers.ExportCalendarTasks)))
-	mux.Handle("GET /api/export/overtime-records", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.ExportOvertimeRecords))))
-	mux.Handle("GET /api/export/annual-leave-configs", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.ExportAnnualLeaveConfigs))))
+	mux.Handle("GET /api/export/vehicle-applies", perm("vehicle.export", handlers.ExportVehicleApplies))
+	mux.Handle("GET /api/export/leave-records", perm("leave.export", handlers.ExportLeaveRecords))
+	mux.Handle("GET /api/export/attendances", perm("attendance.export", handlers.ExportAttendances))
+	mux.Handle("GET /api/export/duty-schedules", perm("duty.export", handlers.ExportDutySchedules))
+	mux.Handle("GET /api/export/incoming-docs", perm("incoming.export", handlers.ExportIncomingDocs))
+	mux.Handle("GET /api/export/calendar-tasks", perm("calendar.export", handlers.ExportCalendarTasks))
+	mux.Handle("GET /api/export/overtime-records", perm("overtime.export", handlers.ExportOvertimeRecords))
+	mux.Handle("GET /api/export/annual-leave-configs", perm("annualleave.export", handlers.ExportAnnualLeaveConfigs))
 
 	// ---- 数据导出（Word）----
-	mux.Handle("GET /api/export/standing-events", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.ExportStandingCommitteeEvents))))
-	mux.Handle("GET /api/export/major-events", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.ExportMajorEvents))))
-	mux.Handle("GET /api/export/weekly-summaries", middleware.Auth(middleware.RequireRole("admin")(http.HandlerFunc(handlers.ExportWeeklySummaries))))
+	mux.Handle("GET /api/export/standing-events", perm("standing.manage", handlers.ExportStandingCommitteeEvents))
+	mux.Handle("GET /api/export/major-events", perm("event.export", handlers.ExportMajorEvents))
+	mux.Handle("GET /api/export/weekly-summaries", perm("weekly.export", handlers.ExportWeeklySummaries))
 
 	// 静态文件服务（前端构建产物）+ SPA 回退
 	staticDir := "static"

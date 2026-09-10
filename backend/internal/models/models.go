@@ -14,7 +14,8 @@ type User struct {
 	RoleID       int64     `json:"role_id"`
 	RoleName     string    `json:"role_name,omitempty"`
 	RoleCode     string    `json:"role_code,omitempty"`
-	Status       int       `json:"status"` // 1启用 0禁用
+	Permissions  []string  `json:"permissions,omitempty"` // 该角色拥有的权限点（登录/资料接口返回）
+	Status       int       `json:"status"`                // 1启用 0禁用
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }

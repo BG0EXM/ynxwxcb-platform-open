@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -52,19 +53,20 @@ func ListAnnualLeaveConfigs(w http.ResponseWriter, r *http.Request) {
 	var userIDs []int64
 	for rows.Next() {
 		var rw Row
-		var dept sql.NullString
-		rows.Scan(&rw.UserID, &rw.UserName, &dept, &rw.ConfigDays)
-		if dept.Valid {
-			rw.Department = dept.String
+		var userName, dept sql.NullString
+		if err := rows.Scan(&rw.UserID, &userName, &dept, &rw.ConfigDays); err != nil {
+			continue
 		}
+		rw.UserName = userName.String
+		rw.Department = dept.String
 		base[rw.UserID] = &rw
 		userIDs = append(userIDs, rw.UserID)
 	}
-	rows.Close()
 	if err := rows.Err(); err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
+	rows.Close()
 
 	// 查询已休年假天数（leave_type='annual'，按当年实际覆盖天数，支持半天/小时假）
 	yearStart := year + "-01-01"
@@ -79,18 +81,26 @@ func ListAnnualLeaveConfigs(w http.ResponseWriter, r *http.Request) {
 			GROUP BY id
 		) WHERE eff > 0 GROUP BY user_id`
 	usedRows, err := database.DB.Query(usedQuery, yearEnd, yearEnd, yearStart, yearStart, yearEnd, yearStart)
-	if err == nil {
-		for usedRows.Next() {
-			var uid int64
-			var used float64
-			if usedRows.Scan(&uid, &used) == nil {
-				if rw, ok := base[uid]; ok {
-					rw.UsedDays = used
-				}
-			}
-		}
-		usedRows.Close()
+	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
 	}
+	for usedRows.Next() {
+		var uid int64
+		var used float64
+		if err := usedRows.Scan(&uid, &used); err != nil {
+			continue
+		}
+		if rw, ok := base[uid]; ok {
+			rw.UsedDays = used
+		}
+	}
+	if err := usedRows.Err(); err != nil {
+		usedRows.Close()
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+	usedRows.Close()
 
 	list := []Row{}
 	var totalConfig, totalUsed float64
@@ -114,7 +124,7 @@ func ExportAnnualLeaveConfigs(w http.ResponseWriter, r *http.Request) {
 	if year == "" {
 		year = time.Now().Format("2006")
 	}
-	query := `SELECT u.real_name, d.name, COALESCE(c.days, 0)
+	query := `SELECT u.id, u.real_name, d.name, COALESCE(c.days, 0)
 		FROM users u
 		LEFT JOIN departments d ON u.department_id = d.id
 		LEFT JOIN annual_leave_configs c ON c.user_id = u.id AND c.year = ?
@@ -124,7 +134,29 @@ func ExportAnnualLeaveConfigs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "查询失败", http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
+	// 先读完用户（含 id）并关闭，避免 MaxOpenConns=1 下未关闭 rows 再查询导致死锁
+	type userRow struct {
+		id         int64
+		name, dept string
+		configDays float64
+	}
+	users := []userRow{}
+	for rows.Next() {
+		var u userRow
+		var name, dept sql.NullString
+		if err := rows.Scan(&u.id, &name, &dept, &u.configDays); err != nil {
+			continue
+		}
+		u.name = name.String
+		u.dept = dept.String
+		users = append(users, u)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		http.Error(w, "查询失败", http.StatusInternalServerError)
+		return
+	}
+	rows.Close()
 
 	// 已休天数（联动请假 annual，支持半天/小时假）
 	yearStart := year + "-01-01"
@@ -139,37 +171,37 @@ func ExportAnnualLeaveConfigs(w http.ResponseWriter, r *http.Request) {
 			GROUP BY id
 		) WHERE eff > 0 GROUP BY user_id`
 	urows, err := database.DB.Query(usedQuery, yearEnd, yearEnd, yearStart, yearStart, yearEnd, yearStart)
-	if err == nil {
-		for urows.Next() {
-			var uid int64
-			var used float64
-			if urows.Scan(&uid, &used) == nil {
-				usedMap[uid] = used
-			}
-		}
-		urows.Close()
+	if err != nil {
+		http.Error(w, "查询失败", http.StatusInternalServerError)
+		return
 	}
+	for urows.Next() {
+		var uid int64
+		var used float64
+		if err := urows.Scan(&uid, &used); err != nil {
+			continue
+		}
+		usedMap[uid] = used
+	}
+	if err := urows.Err(); err != nil {
+		urows.Close()
+		http.Error(w, "查询失败", http.StatusInternalServerError)
+		return
+	}
+	urows.Close()
 
 	headers := []string{"序号", "姓名", "部门", "配置天数", "已休天数", "剩余天数"}
 	data := [][]interface{}{}
 	idx := 1
-	var uid int64
-	for rows.Next() {
-		var name, dept sql.NullString
-		var configDays float64
-		rows.Scan(&name, &dept, &configDays)
-		used := usedMap[uid]
-		remain := configDays - used
+	for _, u := range users {
+		used := usedMap[u.id]
+		remain := u.configDays - used
 		data = append(data, []interface{}{
-			idx, name.String, dept.String, configDays, used, remain,
+			idx, u.name, u.dept, u.configDays, used, remain,
 		})
 		idx++
-		uid++
 	}
-	if err := rows.Err(); err != nil {
-		http.Error(w, "查询失败", http.StatusInternalServerError)
-		return
-	}
+	logOperation(r, "年休假管理", "导出", "导出年休假统计")
 	exportExcel(w, "年休假统计", "年休假统计.xlsx", headers, data)
 }
 
@@ -188,6 +220,10 @@ func SaveAnnualLeaveConfig(w http.ResponseWriter, r *http.Request) {
 	if req.Year == "" {
 		req.Year = time.Now().Format("2006")
 	}
+	if !isValidYear(req.Year) {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "年份格式应为 YYYY"})
+		return
+	}
 	if req.Days < 0 {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "天数不能为负"})
 		return
@@ -201,5 +237,8 @@ func SaveAnnualLeaveConfig(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "保存失败"})
 		return
 	}
+	var personName string
+	database.DB.QueryRow("SELECT real_name FROM users WHERE id=?", req.UserID).Scan(&personName)
+	logOperation(r, "年休假管理", "修改", fmt.Sprintf("设置「%s」%s年年休假 %.1f 天", personName, req.Year, req.Days))
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "保存成功"})
 }

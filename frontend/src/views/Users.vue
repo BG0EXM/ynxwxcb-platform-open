@@ -107,7 +107,7 @@ const departments = ref([])
 const roles = ref([])
 const dialogVisible = ref(false)
 const editId = ref(0)
-const form = reactive({ username: '', real_name: '', department_id: null, role_id: 2, phone: '' })
+const form = reactive({ username: '', real_name: '', department_id: null, role_id: 2, phone: '', status: 1 })
 
 const roleTag = (r) => ({ '系统管理员': 'danger', '科室工作人员': 'primary', '乡镇/通讯员': 'success' }[r] || 'info')
 
@@ -133,7 +133,7 @@ const loadOptions = async () => {
 
 const openCreate = () => {
   editId.value = 0
-  Object.assign(form, { username: '', real_name: '', department_id: null, role_id: 2, phone: '' })
+  Object.assign(form, { username: '', real_name: '', department_id: null, role_id: 2, phone: '', status: 1 })
   dialogVisible.value = true
 }
 
@@ -141,7 +141,8 @@ const openEdit = (row) => {
   editId.value = row.id
   Object.assign(form, {
     username: row.username, real_name: row.real_name,
-    department_id: row.department_id, role_id: row.role_id, phone: row.phone
+    department_id: row.department_id, role_id: row.role_id, phone: row.phone,
+    status: row.status ?? 1
   })
   dialogVisible.value = true
 }
@@ -150,7 +151,7 @@ const save = async () => {
   if (!form.username || !form.real_name) return ElMessage.warning('用户名和姓名必填')
   try {
     if (editId.value) {
-      await request.put('/users', { ...form, id: editId.value, status: 1 })
+      await request.put('/users', { ...form, id: editId.value })
       ElMessage.success('更新成功')
     } else {
       const res = await request.post('/users', form)

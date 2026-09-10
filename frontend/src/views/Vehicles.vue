@@ -19,7 +19,7 @@
 
     <el-tabs v-model="activeTab" class="mt-12">
       <!-- 车辆管理（管理员） -->
-      <el-tab-pane label="车辆管理" name="vehicles" v-if="authStore.isAdmin">
+      <el-tab-pane label="车辆管理" name="vehicles" v-if="authStore.hasPerm('vehicle.manage')">
         <el-card shadow="never">
           <div class="toolbar">
             <div>
@@ -58,9 +58,9 @@
         <el-card shadow="never">
           <div class="toolbar">
             <div>
-              <el-date-picker v-model="queryDate" type="date" value-format="YYYY-MM-DD" placeholder="按用车日期筛选" style="width:160px" @change="loadApplies" />
+              <el-date-picker v-model="queryDate" type="date" value-format="YYYY-MM-DD" placeholder="按用车日期筛选" style="width:160px" @change="reloadAppliesFirstPage" />
               <el-button v-if="authStore.isAdmin" class="ml-8" :type="showAll ? 'primary' : 'info'" plain @click="toggleMine">
-                {{ showAll ? '查看全部' : '只看我的' }}
+                {{ showAll ? '只看我的' : '查看全部' }}
               </el-button>
             </div>
             <div>
@@ -81,10 +81,13 @@
               <template #default="{ row }">
                 <el-button v-if="authStore.isAdmin || row.reporter_id === authStore.user?.id" link type="warning" size="small" @click="openApplyEdit(row)">编辑</el-button>
                 <el-button link type="primary" size="small" @click="openPrint(row)">打印派车单</el-button>
-                <el-button link type="danger" size="small" @click="removeApply(row)">删除</el-button>
+                <el-button v-if="authStore.isAdmin || row.reporter_id === authStore.user?.id" link type="danger" size="small" @click="removeApply(row)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
+          <div class="pagination-wrap" v-if="total > 0">
+            <el-pagination background layout="total, prev, pager, next" :total="total" :page-size="pageSize" :current-page="page" @current-change="onAppliesPageChange" />
+          </div>
         </el-card>
       </el-tab-pane>
     </el-tabs>
@@ -185,7 +188,7 @@ import dayjs from 'dayjs'
 import { useAuthStore } from '../store/auth'
 
 const authStore = useAuthStore()
-const activeTab = ref('vehicles')
+const activeTab = ref(authStore.hasPerm('vehicle.manage') ? 'vehicles' : 'apply')
 const loading = ref(false)
 
 // 车辆
@@ -197,6 +200,9 @@ const vForm = reactive({ plate_no: '', brand: '', seats: 5, driver: '', status: 
 
 // 报备
 const applies = ref([])
+const page = ref(1)
+const pageSize = 20
+const total = ref(0)
 const queryDate = ref('')
 const showAll = ref(authStore.isAdmin)
 const applyDialogVisible = ref(false)
@@ -233,14 +239,20 @@ const loadStats = async () => {
   } catch (e) {}
 }
 
+const reloadAppliesFirstPage = () => { page.value = 1; loadApplies() }
+const onAppliesPageChange = (p) => { page.value = p; loadApplies() }
+
 const loadApplies = async () => {
   loading.value = true
   try {
     const params = {}
     if (queryDate.value) params.date = queryDate.value
     if (!showAll.value) params.mine = '1'
+    params.page = page.value
+    params.page_size = pageSize
     const res = await request.get('/vehicle-applies', { params })
     applies.value = res.list || []
+    total.value = res.total || 0
   } catch (e) {
   } finally {
     loading.value = false
@@ -360,6 +372,7 @@ const openPrint = (row) => {
 
 const toggleMine = () => {
   showAll.value = !showAll.value
+  page.value = 1
   loadApplies()
 }
 
@@ -404,5 +417,10 @@ const exportApplies = () => {
 }
 .ml-8 {
   margin-left: 8px;
+}
+.pagination-wrap {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
 }
 </style>

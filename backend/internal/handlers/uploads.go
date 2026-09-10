@@ -24,6 +24,8 @@ func UploadFile(cfg *config.Config) http.HandlerFunc {
 		userID, _ := r.Context().Value(middleware.ContextUserID).(int64)
 		realName, _ := r.Context().Value(middleware.ContextRealName).(string)
 
+		// 硬性限制请求体大小（防止超大文件打爆磁盘），略留 multipart 开销余量
+		r.Body = http.MaxBytesReader(w, r.Body, int64(cfg.Upload.MaxMB+2)<<20)
 		if err := r.ParseMultipartForm(cfg.Upload.MaxMB << 20); err != nil {
 			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "文件过大，超过限制"})
 			return
@@ -110,33 +112,43 @@ func UploadFile(cfg *config.Config) http.HandlerFunc {
 }
 
 // DownloadAttachment 下载附件（通过数据库记录 ID）
-func DownloadAttachment(w http.ResponseWriter, r *http.Request) {
-	id := pathID(r)
-	if id == 0 {
-		http.Error(w, "缺少附件ID", http.StatusBadRequest)
-		return
+func DownloadAttachment(cfg *config.Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, _ := r.Context().Value(middleware.ContextUserID).(int64)
+		roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
+		id := pathID(r)
+		if id == 0 {
+			http.Error(w, "缺少附件ID", http.StatusBadRequest)
+			return
+		}
+		var a models.Attachment
+		var uploaderID, ownerID int64
+		err := database.DB.QueryRow(
+			"SELECT id, file_name, file_path, file_size, uploader_id, owner_id FROM attachments WHERE id=?", id).
+			Scan(&a.ID, &a.FileName, &a.FilePath, &a.FileSize, &uploaderID, &ownerID)
+		if err != nil {
+			http.Error(w, "附件不存在", http.StatusNotFound)
+			return
+		}
+		// 权限：管理员、上传者本人、或已关联到业务对象的附件（业务数据已由各自接口鉴权）可下载
+		if roleCode != "admin" && uploaderID != userID && ownerID == 0 {
+			http.Error(w, "无权下载该附件", http.StatusForbidden)
+			return
+		}
+		// 文件路径以 /uploads/ 开头则转实际路径（使用配置的上传目录，兼容旧数据）
+		fullPath := a.FilePath
+		if strings.HasPrefix(fullPath, "/uploads/") {
+			fullPath = filepath.Join(cfg.Upload.Dir, strings.TrimPrefix(fullPath, "/uploads/"))
+		}
+		// 若数据库存的是绝对路径，直接使用
+		if _, err := os.Stat(fullPath); err != nil {
+			http.Error(w, "文件已被移除", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Disposition", "attachment; filename=%q; filename*=UTF-8''"+url.PathEscape(a.FileName))
+		w.Header().Set("Content-Type", "application/octet-stream")
+		http.ServeFile(w, r, fullPath)
 	}
-	var a models.Attachment
-	err := database.DB.QueryRow(
-		"SELECT id, file_name, file_path, file_size FROM attachments WHERE id=?", id).
-		Scan(&a.ID, &a.FileName, &a.FilePath, &a.FileSize)
-	if err != nil {
-		http.Error(w, "附件不存在", http.StatusNotFound)
-		return
-	}
-	// 文件路径以 /uploads/ 开头则转实际路径
-	fullPath := a.FilePath
-	if strings.HasPrefix(fullPath, "/uploads/") {
-		fullPath = "data" + fullPath
-	}
-	// 若数据库存的是绝对路径，直接使用
-	if _, err := os.Stat(fullPath); err != nil {
-		http.Error(w, "文件已被移除", http.StatusNotFound)
-		return
-	}
-	w.Header().Set("Content-Disposition", "attachment; filename=%q; filename*=UTF-8''"+url.PathEscape(a.FileName))
-	w.Header().Set("Content-Type", "application/octet-stream")
-	http.ServeFile(w, r, fullPath)
 }
 
 // LinkAttachment 将已上传附件关联到业务对象
@@ -152,6 +164,24 @@ func LinkAttachment(w http.ResponseWriter, r *http.Request) {
 	if req.ID == 0 || req.OwnerID == 0 {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "参数不完整"})
 		return
+	}
+	userID, _ := r.Context().Value(middleware.ContextUserID).(int64)
+	roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
+	var uploaderID, currentOwner int64
+	if err := database.DB.QueryRow("SELECT uploader_id, owner_id FROM attachments WHERE id=?", req.ID).Scan(&uploaderID, &currentOwner); err != nil {
+		middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "附件不存在"})
+		return
+	}
+	// 权限：管理员可关联任意附件；普通用户只能关联自己上传、且未被他人占用的附件
+	if roleCode != "admin" {
+		if uploaderID != userID {
+			middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "无权关联该附件"})
+			return
+		}
+		if currentOwner != 0 && currentOwner != req.OwnerID {
+			middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "该附件已被占用"})
+			return
+		}
 	}
 	_, err := database.DB.Exec("UPDATE attachments SET owner_id=? WHERE id=?", req.OwnerID, req.ID)
 	if err != nil {
@@ -171,19 +201,28 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 	month := time.Now().Format("2006-01")
 	year := time.Now().Format("2006")
 
-	// 今日值守（当天值守至21:00收文）
-	var dutyName string
-	var isDaWangYuan int
-	err := database.DB.QueryRow(
-		"SELECT u.real_name, s.is_dawangyuan FROM duty_schedules s JOIN users u ON s.user_id=u.id WHERE s.duty_date=?",
-		today).Scan(&dutyName, &isDaWangYuan)
+	// 今日值守（支持一天多人，姓名用「、」连接）
+	dutyRows, err := database.DB.Query(
+		"SELECT u.real_name, s.is_dawangyuan FROM duty_schedules s JOIN users u ON s.user_id=u.id WHERE s.duty_date=? ORDER BY s.id",
+		today)
+	dutyNames := []string{}
+	dutyDaWangYuan := 0
 	if err == nil {
-		result["today_duty"] = dutyName
-		result["today_duty_dawangyuan"] = isDaWangYuan
-	} else {
-		result["today_duty"] = ""
-		result["today_duty_dawangyuan"] = 0
+		for dutyRows.Next() {
+			var name string
+			var isDa int
+			if e := dutyRows.Scan(&name, &isDa); e != nil {
+				continue
+			}
+			dutyNames = append(dutyNames, name)
+			if isDa == 1 {
+				dutyDaWangYuan = 1
+			}
+		}
+		dutyRows.Close()
 	}
+	result["today_duty"] = strings.Join(dutyNames, "、")
+	result["today_duty_dawangyuan"] = dutyDaWangYuan
 
 	// 今日考勤状态（当前用户）
 	var todayStatus int
@@ -210,13 +249,13 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 	ym, _ := time.Parse("2006-01", month)
 	monthEnd := ym.AddDate(0, 1, -1).Format("2006-01-02")
 	database.DB.QueryRow(
-		`SELECT COALESCE(SUM(overlap_days),0) FROM (
-			SELECT CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
-				- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER) as overlap_days
+		`SELECT COALESCE(SUM(eff),0) FROM (
+			SELECT MIN(days, CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
+				- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER)) as eff
 			FROM leave_records
 			WHERE user_id = ? AND status = 1 AND start_date <= ? AND end_date >= ?
 			GROUP BY id
-		) WHERE overlap_days > 0`,
+		) WHERE eff > 0`,
 		monthEnd, monthEnd, monthStart, monthStart, userID, monthEnd, monthStart).Scan(&monthLeaveDays)
 	result["month_leave_days"] = monthLeaveDays
 
@@ -301,13 +340,13 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 		yearStart := year + "-01-01"
 		yearEnd := year + "-12-31"
 		database.DB.QueryRow(
-			`SELECT COALESCE(SUM(overlap_days),0) FROM (
-				SELECT CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
-					- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER) as overlap_days
+			`SELECT COALESCE(SUM(eff),0) FROM (
+				SELECT MIN(days, CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
+					- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER)) as eff
 				FROM leave_records
 				WHERE status = 1 AND start_date <= ? AND end_date >= ?
 				GROUP BY id
-			) WHERE overlap_days > 0`,
+			) WHERE eff > 0`,
 			yearEnd, yearEnd, yearStart, yearStart, yearEnd, yearStart).Scan(&annualDays)
 		result["year_leave_days"] = annualDays
 	}
