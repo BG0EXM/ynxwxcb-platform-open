@@ -701,22 +701,34 @@ func LeaveStats(w http.ResponseWriter, r *http.Request) {
 	middleware.JSON(w, http.StatusOK, result)
 }
 
+// 请假明细列（除"培训"外的类型；培训单列、补休归出勤）
+const leaveDetailCase = `COALESCE(SUM(CASE WHEN a.status=2 AND a.leave_type='annual' THEN 1 ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN a.status=2 AND a.leave_type='sick' THEN 1 ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN a.status=2 AND a.leave_type='personal' THEN 1 ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN a.status=2 AND a.leave_type='marriage' THEN 1 ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN a.status=2 AND a.leave_type='maternity' THEN 1 ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN a.status=2 AND a.leave_type='bereavement' THEN 1 ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN a.status=2 AND a.leave_type='prenatal' THEN 1 ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN a.status=2 AND a.leave_type='family' THEN 1 ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN a.status=2 AND (a.leave_type IS NULL OR a.leave_type NOT IN ('annual','sick','personal','marriage','maternity','bereavement','prenatal','family','training')) THEN 1 ELSE 0 END),0)`
+
 // AttendanceMonthly 月度考勤统计（按人员）
-// 返回每个人员的出勤/请假/出差/未到天数 + 各类请假天数
+// 口径统一以"点到记录"为准：出勤=status1（补休已按出勤）、出差/未到/迟到=3/4/5、
+// 培训=status6+培训假、请假=status2（不含培训）；请假明细按 status2 的 leave_type 展开
 func AttendanceMonthly(w http.ResponseWriter, r *http.Request) {
 	month := r.URL.Query().Get("month") // YYYY-MM
 	if month == "" {
 		month = time.Now().Format("2006-01")
 	}
 
-	// 先查询出勤汇总：从所有启用用户出发，LEFT JOIN 当月考勤（无考勤记录的用户也列出，便于统计请假）
 	query := `SELECT u.id, u.real_name, d.name,
-			COALESCE(SUM(CASE WHEN a.status=1 THEN 1 ELSE 0 END),0) as present,
-			COALESCE(SUM(CASE WHEN a.status=2 THEN 1 ELSE 0 END),0) as leave,
-			COALESCE(SUM(CASE WHEN a.status=3 THEN 1 ELSE 0 END),0) as trip,
-			COALESCE(SUM(CASE WHEN a.status=4 THEN 1 ELSE 0 END),0) as absent,
-			COALESCE(SUM(CASE WHEN a.status=5 THEN 1 ELSE 0 END),0) as late,
-			COALESCE(SUM(CASE WHEN a.status=6 THEN 1 ELSE 0 END),0) as training
+			COALESCE(SUM(CASE WHEN a.status=1 THEN 1 ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN a.status=3 THEN 1 ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN a.status=4 THEN 1 ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN a.status=5 THEN 1 ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN a.status=6 OR (a.status=2 AND a.leave_type='training') THEN 1 ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN a.status=2 AND (a.leave_type IS NULL OR a.leave_type<>'training') THEN 1 ELSE 0 END),0),
+			` + leaveDetailCase + `
 		FROM users u
 		LEFT JOIN departments d ON u.department_id = d.id
 		LEFT JOIN attendances a ON a.user_id = u.id AND a.attend_date LIKE ?
@@ -730,130 +742,84 @@ func AttendanceMonthly(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type Row struct {
-		UserID       int64   `json:"user_id"`
-		UserName     string  `json:"user_name"`
-		Department   string  `json:"department"`
-		Present      int     `json:"present"`
-		Leave        int     `json:"leave"`
-		Trip         int     `json:"trip"`
-		Absent       int     `json:"absent"`
-		Late         int     `json:"late"`
-		Training     int     `json:"training"`
-		AnnualDays   float64 `json:"annual_days"`
-		SickDays     float64 `json:"sick_days"`
-		PersonalDays float64 `json:"personal_days"`
-		OtherDays    float64 `json:"other_days"`
+		UserID          int64  `json:"user_id"`
+		UserName        string `json:"user_name"`
+		Department      string `json:"department"`
+		Present         int    `json:"present"`
+		Trip            int    `json:"trip"`
+		Absent          int    `json:"absent"`
+		Late            int    `json:"late"`
+		Training        int    `json:"training"`
+		Leave           int    `json:"leave"`
+		AnnualDays      int    `json:"annual_days"`
+		SickDays        int    `json:"sick_days"`
+		PersonalDays    int    `json:"personal_days"`
+		MarriageDays    int    `json:"marriage_days"`
+		MaternityDays   int    `json:"maternity_days"`
+		BereavementDays int    `json:"bereavement_days"`
+		PrenatalDays    int    `json:"prenatal_days"`
+		FamilyDays      int    `json:"family_days"`
+		OtherDays       int    `json:"other_days"`
 	}
-
-	// 收集 user_id 列表，先关闭外层 rows 再查请假明细（避免 MaxOpenConns=1 死锁）
-	userIDs := []int64{}
-	base := map[int64]*Row{}
+	list := []Row{}
 	for rows.Next() {
 		var rw Row
 		var userName, dept sql.NullString
-		if err := rows.Scan(&rw.UserID, &userName, &dept, &rw.Present, &rw.Leave, &rw.Trip, &rw.Absent, &rw.Late, &rw.Training); err != nil {
+		if err := rows.Scan(&rw.UserID, &userName, &dept, &rw.Present, &rw.Trip, &rw.Absent, &rw.Late, &rw.Training, &rw.Leave,
+			&rw.AnnualDays, &rw.SickDays, &rw.PersonalDays, &rw.MarriageDays, &rw.MaternityDays,
+			&rw.BereavementDays, &rw.PrenatalDays, &rw.FamilyDays, &rw.OtherDays); err != nil {
 			continue
 		}
 		rw.UserName = userName.String
 		rw.Department = dept.String
-		base[rw.UserID] = &rw
-		userIDs = append(userIDs, rw.UserID)
+		list = append(list, rw)
 	}
 	if err := rows.Err(); err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
 
-	// 单独查询请假明细（跨月假期按当月实际覆盖天数计算）
-	// 请假区间 [start_date, end_date] 与当月 [month_start, month_end] 的重叠天数
-	// = julianday(min(end_date, month_end)) - julianday(max(start_date, month_start)) + 1
-	monthStart := month + "-01"
-	// 计算月末：下月首日减一天
-	var monthEnd string
-	if len(month) == 7 {
-		ym := time.Date(2006, 1, 1, 0, 0, 0, 0, time.Local)
-		if t, err := time.Parse("2006-01", month); err == nil {
-			ym = t
-		}
-		monthEnd = ym.AddDate(0, 1, -1).Format("2006-01-02")
-	} else {
-		monthEnd = monthStart
+	total := map[string]int{
+		"present": 0, "trip": 0, "absent": 0, "late": 0, "training": 0, "leave": 0,
+		"annual_days": 0, "sick_days": 0, "personal_days": 0, "marriage_days": 0,
+		"maternity_days": 0, "bereavement_days": 0, "prenatal_days": 0, "family_days": 0, "other_days": 0,
 	}
-
-	leaveQuery := `SELECT user_id,
-			COALESCE(SUM(CASE WHEN leave_type='annual' THEN eff_days ELSE 0 END),0),
-			COALESCE(SUM(CASE WHEN leave_type='sick' THEN eff_days ELSE 0 END),0),
-			COALESCE(SUM(CASE WHEN leave_type='personal' THEN eff_days ELSE 0 END),0),
-			COALESCE(SUM(CASE WHEN leave_type NOT IN ('annual','sick','personal') THEN eff_days ELSE 0 END),0)
-		FROM (
-			SELECT user_id, leave_type,
-				-- 有效请假天数 = MIN(登记天数 days, 与统计期间重叠的整天数)
-				-- 支持半天/小时假（days=0.5/0.25），整天假不受影响
-				MIN(days, CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
-					- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER)) as eff_days
-			FROM leave_records
-			WHERE status = 1 AND start_date <= ? AND end_date >= ?
-			GROUP BY id
-		) WHERE eff_days > 0 GROUP BY user_id`
-	lrows, err := database.DB.Query(leaveQuery, monthEnd, monthEnd, monthStart, monthStart, monthEnd, monthStart)
-	if err == nil {
-		for lrows.Next() {
-			var uid int64
-			var annual, sick, personal, other float64
-			if lrows.Scan(&uid, &annual, &sick, &personal, &other) == nil {
-				if rw, ok := base[uid]; ok {
-					rw.AnnualDays = annual
-					rw.SickDays = sick
-					rw.PersonalDays = personal
-					rw.OtherDays = other
-				}
-			}
-		}
-		if err := lrows.Err(); err != nil {
-			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
-			return
-		}
-
-		lrows.Close()
+	for _, rw := range list {
+		total["present"] += rw.Present
+		total["trip"] += rw.Trip
+		total["absent"] += rw.Absent
+		total["late"] += rw.Late
+		total["training"] += rw.Training
+		total["leave"] += rw.Leave
+		total["annual_days"] += rw.AnnualDays
+		total["sick_days"] += rw.SickDays
+		total["personal_days"] += rw.PersonalDays
+		total["marriage_days"] += rw.MarriageDays
+		total["maternity_days"] += rw.MaternityDays
+		total["bereavement_days"] += rw.BereavementDays
+		total["prenatal_days"] += rw.PrenatalDays
+		total["family_days"] += rw.FamilyDays
+		total["other_days"] += rw.OtherDays
 	}
-
-	list := []Row{}
-	var totalPresent, totalLeave, totalTrip, totalAbsent, totalLate, totalTraining int
-	for _, uid := range userIDs {
-		if rw, ok := base[uid]; ok {
-			list = append(list, *rw)
-			totalPresent += rw.Present
-			totalLeave += rw.Leave
-			totalTrip += rw.Trip
-			totalAbsent += rw.Absent
-			totalLate += rw.Late
-			totalTraining += rw.Training
-		}
-	}
-	middleware.JSON(w, http.StatusOK, map[string]interface{}{
-		"month": month, "list": list,
-		"total": map[string]int{
-			"present": totalPresent, "leave": totalLeave, "trip": totalTrip, "absent": totalAbsent, "late": totalLate, "training": totalTraining,
-		},
-	})
+	middleware.JSON(w, http.StatusOK, map[string]interface{}{"month": month, "list": list, "total": total})
 }
 
 // AttendanceYearly 年度考勤统计
-// 返回：按月出勤汇总 + 每个干部全年各类休假天数（跨年假期按当年实际天数计算）
+// 返回：按月出勤汇总 + 每个干部全年各类休假天数（口径统一以"点到记录"为准）
 func AttendanceYearly(w http.ResponseWriter, r *http.Request) {
 	year := r.URL.Query().Get("year") // YYYY
 	if year == "" {
 		year = time.Now().Format("2006")
 	}
 
-	// 按月出勤汇总
+	// 按月汇总（与月度同口径：培训单列、请假不含培训）
 	query := `SELECT substr(a.attend_date, 1, 7) as ym,
-			SUM(CASE WHEN a.status=1 THEN 1 ELSE 0 END) as present,
-			SUM(CASE WHEN a.status=2 THEN 1 ELSE 0 END) as leave,
-			SUM(CASE WHEN a.status=3 THEN 1 ELSE 0 END) as trip,
-			SUM(CASE WHEN a.status=4 THEN 1 ELSE 0 END) as absent,
-			SUM(CASE WHEN a.status=5 THEN 1 ELSE 0 END) as late,
-			SUM(CASE WHEN a.status=6 THEN 1 ELSE 0 END) as training
+			COALESCE(SUM(CASE WHEN a.status=1 THEN 1 ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN a.status=3 THEN 1 ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN a.status=4 THEN 1 ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN a.status=5 THEN 1 ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN a.status=6 OR (a.status=2 AND a.leave_type='training') THEN 1 ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN a.status=2 AND (a.leave_type IS NULL OR a.leave_type<>'training') THEN 1 ELSE 0 END),0)
 		FROM attendances a
 		WHERE a.attend_date LIKE ?
 		GROUP BY ym ORDER BY ym`
@@ -867,58 +833,43 @@ func AttendanceYearly(w http.ResponseWriter, r *http.Request) {
 	type MonthRow struct {
 		Month    string `json:"month"`
 		Present  int    `json:"present"`
-		Leave    int    `json:"leave"`
 		Trip     int    `json:"trip"`
 		Absent   int    `json:"absent"`
 		Late     int    `json:"late"`
 		Training int    `json:"training"`
+		Leave    int    `json:"leave"`
 	}
 	monthly := []MonthRow{}
-	var totalPresent, totalLeave, totalTrip, totalAbsent, totalLate, totalTraining int
+	var totalPresent, totalTrip, totalAbsent, totalLate, totalTraining, totalLeave int
 	for rows.Next() {
 		var rw MonthRow
 		var ym sql.NullString
-		if err := rows.Scan(&ym, &rw.Present, &rw.Leave, &rw.Trip, &rw.Absent, &rw.Late, &rw.Training); err != nil {
+		if err := rows.Scan(&ym, &rw.Present, &rw.Trip, &rw.Absent, &rw.Late, &rw.Training, &rw.Leave); err != nil {
 			continue
 		}
 		rw.Month = ym.String
 		monthly = append(monthly, rw)
 		totalPresent += rw.Present
-		totalLeave += rw.Leave
 		totalTrip += rw.Trip
 		totalAbsent += rw.Absent
 		totalLate += rw.Late
 		totalTraining += rw.Training
+		totalLeave += rw.Leave
 	}
 	if err := rows.Err(); err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
 
-	// 每个干部全年各类休假天数
-	// 跨年假期（如 2025-12-20~2026-01-10）按当年实际覆盖天数计算
-	yearStart := year + "-01-01"
-	yearEnd := year + "-12-31"
-	leaveQuery := `SELECT l.id, l.real_name, d.name,
-			COALESCE(SUM(CASE WHEN od.leave_type='annual' THEN od.eff ELSE 0 END),0),
-			COALESCE(SUM(CASE WHEN od.leave_type='sick' THEN od.eff ELSE 0 END),0),
-			COALESCE(SUM(CASE WHEN od.leave_type='personal' THEN od.eff ELSE 0 END),0),
-			COALESCE(SUM(CASE WHEN od.leave_type NOT IN ('annual','sick','personal') THEN od.eff ELSE 0 END),0),
-			COALESCE(SUM(od.eff),0)
-		FROM (
-			SELECT user_id, leave_type,
-				-- 有效天数 = MIN(登记 days, 当年重叠整天)，支持半天/小时假
-				MIN(days, CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
-					- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER)) as eff
-			FROM leave_records
-			WHERE status = 1 AND start_date <= ? AND end_date >= ?
-			GROUP BY id
-		) od
-		LEFT JOIN users l ON l.id = od.user_id
-		LEFT JOIN departments d ON l.department_id = d.id
-		WHERE od.eff > 0
-		GROUP BY od.user_id ORDER BY od.user_id`
-	lrows, err := database.DB.Query(leaveQuery, yearEnd, yearEnd, yearStart, yearStart, yearEnd, yearStart)
+	// 每个干部全年各类休假天数（来自点到记录；培训单列）
+	personQuery := `SELECT u.id, u.real_name, d.name, ` + leaveDetailCase + `,
+			COALESCE(SUM(CASE WHEN a.status=6 OR (a.status=2 AND a.leave_type='training') THEN 1 ELSE 0 END),0)
+		FROM users u
+		LEFT JOIN departments d ON u.department_id = d.id
+		LEFT JOIN attendances a ON a.user_id = u.id AND a.attend_date LIKE ?
+		WHERE u.status = 1
+		GROUP BY u.id ORDER BY u.id`
+	lrows, err := database.DB.Query(personQuery, year+"%")
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
@@ -926,33 +877,54 @@ func AttendanceYearly(w http.ResponseWriter, r *http.Request) {
 	defer lrows.Close()
 
 	type PersonRow struct {
-		UserID       int64   `json:"user_id"`
-		UserName     string  `json:"user_name"`
-		Department   string  `json:"department"`
-		AnnualDays   float64 `json:"annual_days"`
-		SickDays     float64 `json:"sick_days"`
-		PersonalDays float64 `json:"personal_days"`
-		OtherDays    float64 `json:"other_days"`
-		TotalDays    float64 `json:"total_days"`
+		UserID          int64  `json:"user_id"`
+		UserName        string `json:"user_name"`
+		Department      string `json:"department"`
+		AnnualDays      int    `json:"annual_days"`
+		SickDays        int    `json:"sick_days"`
+		PersonalDays    int    `json:"personal_days"`
+		MarriageDays    int    `json:"marriage_days"`
+		MaternityDays   int    `json:"maternity_days"`
+		BereavementDays int    `json:"bereavement_days"`
+		PrenatalDays    int    `json:"prenatal_days"`
+		FamilyDays      int    `json:"family_days"`
+		OtherDays       int    `json:"other_days"`
+		TrainingDays    int    `json:"training_days"`
+		TotalDays       int    `json:"total_days"`
 	}
 	persons := []PersonRow{}
-	var totalAnnual, totalSick, totalPersonal, totalOther, totalAll float64
+	total := map[string]int{
+		"annual_days": 0, "sick_days": 0, "personal_days": 0, "marriage_days": 0,
+		"maternity_days": 0, "bereavement_days": 0, "prenatal_days": 0, "family_days": 0,
+		"other_days": 0, "training_days": 0, "total_days": 0,
+	}
 	for lrows.Next() {
 		var p PersonRow
 		var userName, dept sql.NullString
-		var uid sql.NullInt64
-		if err := lrows.Scan(&uid, &userName, &dept, &p.AnnualDays, &p.SickDays, &p.PersonalDays, &p.OtherDays, &p.TotalDays); err != nil {
+		if err := lrows.Scan(&p.UserID, &userName, &dept, &p.AnnualDays, &p.SickDays, &p.PersonalDays,
+			&p.MarriageDays, &p.MaternityDays, &p.BereavementDays, &p.PrenatalDays, &p.FamilyDays,
+			&p.OtherDays, &p.TrainingDays); err != nil {
 			continue
 		}
-		p.UserID = uid.Int64
 		p.UserName = userName.String
 		p.Department = dept.String
+		p.TotalDays = p.AnnualDays + p.SickDays + p.PersonalDays + p.MarriageDays + p.MaternityDays +
+			p.BereavementDays + p.PrenatalDays + p.FamilyDays + p.OtherDays + p.TrainingDays
+		if p.TotalDays == 0 {
+			continue // 无休假记录的不列出
+		}
 		persons = append(persons, p)
-		totalAnnual += p.AnnualDays
-		totalSick += p.SickDays
-		totalPersonal += p.PersonalDays
-		totalOther += p.OtherDays
-		totalAll += p.TotalDays
+		total["annual_days"] += p.AnnualDays
+		total["sick_days"] += p.SickDays
+		total["personal_days"] += p.PersonalDays
+		total["marriage_days"] += p.MarriageDays
+		total["maternity_days"] += p.MaternityDays
+		total["bereavement_days"] += p.BereavementDays
+		total["prenatal_days"] += p.PrenatalDays
+		total["family_days"] += p.FamilyDays
+		total["other_days"] += p.OtherDays
+		total["training_days"] += p.TrainingDays
+		total["total_days"] += p.TotalDays
 	}
 	if err := lrows.Err(); err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
@@ -962,13 +934,11 @@ func AttendanceYearly(w http.ResponseWriter, r *http.Request) {
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{
 		"year": year, "monthly": monthly,
 		"total": map[string]int{
-			"present": totalPresent, "leave": totalLeave, "trip": totalTrip, "absent": totalAbsent, "late": totalLate, "training": totalTraining,
+			"present": totalPresent, "leave": totalLeave, "trip": totalTrip,
+			"absent": totalAbsent, "late": totalLate, "training": totalTraining,
 		},
-		"persons": persons,
-		"leave_total": map[string]float64{
-			"annual": totalAnnual, "sick": totalSick, "personal": totalPersonal, "other": totalOther,
-			"total_days": totalAll,
-		},
+		"persons":     persons,
+		"leave_total": total,
 	})
 }
 

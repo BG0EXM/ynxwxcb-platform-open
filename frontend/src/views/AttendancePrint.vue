@@ -20,21 +20,27 @@
 
       <!-- 月度统计 -->
       <template v-if="viewMode === 'monthly' && monthly">
-        <table class="stat-table">
+        <div class="table-tip">出勤含补休；培训=点到培训+培训假；请假=下列各类型之和（不含培训）</div>
+        <table class="stat-table compact">
           <thead>
             <tr>
-              <th style="width:50px">序号</th>
-              <th style="width:90px">姓名</th>
-              <th style="width:100px">部门</th>
+              <th style="width:40px">序号</th>
+              <th style="width:72px">姓名</th>
+              <th style="width:84px">部门</th>
               <th>出勤</th>
-              <th>请假</th>
               <th>出差</th>
               <th>未到</th>
               <th>迟到</th>
               <th>培训</th>
+              <th>请假</th>
               <th>年假</th>
               <th>病假</th>
               <th>事假</th>
+              <th>婚假</th>
+              <th>产假</th>
+              <th>丧假</th>
+              <th>产检假</th>
+              <th>探亲假</th>
               <th>其他</th>
             </tr>
           </thead>
@@ -44,31 +50,43 @@
               <td class="center">{{ r.user_name }}</td>
               <td class="center">{{ r.department }}</td>
               <td class="center">{{ r.present }}</td>
-              <td class="center">{{ r.leave }}</td>
               <td class="center">{{ r.trip }}</td>
               <td class="center">{{ r.absent }}</td>
               <td class="center">{{ r.late }}</td>
               <td class="center">{{ r.training }}</td>
+              <td class="center"><b>{{ r.leave }}</b></td>
               <td class="center">{{ r.annual_days }}</td>
               <td class="center">{{ r.sick_days }}</td>
               <td class="center">{{ r.personal_days }}</td>
+              <td class="center">{{ r.marriage_days }}</td>
+              <td class="center">{{ r.maternity_days }}</td>
+              <td class="center">{{ r.bereavement_days }}</td>
+              <td class="center">{{ r.prenatal_days }}</td>
+              <td class="center">{{ r.family_days }}</td>
               <td class="center">{{ r.other_days }}</td>
             </tr>
             <tr v-if="!monthly.list || !monthly.list.length">
-              <td colspan="13" class="center empty">暂无考勤数据</td>
+              <td colspan="18" class="center empty">暂无考勤数据</td>
             </tr>
           </tbody>
           <tfoot v-if="monthly.total">
             <tr>
-              <td class="center" colspan="2"><b>合计</b></td>
-              <td></td>
+              <td class="center" colspan="3"><b>合计</b></td>
               <td class="center"><b>{{ monthly.total.present }}</b></td>
-              <td class="center"><b>{{ monthly.total.leave }}</b></td>
               <td class="center"><b>{{ monthly.total.trip }}</b></td>
               <td class="center"><b>{{ monthly.total.absent }}</b></td>
               <td class="center"><b>{{ monthly.total.late }}</b></td>
               <td class="center"><b>{{ monthly.total.training }}</b></td>
-              <td colspan="4"></td>
+              <td class="center"><b>{{ monthly.total.leave }}</b></td>
+              <td class="center"><b>{{ monthly.total.annual_days }}</b></td>
+              <td class="center"><b>{{ monthly.total.sick_days }}</b></td>
+              <td class="center"><b>{{ monthly.total.personal_days }}</b></td>
+              <td class="center"><b>{{ monthly.total.marriage_days }}</b></td>
+              <td class="center"><b>{{ monthly.total.maternity_days }}</b></td>
+              <td class="center"><b>{{ monthly.total.bereavement_days }}</b></td>
+              <td class="center"><b>{{ monthly.total.prenatal_days }}</b></td>
+              <td class="center"><b>{{ monthly.total.family_days }}</b></td>
+              <td class="center"><b>{{ monthly.total.other_days }}</b></td>
             </tr>
           </tfoot>
         </table>
@@ -77,27 +95,27 @@
       <!-- 年度统计 -->
       <template v-if="viewMode === 'yearly' && yearly">
         <div class="year-title">按月汇总</div>
-        <table class="stat-table">
+        <table class="stat-table compact">
           <thead>
             <tr>
               <th style="width:80px">月份</th>
               <th>出勤</th>
-              <th>请假</th>
               <th>出差</th>
               <th>未到</th>
               <th>迟到</th>
               <th>培训</th>
+              <th>请假</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="r in yearly.monthly" :key="r.month">
               <td class="center">{{ r.month }}</td>
               <td class="center">{{ r.present }}</td>
-              <td class="center">{{ r.leave }}</td>
               <td class="center">{{ r.trip }}</td>
               <td class="center">{{ r.absent }}</td>
               <td class="center">{{ r.late }}</td>
               <td class="center">{{ r.training }}</td>
+              <td class="center">{{ r.leave }}</td>
             </tr>
             <tr v-if="!yearly.monthly || !yearly.monthly.length">
               <td colspan="7" class="center empty">暂无考勤数据</td>
@@ -107,17 +125,18 @@
             <tr>
               <td class="center"><b>合计</b></td>
               <td class="center"><b>{{ yearly.total.present }}</b></td>
-              <td class="center"><b>{{ yearly.total.leave }}</b></td>
               <td class="center"><b>{{ yearly.total.trip }}</b></td>
               <td class="center"><b>{{ yearly.total.absent }}</b></td>
               <td class="center"><b>{{ yearly.total.late }}</b></td>
               <td class="center"><b>{{ yearly.total.training }}</b></td>
+              <td class="center"><b>{{ yearly.total.leave }}</b></td>
             </tr>
           </tfoot>
         </table>
 
         <div class="year-title mt-16">干部全年休假统计（天）</div>
-        <table class="stat-table" v-if="yearly.persons">
+        <div class="table-tip">培训单列；补休视同出勤，不计入请假</div>
+        <table class="stat-table compact" v-if="yearly.persons">
           <thead>
             <tr>
               <th>姓名</th>
@@ -125,6 +144,12 @@
               <th>年假</th>
               <th>病假</th>
               <th>事假</th>
+              <th>婚假</th>
+              <th>产假</th>
+              <th>丧假</th>
+              <th>产检假</th>
+              <th>探亲假</th>
+              <th>培训</th>
               <th>其他</th>
               <th>合计</th>
             </tr>
@@ -136,21 +161,32 @@
               <td class="center">{{ p.annual_days }}</td>
               <td class="center">{{ p.sick_days }}</td>
               <td class="center">{{ p.personal_days }}</td>
+              <td class="center">{{ p.marriage_days }}</td>
+              <td class="center">{{ p.maternity_days }}</td>
+              <td class="center">{{ p.bereavement_days }}</td>
+              <td class="center">{{ p.prenatal_days }}</td>
+              <td class="center">{{ p.family_days }}</td>
+              <td class="center">{{ p.training_days }}</td>
               <td class="center">{{ p.other_days }}</td>
               <td class="center"><b>{{ p.total_days }}</b></td>
             </tr>
             <tr v-if="!yearly.persons.length">
-              <td colspan="7" class="center empty">本年度暂无请假记录</td>
+              <td colspan="13" class="center empty">本年度暂无休假记录</td>
             </tr>
           </tbody>
           <tfoot v-if="yearly.leave_total">
             <tr>
-              <td class="center"><b>合计</b></td>
-              <td class="center"></td>
-              <td class="center"><b>{{ yearly.leave_total.annual }}</b></td>
-              <td class="center"><b>{{ yearly.leave_total.sick }}</b></td>
-              <td class="center"><b>{{ yearly.leave_total.personal }}</b></td>
-              <td class="center"><b>{{ yearly.leave_total.other }}</b></td>
+              <td class="center" colspan="2"><b>合计</b></td>
+              <td class="center"><b>{{ yearly.leave_total.annual_days }}</b></td>
+              <td class="center"><b>{{ yearly.leave_total.sick_days }}</b></td>
+              <td class="center"><b>{{ yearly.leave_total.personal_days }}</b></td>
+              <td class="center"><b>{{ yearly.leave_total.marriage_days }}</b></td>
+              <td class="center"><b>{{ yearly.leave_total.maternity_days }}</b></td>
+              <td class="center"><b>{{ yearly.leave_total.bereavement_days }}</b></td>
+              <td class="center"><b>{{ yearly.leave_total.prenatal_days }}</b></td>
+              <td class="center"><b>{{ yearly.leave_total.family_days }}</b></td>
+              <td class="center"><b>{{ yearly.leave_total.training_days }}</b></td>
+              <td class="center"><b>{{ yearly.leave_total.other_days }}</b></td>
               <td class="center"><b>{{ yearly.leave_total.total_days }}</b></td>
             </tr>
           </tfoot>
@@ -161,7 +197,7 @@
         <span>统计期间：{{ period }} · 打印日期：{{ today }}</span>
         <span class="footer-right">
           <div>中共伊宁县委宣传部办公室</div>
-          <div>伊宁县委宣传部部务工作平台V1.4.2</div>
+          <div>伊宁县委宣传部部务工作平台V1.4.3</div>
         </span>
       </div>
     </div>
@@ -271,6 +307,16 @@ onMounted(loadData)
 .stat-table th {
   background: #f5f5f5;
   font-weight: 600;
+}
+.stat-table.compact th,
+.stat-table.compact td {
+  font-size: 11px;
+  padding: 5px 3px;
+}
+.table-tip {
+  font-size: 12px;
+  color: #909399;
+  margin: 6px 0;
 }
 .center {
   text-align: center;
