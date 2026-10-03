@@ -149,10 +149,17 @@
         <el-tab-pane :label="`参会人员名单 (${attendRegs.length}人)`" name="attend">
           <el-table :data="attendRegs" size="small" class="mt-8">
             <template #empty><empty-state description="暂无参会报名" /></template>
-            <el-table-column prop="unit" label="参会单位" width="170" show-overflow-tooltip />
-            <el-table-column prop="attendee_name" label="姓名" width="100" />
-            <el-table-column prop="attendee_title" label="职务" width="120" />
-            <el-table-column prop="phone" label="联系电话" width="130" />
+            <el-table-column prop="unit" label="参会单位" min-width="160" show-overflow-tooltip />
+            <el-table-column prop="attendee_name" label="姓名" width="90" />
+            <el-table-column prop="attendee_title" label="职务" width="110" />
+            <el-table-column prop="phone" label="联系电话" width="120" />
+            <el-table-column label="协调管理" width="170" align="center" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="danger" size="small" @click="handleAdminDeleteSeat(row)">移除席位</el-button>
+                <el-divider direction="vertical" />
+                <el-button link type="warning" size="small" @click="handleAdminChangeAbsent(row.unit)">整单位转请假</el-button>
+              </template>
+            </el-table-column>
           </el-table>
         </el-tab-pane>
 
@@ -161,6 +168,11 @@
             <template #empty><empty-state description="全部参会，无请假单位" /></template>
             <el-table-column prop="unit" label="单位名称" width="180" show-overflow-tooltip />
             <el-table-column prop="reason" label="不参加事由" min-width="200" show-overflow-tooltip />
+            <el-table-column label="操作" width="120" align="center" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" size="small" @click="handleAdminResetUnit(row.unit)">恢复待确认</el-button>
+              </template>
+            </el-table-column>
           </el-table>
         </el-tab-pane>
 
@@ -175,6 +187,11 @@
           <el-table :data="unconfirmedUnits.map(u => ({ unit: u }))" size="small">
             <template #empty><empty-state description="所有参会单位均已确认完成！" /></template>
             <el-table-column prop="unit" label="待确认单位" min-width="220" />
+            <el-table-column label="操作" width="140" align="center" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="warning" size="small" @click="handleAdminChangeAbsent(row.unit)">代登记请假</el-button>
+              </template>
+            </el-table-column>
           </el-table>
         </el-tab-pane>
       </el-tabs>
@@ -281,11 +298,68 @@ const openDetail = async (row) => {
     detailTitle.value = `会务报名统计 - ${row.title}`
     const res = await request.get(`/meetings/${row.id}`)
     const regs = res.registrations || res.list || []
-    attendRegs.value = regs.filter(r => r.not_attend === 0 || r.is_attending === 1)
-    notAttendRegs.value = regs.filter(r => r.not_attend === 1 || r.is_attending === 0)
+    attendRegs.value = regs.filter(r => Number(r.not_attend) === 0)
+    notAttendRegs.value = regs.filter(r => Number(r.not_attend) === 1)
     unconfirmedUnits.value = res.unconfirmed_units || res.unconfirmed || []
     detailTab.value = 'attend'
     detailVisible.value = true
+  } catch (e) {}
+}
+
+const reloadDetail = async () => {
+  if (!detailMeeting.value) return
+  const res = await request.get(`/meetings/${detailMeeting.value.id}`)
+  const regs = res.registrations || res.list || []
+  attendRegs.value = regs.filter(r => Number(r.not_attend) === 0)
+  notAttendRegs.value = regs.filter(r => Number(r.not_attend) === 1)
+  unconfirmedUnits.value = res.unconfirmed_units || res.unconfirmed || []
+  loadData()
+}
+
+const handleAdminDeleteSeat = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确定从参会名单中移除【${row.unit}】的参会人【${row.attendee_name}】席位吗？`, '移除席位确认', {
+      type: 'warning',
+      confirmButtonText: '确定移除',
+      cancelButtonText: '取消'
+    })
+    await request.post(`/meetings/${detailMeeting.value.id}/registrations/delete`, { reg_id: row.id })
+    ElMessage.success('已移除该参会席位')
+    reloadDetail()
+  } catch (e) {}
+}
+
+const handleAdminChangeAbsent = async (unit) => {
+  try {
+    const { value: reason } = await ElMessageBox.prompt(
+      `请输入【${unit}】请假不参加本次会议的具体事由或依据：`,
+      '协调设置为请假不参加',
+      {
+        confirmButtonText: '确认变更',
+        cancelButtonText: '取消',
+        inputPlaceholder: '例如：主要领导因公出差，已向县委分管领导请假',
+        inputValidator: (val) => !val || !val.trim() ? '请填写请假事由' : true
+      }
+    )
+    await request.post(`/meetings/${detailMeeting.value.id}/registrations/change-absent`, {
+      unit,
+      reason: reason.trim()
+    })
+    ElMessage.success(`已成功将【${unit}】协调变更为请假不参加`)
+    reloadDetail()
+  } catch (e) {}
+}
+
+const handleAdminResetUnit = async (unit) => {
+  try {
+    await ElMessageBox.confirm(`确定重置【${unit}】的报名状态吗？重置后该单位将恢复为「待确认」，允许单位重新进入报名系统填报。`, '状态重置确认', {
+      type: 'warning',
+      confirmButtonText: '确定恢复',
+      cancelButtonText: '取消'
+    })
+    await request.post(`/meetings/${detailMeeting.value.id}/registrations/reset-unit`, { unit })
+    ElMessage.success(`已重置【${unit}】报名状态，恢复为待确认`)
+    reloadDetail()
   } catch (e) {}
 }
 

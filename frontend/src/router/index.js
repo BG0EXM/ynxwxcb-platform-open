@@ -240,7 +240,7 @@ router.beforeEach((to, from, next) => {
         return
       }
     }
-    document.title = to.meta.title ? `${to.meta.title} - 伊宁县委宣传部部务工作平台 V1.5.1` : '伊宁县委宣传部部务工作平台 V1.5.1'
+    document.title = to.meta.title ? `${to.meta.title} - 伊宁县委宣传部部务工作平台 V1.5.2` : '伊宁县委宣传部部务工作平台 V1.5.2'
     next()
   }
 })

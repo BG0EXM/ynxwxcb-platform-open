@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -245,14 +246,14 @@ func GetMeeting(w http.ResponseWriter, r *http.Request) {
 			if createdAt.Valid {
 				rg.CreatedAt = createdAt.Time
 			}
-			regs = append(regs, rg)
-			registeredUnits[unit.String] = true
 			if rg.NotAttend == 0 {
 				rg.IsAttending = 1
 				attendCount++
 			} else {
 				rg.IsAttending = 0
 			}
+			regs = append(regs, rg)
+			registeredUnits[unit.String] = true
 		}
 		if err := regRows.Err(); err != nil {
 			regRows.Close()
@@ -831,6 +832,112 @@ func MeetingRegistrations(w http.ResponseWriter, r *http.Request) {
 		"unconfirmed":       unconfirmed,
 		"unconfirmed_units": unconfirmed,
 	})
+}
+
+// AdminDeleteMeetingRegistration 管理员移除单个参会人席位
+func AdminDeleteMeetingRegistration(w http.ResponseWriter, r *http.Request) {
+	id := pathID(r)
+	if id == 0 {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
+		return
+	}
+	var req struct {
+		RegID int64 `json:"reg_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RegID == 0 {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少席位记录ID"})
+		return
+	}
+	res, err := database.DB.Exec("DELETE FROM meeting_registrations WHERE id=? AND meeting_id=?", req.RegID, id)
+	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "席位记录不存在"})
+		return
+	}
+	logOperation(r, "会务管理", "删除", "管理员移除会议参会人席位")
+	middleware.JSON(w, http.StatusOK, map[string]string{"message": "已移除该参会席位"})
+}
+
+// AdminChangeUnitToAbsent 管理员将整单位变更为请假不参加
+func AdminChangeUnitToAbsent(w http.ResponseWriter, r *http.Request) {
+	id := pathID(r)
+	if id == 0 {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
+		return
+	}
+	var req struct {
+		Unit   string `json:"unit"`
+		Reason string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Unit) == "" {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少单位名称"})
+		return
+	}
+	reason := strings.TrimSpace(req.Reason)
+	if reason == "" {
+		reason = "因公请假（管理员协调代登）"
+	}
+
+	tx, err := database.DB.Begin()
+	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "开启事务失败"})
+		return
+	}
+	defer tx.Rollback()
+
+	// 清除该单位原有的所有记录（包括参会人员或旧不参加记录）
+	_, err = tx.Exec("DELETE FROM meeting_registrations WHERE meeting_id=? AND unit=?", id, req.Unit)
+	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "清理原报名失败"})
+		return
+	}
+
+	// 插入一条整体不参加记录
+	_, err = tx.Exec(`INSERT INTO meeting_registrations 
+		(meeting_id, unit, attendee_name, attendee_title, phone, not_attend, reason, created_at)
+		VALUES (?, ?, '', '', '', 1, ?, datetime('now','localtime'))`, id, req.Unit, reason)
+	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "记录请假信息失败"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "提交事务失败"})
+		return
+	}
+
+	logOperation(r, "会务管理", "修改", fmt.Sprintf("管理员将【%s】变更为请假不参加：%s", req.Unit, reason))
+	middleware.JSON(w, http.StatusOK, map[string]string{"message": "已成功变更为请假不参加"})
+}
+
+// AdminResetUnitRegistration 管理员重置/撤销该单位的报名状态（转为未确认状态，允许重新报名）
+func AdminResetUnitRegistration(w http.ResponseWriter, r *http.Request) {
+	id := pathID(r)
+	if id == 0 {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
+		return
+	}
+	var req struct {
+		Unit string `json:"unit"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Unit) == "" {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少单位名称"})
+		return
+	}
+	res, err := database.DB.Exec("DELETE FROM meeting_registrations WHERE meeting_id=? AND unit=?", id, req.Unit)
+	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "撤销失败"})
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "该单位未找到报名记录"})
+		return
+	}
+	logOperation(r, "会务管理", "修改", fmt.Sprintf("管理员重置【%s】报名状态为待确认", req.Unit))
+	middleware.JSON(w, http.StatusOK, map[string]string{"message": "已重置该单位报名状态，现已恢复为待确认"})
 }
 
 // isValidPhone 校验手机号：11 位、1 开头、第二位 3-9（与前端一致）

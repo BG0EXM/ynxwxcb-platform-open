@@ -340,7 +340,7 @@
                       </el-col>
                     </el-row>
 
-                    <el-form-item label="联系电话（接收会务短信与通知）" required>
+                    <el-form-item label="联系电话" required>
                       <el-input 
                         v-model="personForm.phone" 
                         maxlength="11" 
@@ -384,8 +384,8 @@
                   </div>
                 </div>
 
-                <el-form label-position="top" class="custom-gov-form mt-16">
-                  <el-form-item label="请假事由与具体原因" required>
+                <el-form label-position="top" class="custom-gov-form absent-form-wrap">
+                  <el-form-item label="请假事由与具体原因" required class="absent-reason-item">
                     <el-input 
                       v-model="absentReason" 
                       type="textarea" 
@@ -435,7 +435,7 @@
           <span class="footer-org font-serif">中共伊宁县委宣传部</span>
           <span class="crest-dot"></span>
         </div>
-        <div class="footer-system">部务工作平台 · 数字化会务服务终端 V1.5.1</div>
+        <div class="footer-system">部务工作平台 · 数字化会务服务终端 V1.5.2</div>
         <div class="footer-beian">
           <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">ICP备案号占位</a>
           <span class="sep">|</span>
@@ -1497,6 +1497,20 @@ onMounted(loadMeeting)
   margin: 0;
   font-size: 13px;
   color: #6b7785;
+  line-height: 1.5;
+}
+
+.absent-form-wrap {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px dashed #f0c5c5;
+}
+
+.absent-reason-item :deep(.el-form-item__label) {
+  font-size: 14px;
+  font-weight: 600;
+  color: #2c384e;
+  margin-bottom: 8px;
 }
 
 .absent-submit-btn {
