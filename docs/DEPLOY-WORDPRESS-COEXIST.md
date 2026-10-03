@@ -1,7 +1,8 @@
 # 伊宁县委宣传部部务工作平台 — WordPress 服务器共存部署指南
 
-> 适用环境：Debian 13 (2C/2G) · LNMP（Nginx + MySQL + PHP-FPM）· 已运行 WordPress 网站
-> 目标：在现有服务器上部署本平台，**不影响 WordPress 正常访问**
+> 适用版本：**V1.5.0** · 更新日期：**2026-10-03**  
+> 适用环境：Debian (2C/2G) · LNMP（Nginx + MySQL + PHP-FPM）· 已运行 WordPress 网站  
+> 目标：在现有服务器上部署本平台，**不影响 WordPress 正常访问**（支持 IPv6）
 
 ## 〇、核心原则（先读）
 

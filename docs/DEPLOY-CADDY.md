@@ -1,6 +1,7 @@
 # 伊宁县委宣传部部务工作平台 - 部署文档（Caddy）
 
-> 适用：Debian · Caddy Web 服务器（自动 HTTPS）· 可与 WordPress 共存
+> 适用版本：**V1.5.0** · 更新日期：**2026-10-03**  
+> 运行环境：Debian · Caddy Web 服务器（自动 HTTPS / IPv6 双栈）· 可与 WordPress 共存
 
 ## 〇、系统由两部分组成
 
