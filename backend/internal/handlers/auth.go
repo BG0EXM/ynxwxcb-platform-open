@@ -391,7 +391,9 @@ func ListDepartments(w http.ResponseWriter, r *http.Request) {
 	depts := []models.Department{}
 	for rows.Next() {
 		var d models.Department
-		rows.Scan(&d.ID, &d.Name, &d.ParentID, &d.Sort)
+		if err := rows.Scan(&d.ID, &d.Name, &d.ParentID, &d.Sort); err != nil {
+			continue
+		}
 		depts = append(depts, d)
 	}
 	if err := rows.Err(); err != nil {
@@ -535,34 +537,34 @@ func DeleteUser(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
 		return
 	}
-	tables := []string{
+	// 个人维度的私有记录随用户物理删除
+	personalTables := []string{
 		"attendances", "leave_records", "circulation_records",
-		"duty_schedules",
+		"duty_schedules", "overtime_records", "annual_leave_configs",
 	}
-	for _, t := range tables {
+	for _, t := range personalTables {
 		if _, err := tx.Exec("DELETE FROM "+t+" WHERE user_id=?", id); err != nil {
 			tx.Rollback()
 			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
 			return
 		}
 	}
-	// 按不同归属列清理其余表
-	cleanup := []struct {
+	// 单位公共档案与历史业务资产（公文、常委大事记、大事记、周总结、公共资料、日程备忘、用车台账）
+	// 严禁级联物理删除，统一将其录入人转移给当前操作管理员
+	archiveTransfers := []struct {
 		table string
 		col   string
 	}{
-		{"vehicle_applies", "reporter_id"},
 		{"incoming_docs", "registrar_id"},
-		{"calendar_tasks", "created_by"},
+		{"standing_committee_events", "created_by"},
 		{"major_events", "created_by"},
 		{"weekly_summaries", "created_by"},
-		{"overtime_records", "user_id"},
-		{"annual_leave_configs", "user_id"},
-		{"standing_committee_events", "created_by"},
 		{"study_materials", "publisher_id"},
+		{"calendar_tasks", "created_by"},
+		{"vehicle_applies", "reporter_id"},
 	}
-	for _, c := range cleanup {
-		if _, err := tx.Exec("DELETE FROM "+c.table+" WHERE "+c.col+"=?", id); err != nil {
+	for _, at := range archiveTransfers {
+		if _, err := tx.Exec("UPDATE "+at.table+" SET "+at.col+"=? WHERE "+at.col+"=?", operatorID, id); err != nil {
 			tx.Rollback()
 			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
 			return
@@ -577,6 +579,9 @@ func DeleteUser(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
 		return
 	}
+
+	// 立即注销该用户的令牌版本缓存，确保历史 JWT 令牌立即失效
+	middleware.InvalidateTokenVersion(id)
 
 	// 重置自增序列，使被删除的最大 ID 可被复用（真删除 + 释放 ID）
 	resetAutoIncrement()

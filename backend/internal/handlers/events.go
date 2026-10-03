@@ -220,7 +220,7 @@ func ExportMajorEvents(w http.ResponseWriter, r *http.Request) {
 		WHERE e.period LIKE ? ORDER BY e.period`
 	rows, err := database.DB.Query(query, year+"%")
 	if err != nil {
-		http.Error(w, "查询失败", http.StatusInternalServerError)
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
 	defer rows.Close()
@@ -235,7 +235,10 @@ func ExportMajorEvents(w http.ResponseWriter, r *http.Request) {
 	list := []eventItem{}
 	for rows.Next() {
 		var period, title sql.NullString
-		rows.Scan(&period, &title)
+		if err := rows.Scan(&period, &title); err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "读取数据失败"})
+			return
+		}
 		it := eventItem{period: period.String, title: title.String}
 		// 从 YYYY-MM-DD 解析月份序号与日号用于排序/显示
 		if len(it.period) == 10 {
@@ -276,7 +279,7 @@ func ExportMajorEvents(w http.ResponseWriter, r *http.Request) {
 
 	data, err := builder.build()
 	if err != nil {
-		http.Error(w, "导出失败", http.StatusInternalServerError)
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "导出失败"})
 		return
 	}
 	logOperation(r, "大事记", "导出", "导出"+year+"年大事记")

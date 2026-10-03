@@ -1,5 +1,16 @@
 <template>
-  <div>
+  <div class="weekly-summary-page">
+    <page-header 
+      title="每周工作总结" 
+      subtitle="按科室汇总每周宣传重点工作推进成效与下周计划，支持一键按周导出Word汇报材料"
+    >
+      <template #actions>
+        <el-button v-if="authStore.hasPerm('weekly.manage')" type="primary" :icon="'Plus'" @click="openCreate">录入本周工作</el-button>
+        <el-button v-if="authStore.hasPerm('weekly.export')" type="success" :icon="'Download'" @click="exportData">导出Word</el-button>
+        <el-button :icon="'Refresh'" circle @click="loadData" />
+      </template>
+    </page-header>
+
     <el-card shadow="never">
       <div class="toolbar">
         <div>
@@ -8,10 +19,6 @@
           <el-select v-if="authStore.isAdmin" v-model="deptFilter" placeholder="全部科室" clearable style="width:150px;margin-left:10px" @change="loadData">
             <el-option v-for="d in departments" :key="d.id" :label="d.name" :value="d.id" />
           </el-select>
-        </div>
-        <div>
-          <el-button v-if="authStore.hasPerm('weekly.export')" type="success" :icon="'Download'" @click="exportData">导出Word</el-button>
-          <el-button v-if="authStore.hasPerm('weekly.manage')" type="primary" :icon="'Plus'" @click="openCreate">录入本周工作</el-button>
         </div>
       </div>
 
@@ -33,7 +40,7 @@
       </el-table>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="editId ? '编辑每周工作总结' : '录入本周工作总结'" width="600px">
+    <el-drawer v-model="dialogVisible" :title="editId ? '编辑每周工作总结' : '录入本周工作总结'" size="640px">
       <el-form :model="form" label-width="110px">
         <el-form-item label="所属科室" required v-if="authStore.isAdmin">
           <el-select v-model="form.department_id" placeholder="选择科室" style="width:100%">
@@ -52,7 +59,7 @@
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="save">保存</el-button>
       </template>
-    </el-dialog>
+    </el-drawer>
   </div>
 </template>
 
@@ -62,6 +69,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import request, { exportFile } from '../utils/request'
 import dayjs from 'dayjs'
 import { useAuthStore } from '../store/auth'
+import PageHeader from '../components/PageHeader.vue'
 
 const authStore = useAuthStore()
 const list = ref([])

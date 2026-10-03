@@ -102,7 +102,7 @@ onMounted(loadData)
   margin-bottom: 16px;
 }
 .ml-8 { margin-left: 8px; }
-.dept { color: #909399; font-size: 12px; }
+.dept { color: var(--el-text-color-secondary); font-size: 12px; }
 .pagination-wrap {
   margin-top: 14px;
   display: flex;

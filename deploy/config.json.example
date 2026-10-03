@@ -1,7 +1,6 @@
 {
   "server": {
-    "port": "8080",
-    "trust_proxy": false
+    "port": "8080"
   },
   "database": {
     "path": "/opt/ynxwxcb/data/ynxwxcb.db"

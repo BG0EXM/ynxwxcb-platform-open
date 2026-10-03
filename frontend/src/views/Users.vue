@@ -1,5 +1,16 @@
 <template>
-  <div>
+  <div class="users-page">
+    <page-header 
+      title="用户管理" 
+      subtitle="管理部务平台干部职工账号、科室架构与系统角色分配"
+    >
+      <template #actions>
+        <el-button type="primary" :icon="'Plus'" @click="openCreate">新建用户</el-button>
+        <el-button type="warning" :icon="'OfficeBuilding'" @click="openDept">部门管理</el-button>
+        <el-button :icon="'Refresh'" circle @click="loadData" />
+      </template>
+    </page-header>
+
     <el-card shadow="never">
       <div class="toolbar">
         <div>
@@ -8,8 +19,6 @@
             <template #append><el-button :icon="'Search'" @click="loadData" /></template>
           </el-input>
         </div>
-        <el-button type="primary" @click="openCreate">新建用户</el-button>
-        <el-button type="warning" @click="openDept">部门管理</el-button>
       </div>
 
       <el-table :data="list" stripe v-loading="loading" empty-text="暂无用户">
@@ -43,7 +52,7 @@
       </el-table>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="editId ? '编辑用户' : '新建用户'" width="480px">
+    <el-drawer v-model="dialogVisible" :title="editId ? '编辑用户' : '新建用户'" size="540px">
       <el-form :model="form" label-width="80px">
         <el-form-item label="用户名" required>
           <el-input v-model="form.username" :disabled="!!editId" />
@@ -69,10 +78,10 @@
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="save">保存</el-button>
       </template>
-    </el-dialog>
+    </el-drawer>
 
     <!-- 部门管理弹窗 -->
-    <el-dialog v-model="deptVisible" title="部门管理" width="560px">
+    <el-drawer v-model="deptVisible" title="部门管理" size="600px">
       <div class="dept-add-bar">
         <el-input v-model="newDeptName" placeholder="输入新部门名称" clearable style="width: 220px"
           @keyup.enter="addDept" />
@@ -88,7 +97,7 @@
           </template>
         </el-table-column>
       </el-table>
-    </el-dialog>
+    </el-drawer>
   </div>
 </template>
 
@@ -97,6 +106,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '../utils/request'
 import { useAuthStore } from '../store/auth'
+import PageHeader from '../components/PageHeader.vue'
 
 const authStore = useAuthStore()
 

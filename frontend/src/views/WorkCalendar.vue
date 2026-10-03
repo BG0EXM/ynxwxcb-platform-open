@@ -1,5 +1,15 @@
 <template>
   <div class="calendar-page">
+    <page-header 
+      title="工作日历" 
+      subtitle="统筹科室工作安排与重点任务推进，支持按月/按年多维视图切换与工作报表导出"
+    >
+      <template #actions>
+        <el-button type="primary" :icon="'Plus'" @click="openCreate">添加工作</el-button>
+        <el-button type="success" :icon="'Download'" @click="exportData">导出工作</el-button>
+      </template>
+    </page-header>
+
     <div class="toolbar">
       <el-radio-group v-model="viewMode">
         <el-radio-button value="month">按月展示</el-radio-button>
@@ -11,11 +21,9 @@
       </el-button-group>
       <el-date-picker v-if="viewMode === 'month'" v-model="month" type="month" value-format="YYYY-MM" placeholder="选择月份" style="width:140px" @change="loadData" />
       <el-date-picker v-else v-model="year" type="year" value-format="YYYY" placeholder="选择年份" style="width:120px" @change="loadData" />
-      <el-button type="primary" :icon="'Plus'" @click="openCreate">添加工作</el-button>
       <el-select v-model="exportDept" placeholder="全部科室" clearable style="width:150px" @change="reloadExport">
         <el-option v-for="d in departments" :key="d.id" :label="d.name" :value="d.id" />
       </el-select>
-      <el-button type="success" :icon="'Download'" @click="exportData">导出工作</el-button>
       <el-button :icon="'List'" @click="showList = !showList">列表展示</el-button>
     </div>
 
@@ -81,7 +89,7 @@
     </div>
 
     <!-- 添加/编辑工作 -->
-    <el-dialog v-model="dialogVisible" :title="editId ? '编辑工作' : '添加工作'" width="520px">
+    <el-drawer v-model="dialogVisible" :title="editId ? '编辑工作' : '添加工作'" size="540px">
       <el-form :model="form" label-width="90px">
         <el-form-item label="所属科室" required v-if="authStore.isAdmin">
           <el-select v-model="form.department_id" placeholder="选择科室" style="width:100%">
@@ -105,7 +113,7 @@
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="save">保存</el-button>
       </template>
-    </el-dialog>
+    </el-drawer>
   </div>
 </template>
 
@@ -115,6 +123,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import request, { exportFile } from '../utils/request'
 import dayjs from 'dayjs'
 import { useAuthStore } from '../store/auth'
+import PageHeader from '../components/PageHeader.vue'
 
 const authStore = useAuthStore()
 // 是否可改删该任务：管理员或本科室
@@ -329,7 +338,7 @@ onMounted(() => {
 }
 .month-calendar {
   background: #fff;
-  border: 1px solid #dcdfe6;
+  border: 1px solid var(--el-border-color);
   border-radius: 4px;
   overflow: hidden;
 }
@@ -337,15 +346,15 @@ onMounted(() => {
 .year-week-header {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  background: #f5f7fa;
-  border-bottom: 1px solid #dcdfe6;
+  background: var(--el-fill-color-light);
+  border-bottom: 1px solid var(--el-border-color);
 }
 .week-cell,
 .year-week-cell {
   padding: 8px 0;
   text-align: center;
   font-weight: 600;
-  color: #606266;
+  color: var(--el-text-color-regular);
   font-size: 13px;
 }
 .grid {
@@ -354,18 +363,18 @@ onMounted(() => {
 }
 .day-cell {
   min-height: 120px;
-  border-right: 1px solid #ebeef5;
-  border-bottom: 1px solid #ebeef5;
+  border-right: 1px solid var(--el-border-color-lighter);
+  border-bottom: 1px solid var(--el-border-color-lighter);
   padding: 4px;
   cursor: pointer;
   overflow: hidden;
 }
 .day-cell:hover {
-  background: #f5f7fa;
+  background: var(--el-fill-color-light);
 }
 .day-cell.other-month {
-  background: #fafafa;
-  color: #c0c4cc;
+  background: var(--el-fill-color-lighter);
+  color: var(--el-text-color-placeholder);
 }
 .day-num {
   font-size: 13px;
@@ -378,8 +387,8 @@ onMounted(() => {
   gap: 2px;
 }
 .task-chip {
-  background: #ecf5ff;
-  color: #409eff;
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
   border-radius: 3px;
   font-size: 12px;
   padding: 1px 4px;
@@ -389,8 +398,8 @@ onMounted(() => {
   text-overflow: ellipsis;
 }
 .task-chip.span-task {
-  background: #fdf6ec;
-  color: #e6a23c;
+  background: var(--el-color-warning-light-9);
+  color: var(--el-color-warning);
 }
 .year-calendar {
   display: grid;
@@ -399,7 +408,7 @@ onMounted(() => {
 }
 .year-month {
   background: #fff;
-  border: 1px solid #dcdfe6;
+  border: 1px solid var(--el-border-color);
   border-radius: 4px;
   overflow: hidden;
 }
@@ -407,8 +416,8 @@ onMounted(() => {
   text-align: center;
   font-weight: 600;
   padding: 6px 0;
-  background: #f5f7fa;
-  color: #303133;
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-primary);
 }
 .year-grid {
   display: grid;
@@ -416,17 +425,17 @@ onMounted(() => {
 }
 .year-day {
   min-height: 52px;
-  border-right: 1px solid #ebeef5;
-  border-bottom: 1px solid #ebeef5;
+  border-right: 1px solid var(--el-border-color-lighter);
+  border-bottom: 1px solid var(--el-border-color-lighter);
   padding: 2px;
   cursor: pointer;
   overflow: hidden;
 }
 .year-day:hover {
-  background: #f5f7fa;
+  background: var(--el-fill-color-light);
 }
 .year-day.other-month {
-  background: #fafafa;
+  background: var(--el-fill-color-lighter);
 }
 @media (max-width: 767px) {
   .year-calendar {

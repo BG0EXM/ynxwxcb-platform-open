@@ -170,7 +170,7 @@ func ExportStandingCommitteeEvents(w http.ResponseWriter, r *http.Request) {
 		FROM standing_committee_events e` + where + ` ORDER BY e.event_date, e.id`
 	rows, err := database.DB.Query(query, args...)
 	if err != nil {
-		http.Error(w, "查询失败", http.StatusInternalServerError)
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
 	defer rows.Close()
@@ -224,7 +224,7 @@ func ExportStandingCommitteeEvents(w http.ResponseWriter, r *http.Request) {
 
 	data, err := builder.build()
 	if err != nil {
-		http.Error(w, "导出失败", http.StatusInternalServerError)
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "导出失败"})
 		return
 	}
 	logOperation(r, "常委管理", "导出", "导出常委大事记（"+title+"）")

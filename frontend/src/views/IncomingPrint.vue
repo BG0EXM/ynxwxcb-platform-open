@@ -71,7 +71,7 @@
         <span class="footer-left">打印日期：{{ today }}</span>
         <span class="footer-right">
           <div>中共伊宁县委宣传部办公室</div>
-          <div>伊宁县委宣传部部务工作平台V1.4.3</div>
+          <div>伊宁县委宣传部部务工作平台V1.5.0</div>
         </span>
       </div>
     </div>
@@ -105,12 +105,17 @@ const printCard = () => {
 onMounted(async () => {
   const cached = sessionStorage.getItem('printDoc')
   if (cached) {
-    doc.value = JSON.parse(cached)
-  } else {
     try {
-      doc.value = await request.get(`/incoming-docs/${route.params.id}`)
+      const parsed = JSON.parse(cached)
+      if (String(parsed.id) === String(route.params.id)) {
+        doc.value = parsed
+        return
+      }
     } catch (e) {}
   }
+  try {
+    doc.value = await request.get(`/incoming-docs/${route.params.id}`)
+  } catch (e) {}
 })
 </script>
 

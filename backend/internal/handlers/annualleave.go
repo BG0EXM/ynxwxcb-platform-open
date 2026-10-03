@@ -242,3 +242,29 @@ func SaveAnnualLeaveConfig(w http.ResponseWriter, r *http.Request) {
 	logOperation(r, "年休假管理", "修改", fmt.Sprintf("设置「%s」%s年年休假 %.1f 天", personName, req.Year, req.Days))
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "保存成功"})
 }
+
+// getAnnualLeaveRemainDays 计算指定人员在某年份的剩余年休假天数
+// 返回：(剩余天数, 该年配置的总天数)
+func getAnnualLeaveRemainDays(userID int64, year string, excludeID int64) (float64, float64) {
+	var configDays float64
+	if err := database.DB.QueryRow("SELECT COALESCE(days, 0) FROM annual_leave_configs WHERE user_id=? AND year=?", userID, year).Scan(&configDays); err != nil {
+		configDays = 0
+	}
+	yearStart := year + "-01-01"
+	yearEnd := year + "-12-31"
+	query := `SELECT COALESCE(SUM(eff), 0) FROM (
+		SELECT MIN(days, CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
+			- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER)) as eff
+		FROM leave_records
+		WHERE status = 1 AND leave_type = 'annual' AND user_id = ? AND id != ? AND start_date <= ? AND end_date >= ?
+	) WHERE eff > 0`
+	var usedDays float64
+	if err := database.DB.QueryRow(query, yearEnd, yearEnd, yearStart, yearStart, userID, excludeID, yearEnd, yearStart).Scan(&usedDays); err != nil {
+		usedDays = 0
+	}
+	remain := configDays - usedDays
+	if remain < 0 {
+		remain = 0
+	}
+	return remain, configDays
+}

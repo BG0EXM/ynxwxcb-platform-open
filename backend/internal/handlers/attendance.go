@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -17,11 +18,6 @@ import (
 // 或单条: {"attend_date":"2026-08-05","user_id":1,"status":1,"remark":""}
 func MarkAttendance(w http.ResponseWriter, r *http.Request) {
 	operatorID, _ := r.Context().Value(middleware.ContextUserID).(int64)
-	roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
-	if roleCode != "admin" {
-		middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "仅管理员可点到"})
-		return
-	}
 
 	var req struct {
 		AttendDate string `json:"attend_date"`
@@ -175,13 +171,8 @@ func ListAttendances(w http.ResponseWriter, r *http.Request) {
 	middleware.JSON(w, http.StatusOK, paginateResult(list, total, p.Page, p.PageSize))
 }
 
-// AttendanceStats 考勤统计（指定日期，管理员用）
+// AttendanceStats 考勤统计（指定日期）
 func AttendanceStats(w http.ResponseWriter, r *http.Request) {
-	roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
-	if roleCode != "admin" {
-		middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "仅管理员可查看统计"})
-		return
-	}
 	date := r.URL.Query().Get("date")
 	if date == "" {
 		date = time.Now().Format("2006-01-02")
@@ -197,7 +188,10 @@ func AttendanceStats(w http.ResponseWriter, r *http.Request) {
 	total := 0
 	for rows.Next() {
 		var status, count int
-		rows.Scan(&status, &count)
+		if err := rows.Scan(&status, &count); err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "读取数据失败"})
+			return
+		}
 		total += count
 		switch status {
 		case 1:
@@ -236,7 +230,10 @@ func AttendanceDates(w http.ResponseWriter, r *http.Request) {
 	dates := []string{}
 	for rows.Next() {
 		var d string
-		rows.Scan(&d)
+		if err := rows.Scan(&d); err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "读取数据失败"})
+			return
+		}
 		dates = append(dates, d)
 	}
 	if err := rows.Err(); err != nil {
@@ -297,7 +294,10 @@ func MarkUsers(w http.ResponseWriter, r *http.Request) {
 		var u UserItem
 		var dept, autoLeaveType sql.NullString
 		var autoLeave, autoComp int
-		rows.Scan(&u.ID, &u.RealName, &dept, &u.Status, &u.LeaveType, &u.Remark, &autoLeave, &autoLeaveType, &autoComp)
+		if err := rows.Scan(&u.ID, &u.RealName, &dept, &u.Status, &u.LeaveType, &u.Remark, &autoLeave, &autoLeaveType, &autoComp); err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "读取数据失败"})
+			return
+		}
 		if dept.Valid {
 			u.Department = dept.String
 		}
@@ -414,6 +414,26 @@ func CreateLeaveRecord(w http.ResponseWriter, r *http.Request) {
 		if remain < req.Days {
 			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "可补休天数不足"})
 			return
+		}
+	}
+	// 年休假校验：当年年休假剩余额度不足时不允许登记
+	if req.LeaveType == "annual" {
+		year := ""
+		if len(req.StartDate) >= 4 {
+			year = req.StartDate[:4]
+		}
+		if year != "" {
+			remain, configDays := getAnnualLeaveRemainDays(req.UserID, year, 0)
+			if configDays <= 0 {
+				middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": year + "年度尚未配置年休假额度，请联系管理员配置"})
+				return
+			}
+			if remain < req.Days {
+				middleware.JSON(w, http.StatusBadRequest, map[string]string{
+					"error": fmt.Sprintf("%s年度年休假剩余天数不足（剩余 %s 天，申请 %.1f 天）", year, strconv.FormatFloat(remain, 'f', -1, 64), req.Days),
+				})
+				return
+			}
 		}
 	}
 	_, err := database.DB.Exec(
@@ -595,6 +615,26 @@ func UpdateLeaveRecord(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// 年休假校验：修改为年休假或调整天数时校验当年额度（排除本记录自身已占用的天数）
+	if req.LeaveType == "annual" {
+		year := ""
+		if len(req.StartDate) >= 4 {
+			year = req.StartDate[:4]
+		}
+		if year != "" {
+			remain, configDays := getAnnualLeaveRemainDays(req.UserID, year, req.ID)
+			if configDays <= 0 {
+				middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": year + "年度尚未配置年休假额度，请联系管理员配置"})
+				return
+			}
+			if remain < req.Days {
+				middleware.JSON(w, http.StatusBadRequest, map[string]string{
+					"error": fmt.Sprintf("%s年度年休假剩余天数不足（剩余 %s 天，申请 %.1f 天）", year, strconv.FormatFloat(remain, 'f', -1, 64), req.Days),
+				})
+				return
+			}
+		}
+	}
 	_, err := database.DB.Exec(
 		`UPDATE leave_records SET user_id=?, leave_type=?, start_date=?, end_date=?, days=?, leave_hours=?, reason=? WHERE id=?`,
 		req.UserID, req.LeaveType, req.StartDate, req.EndDate, req.Days, req.LeaveHours, req.Reason, req.ID)
@@ -610,11 +650,6 @@ func UpdateLeaveRecord(w http.ResponseWriter, r *http.Request) {
 
 // DeleteLeaveRecord 删除请假记录
 func DeleteLeaveRecord(w http.ResponseWriter, r *http.Request) {
-	roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
-	if roleCode != "admin" {
-		middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "仅管理员可删除"})
-		return
-	}
 	id := pathID(r)
 	if id == 0 {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
@@ -960,7 +995,10 @@ func GetAssignees(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var a Assignee
 		var dept sql.NullString
-		rows.Scan(&a.ID, &a.RealName, &dept)
+		if err := rows.Scan(&a.ID, &a.RealName, &dept); err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "读取数据失败"})
+			return
+		}
 		if dept.Valid {
 			a.Department = dept.String
 		}

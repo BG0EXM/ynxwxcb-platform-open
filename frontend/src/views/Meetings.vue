@@ -1,109 +1,191 @@
 <template>
-  <div>
-    <el-card shadow="never">
-      <div class="toolbar">
-        <div>
-          <el-button type="primary" :icon="'Plus'" @click="openCreate">录入会议</el-button>
-        </div>
-      </div>
+  <div class="meetings-page">
+    <!-- 页头 -->
+    <page-header 
+      title="会务管理" 
+      subtitle="发布宣传思想文化重要会议，生成公开参会报名链接与二维码，实时统计报名与出勤"
+      :tag="list.length ? `共 ${list.length} 场会议` : ''"
+    >
+      <template #actions>
+        <el-button type="primary" :icon="'Plus'" @click="openCreate">录入新会议</el-button>
+        <el-button :icon="'Refresh'" circle @click="loadData" />
+      </template>
+    </page-header>
 
-      <el-table :data="list" stripe v-loading="loading" empty-text="暂无会议">
-        <el-table-column prop="title" label="会议标题" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="meeting_date" label="日期" width="110" />
-        <el-table-column prop="meeting_time" label="时间" width="90" />
-        <el-table-column prop="location" label="地点" width="130" show-overflow-tooltip />
-        <el-table-column label="已报名" width="80">
+    <el-card shadow="never">
+      <el-table :data="list" v-loading="loading">
+        <template #empty>
+          <empty-state description="暂无召开或安排的会议" />
+        </template>
+
+        <el-table-column prop="title" label="会议标题" min-width="220" show-overflow-tooltip>
           <template #default="{ row }">
-            <el-tag size="small" type="success">{{ row.reg_count }}</el-tag>
+            <span class="meeting-title font-serif" @click="openDetail(row)">{{ row.title }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="不参加" width="80">
+
+        <el-table-column prop="meeting_date" label="会议日期" width="115" />
+        <el-table-column prop="meeting_time" label="具体时间" width="95" />
+        <el-table-column prop="location" label="召开地点" width="150" show-overflow-tooltip />
+
+        <el-table-column label="已报名" width="100" align="center">
           <template #default="{ row }">
-            <el-tag size="small" type="info">{{ row.not_attend }}</el-tag>
+            <status-dot type="success" :text="`${row.reg_count} 人`" />
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="300" fixed="right">
+
+        <el-table-column label="不参加" width="100" align="center">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click.stop="openEdit(row)">编辑</el-button>
-            <el-button link type="success" size="small" @click.stop="copyLink(row)">复制链接</el-button>
-            <el-button link type="info" size="small" @click.stop="openDetail(row)">报名情况</el-button>
-            <el-button link type="warning" size="small" @click.stop="exportReg(row)">导出</el-button>
-            <el-button link type="danger" size="small" @click.stop="removeMeeting(row)">删除</el-button>
+            <span v-if="row.not_attend > 0" style="color:var(--el-color-warning);font-size:13px;font-weight:500;">
+              {{ row.not_attend }} 单位
+            </span>
+            <span v-else style="color:var(--yx-text-4);font-size:12px;">无</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="操作" width="180" fixed="right" align="right">
+          <template #default="{ row }">
+            <div class="row-action-wrap">
+              <el-button link type="primary" @click="openDetail(row)">报名情况</el-button>
+              
+              <el-dropdown @command="(cmd) => handleRowCommand(cmd, row)" trigger="click">
+                <el-button link type="primary" class="more-link">
+                  <span>更多</span>
+                  <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="copy" icon="Link">复制报名链接</el-dropdown-item>
+                    <el-dropdown-item command="export" icon="Download">导出签到册</el-dropdown-item>
+                    <el-dropdown-item command="edit" icon="Edit" divided>编辑会议</el-dropdown-item>
+                    <el-dropdown-item command="delete" icon="Delete" class="text-danger-item">删除会议</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </template>
         </el-table-column>
       </el-table>
     </el-card>
 
-    <!-- 录入/编辑会议 -->
-    <el-dialog v-model="dialogVisible" :title="editId ? '编辑会议' : '录入会议'" width="640px">
-      <el-form :model="form" label-width="100px">
-        <el-form-item label="会议标题" required>
-          <el-input v-model="form.title" placeholder="如：全县宣传思想文化工作会议" />
-        </el-form-item>
-        <el-form-item label="会议日期" required>
-          <el-date-picker v-model="form.meeting_date" type="date" value-format="YYYY-MM-DD" style="width:100%" />
-        </el-form-item>
-        <el-form-item label="会议时间">
-          <el-time-picker v-model="form.meeting_time" value-format="HH:mm" format="HH:mm" placeholder="如 10:00" style="width:100%" />
-        </el-form-item>
-        <el-form-item label="会议地点">
-          <el-input v-model="form.location" placeholder="如：县委三楼会议室" />
-        </el-form-item>
-        <el-form-item label="参会单位范围" required>
-          <el-input v-model="form.units" type="textarea" :rows="6"
-            placeholder="每行填写一个单位，如：&#10;县委办&#10;县政府办&#10;各乡镇党委&#10;宣传部各科室" />
-          <div class="form-tip">每行一个单位，参会单位从这些中下拉选择</div>
-        </el-form-item>
-        <el-form-item label="参会人数">
-          <el-radio-group v-model="form.unit_limit" @change="onLimitChange">
-            <el-radio :label="1">每单位 1 人</el-radio>
-            <el-radio :label="2">每单位 2 人</el-radio>
-            <el-radio :label="3">每单位 3 人</el-radio>
-            <el-radio :label="4">每单位 4 人</el-radio>
-            <el-radio :label="5">每单位 5 人</el-radio>
-            <el-radio :label="0">不限制</el-radio>
-          </el-radio-group>
-          <div class="form-tip">每个单位可报名的人数上限，实际可少于该人数；"不限制"表示不限人数。</div>
-        </el-form-item>
-        <el-form-item label="会议内容">
-          <el-input v-model="form.content" type="textarea" :rows="4" placeholder="会议议程、要求等（选填）" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="save">保存</el-button>
-      </template>
-    </el-dialog>
+    <!-- 1. 录入/编辑会议：右侧滑出抽屉（Drawer） -->
+    <el-drawer 
+      v-model="dialogVisible" 
+      :title="editId ? '编辑会议信息' : '创建会务通知'" 
+      size="620px"
+      destroy-on-close
+    >
+      <el-form :model="form" label-width="105px">
+        <div class="form-section">
+          <div class="form-section-title">会议基本信息</div>
+          <el-form-item label="会议标题" required>
+            <el-input v-model="form.title" placeholder="如：全县宣传思想文化工作推进会" />
+          </el-form-item>
 
-    <!-- 报名情况 -->
-    <el-dialog v-model="detailVisible" :title="detailTitle" width="800px">
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="会议日期" required>
+                <el-date-picker v-model="form.meeting_date" type="date" value-format="YYYY-MM-DD" style="width:100%" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="开会时间">
+                <el-time-picker v-model="form.meeting_time" value-format="HH:mm" format="HH:mm" placeholder="如 10:30" style="width:100%" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+
+          <el-form-item label="会议地点" required>
+            <el-input v-model="form.location" placeholder="如：县委二楼一号会议室" />
+          </el-form-item>
+        </div>
+
+        <div class="form-section">
+          <div class="form-section-title">参会单位与限额</div>
+          <el-form-item label="参会单位范围" required>
+            <el-input 
+              v-model="form.units" 
+              type="textarea" 
+              :rows="5"
+              placeholder="每行填写一个单位名称，如：&#10;各乡镇（片区）党委宣传委员&#10;县委宣传部各科室负责同志&#10;县融媒体中心负责同志" 
+            />
+            <div class="form-sub-tip">每行独立一个单位，公开报名端将按此列表供填报人选择。</div>
+          </el-form-item>
+
+          <el-form-item label="单位参会限额">
+            <el-radio-group v-model="form.unit_limit" size="small">
+              <el-radio-button :value="1">每单位 1 人</el-radio-button>
+              <el-radio-button :value="2">每单位 2 人</el-radio-button>
+              <el-radio-button :value="3">每单位 3 人</el-radio-button>
+              <el-radio-button :value="0">不限人数</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+        </div>
+
+        <div class="form-section">
+          <div class="form-section-title">议程与参会要求</div>
+          <el-form-item label="会议内容要求">
+            <el-input v-model="form.content" type="textarea" :rows="3" placeholder="会议议程、着装要求、席卡安排等提示（选填）" />
+          </el-form-item>
+        </div>
+      </el-form>
+
+      <template #footer>
+        <div class="drawer-footer-wrap">
+          <el-button @click="dialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="save">保存会务通知</el-button>
+        </div>
+      </template>
+    </el-drawer>
+
+    <!-- 2. 报名情况：右侧滑出抽屉（Drawer） -->
+    <el-drawer 
+      v-model="detailVisible" 
+      :title="detailTitle" 
+      size="760px"
+      destroy-on-close
+    >
       <el-tabs v-model="detailTab">
-        <el-tab-pane label="参会人员" name="attend">
-          <el-table :data="attendRegs" stripe size="small" empty-text="暂无参会报名">
-            <el-table-column prop="unit" label="单位" width="160" show-overflow-tooltip />
-            <el-table-column prop="attendee_name" label="姓名" width="90" />
-            <el-table-column prop="attendee_title" label="职务" width="110" />
-            <el-table-column prop="phone" label="电话" width="130" />
+        <el-tab-pane :label="`参会人员名单 (${attendRegs.length}人)`" name="attend">
+          <el-table :data="attendRegs" size="small" class="mt-8">
+            <template #empty><empty-state description="暂无参会报名" /></template>
+            <el-table-column prop="unit" label="参会单位" width="170" show-overflow-tooltip />
+            <el-table-column prop="attendee_name" label="姓名" width="100" />
+            <el-table-column prop="attendee_title" label="职务" width="120" />
+            <el-table-column prop="phone" label="联系电话" width="130" />
           </el-table>
         </el-tab-pane>
-        <el-tab-pane :label="`不参加(${notAttendRegs.length})`" name="absent">
-          <el-table :data="notAttendRegs" stripe size="small" empty-text="暂无请假不参加">
-            <el-table-column prop="unit" label="单位" width="160" show-overflow-tooltip />
-            <el-table-column prop="reason" label="不参加原因" min-width="200" show-overflow-tooltip />
+
+        <el-tab-pane :label="`请假不参加 (${notAttendRegs.length}个单位)`" name="absent">
+          <el-table :data="notAttendRegs" size="small" class="mt-8">
+            <template #empty><empty-state description="全部参会，无请假单位" /></template>
+            <el-table-column prop="unit" label="单位名称" width="180" show-overflow-tooltip />
+            <el-table-column prop="reason" label="不参加事由" min-width="200" show-overflow-tooltip />
           </el-table>
         </el-tab-pane>
-        <el-tab-pane :label="`未确认(${unconfirmedUnits.length})`" name="unconfirmed">
-          <el-alert v-if="unconfirmedUnits.length" type="warning" :closable="false" class="unconfirmed-tip"
-            :title="`以下 ${unconfirmedUnits.length} 个单位尚未确认参会，导出签到单时会一并列出（人员留空）`" />
-          <el-table :data="unconfirmedUnits.map(u => ({ unit: u }))" stripe size="small" empty-text="全部单位已确认">
-            <el-table-column prop="unit" label="未确认单位" min-width="200" />
+
+        <el-tab-pane :label="`尚未确认 (${unconfirmedUnits.length}个单位)`" name="unconfirmed">
+          <el-alert 
+            v-if="unconfirmedUnits.length" 
+            type="warning" 
+            :closable="false" 
+            class="mb-12"
+            :title="`尚有 ${unconfirmedUnits.length} 个单位未进行网上报名确认。导出签到册时将自动留空供现场手填签到。`" 
+          />
+          <el-table :data="unconfirmedUnits.map(u => ({ unit: u }))" size="small">
+            <template #empty><empty-state description="所有参会单位均已确认完成！" /></template>
+            <el-table-column prop="unit" label="待确认单位" min-width="220" />
           </el-table>
         </el-tab-pane>
       </el-tabs>
-      <div class="detail-links">
-        <el-button type="success" :icon="'Download'" @click="exportReg(detailMeeting)">导出签到单</el-button>
-      </div>
-    </el-dialog>
+
+      <template #footer>
+        <div class="drawer-footer-wrap">
+          <el-button type="success" :icon="'Download'" @click="exportReg(detailMeeting)">导出会议签到册</el-button>
+          <el-button @click="detailVisible = false">关闭</el-button>
+        </div>
+      </template>
+    </el-drawer>
   </div>
 </template>
 
@@ -112,6 +194,9 @@ import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request, { exportFile } from '../utils/request'
 import dayjs from 'dayjs'
+import PageHeader from '../components/PageHeader.vue'
+import StatusDot from '../components/StatusDot.vue'
+import EmptyState from '../components/EmptyState.vue'
 
 const list = ref([])
 const loading = ref(false)
@@ -139,15 +224,19 @@ const loadData = async () => {
 
 const openCreate = () => {
   editId.value = 0
-  form.value = { title: '', meeting_date: dayjs().format('YYYY-MM-DD'), meeting_time: '10:00', location: '', content: '', units: '', unit_limit: 1 }
+  form.value = { title: '', meeting_date: dayjs().format('YYYY-MM-DD'), meeting_time: '', location: '', content: '', units: '', unit_limit: 1 }
   dialogVisible.value = true
 }
 
 const openEdit = (row) => {
   editId.value = row.id
   form.value = {
-    title: row.title, meeting_date: row.meeting_date, meeting_time: row.meeting_time || '',
-    location: row.location || '', content: row.content || '', units: row.units || '',
+    title: row.title,
+    meeting_date: row.meeting_date,
+    meeting_time: row.meeting_time || '',
+    location: row.location || '',
+    content: row.content || '',
+    units: row.units || '',
     unit_limit: row.unit_limit ?? 1
   }
   dialogVisible.value = true
@@ -156,82 +245,122 @@ const openEdit = (row) => {
 const save = async () => {
   if (!form.value.title) return ElMessage.warning('请输入会议标题')
   if (!form.value.meeting_date) return ElMessage.warning('请选择会议日期')
-  if (!form.value.units) return ElMessage.warning('请填写参会单位范围')
+  if (!form.value.units) return ElMessage.warning('请输入参会单位')
   try {
     if (editId.value) {
       await request.put('/meetings', { ...form.value, id: editId.value })
       ElMessage.success('更新成功')
     } else {
       await request.post('/meetings', form.value)
-      ElMessage.success('创建成功，可复制报名链接发送给各单位')
+      ElMessage.success('录入成功')
     }
     dialogVisible.value = false
     loadData()
   } catch (e) {}
 }
 
+const handleRowCommand = (cmd, row) => {
+  if (cmd === 'copy') copyLink(row)
+  else if (cmd === 'export') exportReg(row)
+  else if (cmd === 'edit') openEdit(row)
+  else if (cmd === 'delete') removeMeeting(row)
+}
+
+const copyLink = (row) => {
+  const url = `${window.location.origin}/meeting/${row.id}`
+  navigator.clipboard.writeText(url).then(() => {
+    ElMessage.success('公开参会报名链接已复制到剪贴板')
+  }).catch(() => {
+    ElMessage.info(`报名链接：${url}`)
+  })
+}
+
 const openDetail = async (row) => {
-  detailMeeting.value = row
-  detailTitle.value = row.title
-  detailTab.value = 'attend'
   try {
-    const res = await request.get(`/meetings/${row.id}`)
-    const regs = res.registrations || []
-    attendRegs.value = regs.filter(r => r.not_attend !== 1)
-    notAttendRegs.value = regs.filter(r => r.not_attend === 1)
-    unconfirmedUnits.value = res.unconfirmed_units || []
+    detailMeeting.value = row
+    detailTitle.value = `会务报名统计 - ${row.title}`
+    const res = await request.get(`/meetings/${row.id}/registrations`)
+    const regs = res.list || []
+    attendRegs.value = regs.filter(r => r.is_attending === 1)
+    notAttendRegs.value = regs.filter(r => r.is_attending === 0)
+    unconfirmedUnits.value = res.unconfirmed || []
+    detailTab.value = 'attend'
+    detailVisible.value = true
   } catch (e) {}
-  detailVisible.value = true
 }
 
-const copyLink = async (row) => {
-  const base = window.location.origin
-  const url = `${base}/meeting/${row.id}`
+const exportReg = async (row) => {
+  if (!row) return
   try {
-    await navigator.clipboard.writeText(url)
-    ElMessage.success('报名链接已复制：' + url)
-  } catch (e) {
-    ElMessageBox.alert(`请手动复制报名链接：\n${url}`, '报名链接', { confirmButtonText: '知道了' })
-  }
-}
-
-const exportReg = (row) => {
-  exportFile(`/export/meetings/${row.id}/registration`)
+    await exportFile(`/export/meeting-registrations?meeting_id=${row.id}`, {}, `${row.title}-签到册.xlsx`)
+  } catch (e) {}
 }
 
 const removeMeeting = async (row) => {
   try {
-    await ElMessageBox.confirm(`确认删除会议「${row.title}」及其报名记录？`, '删除确认', { type: 'warning', confirmButtonText: '删除' })
-  } catch (e) { return }
-  try {
+    await ElMessageBox.confirm(`确认删除会议「${row.title}」及其全部报名记录？此操作不可恢复。`, '高危操作确认', {
+      type: 'warning',
+      confirmButtonText: '确认删除',
+      confirmButtonClass: 'el-button--danger'
+    })
     await request.delete(`/meetings/${row.id}`)
-    ElMessage.success('删除成功')
+    ElMessage.success('已删除')
     loadData()
   } catch (e) {}
 }
 
-onMounted(loadData)
+onMounted(() => {
+  loadData()
+})
 </script>
 
 <style scoped>
-.toolbar {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
-  gap: 8px;
+.meeting-title {
+  color: var(--yx-text-1);
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.2s ease;
 }
-.form-tip {
+
+.meeting-title:hover {
+  color: var(--yx-ink-2);
+}
+
+.row-action-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.more-link {
+  font-size: 13px;
+  color: var(--yx-text-3);
+}
+
+.more-link:hover {
+  color: var(--yx-ink-2);
+}
+
+:deep(.text-danger-item) {
+  color: var(--el-color-danger) !important;
+}
+
+.form-sub-tip {
   font-size: 12px;
-  color: #909399;
+  color: var(--yx-text-3);
   margin-top: 4px;
 }
-.detail-links {
-  margin-top: 16px;
+
+.drawer-footer-wrap {
   display: flex;
-  gap: 8px;
+  justify-content: flex-end;
+  gap: 12px;
 }
-.unconfirmed-tip {
-  margin-bottom: 10px;
+
+.mb-12 {
+  margin-bottom: 12px;
+}
+.mt-8 {
+  margin-top: 8px;
 }
 </style>

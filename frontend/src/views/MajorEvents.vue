@@ -1,5 +1,15 @@
 <template>
-  <div>
+  <div class="major-events-page">
+    <page-header 
+      title="大事记" 
+      subtitle="真实完整记录宣传部重要工作、重大宣传活动与关键工作节点，支持一键按年汇总导出Word"
+    >
+      <template #actions>
+        <el-button v-if="authStore.hasPerm('event.manage')" type="primary" :icon="'Plus'" @click="openCreate">录入大事记</el-button>
+        <el-button v-if="authStore.hasPerm('event.export')" type="success" :icon="'Download'" @click="exportData">导出Word汇总</el-button>
+      </template>
+    </page-header>
+
     <el-card shadow="never">
       <div class="toolbar">
         <div>
@@ -10,10 +20,6 @@
           <el-select v-if="authStore.isAdmin" v-model="deptFilter" placeholder="全部科室" clearable style="width:150px;margin-left:10px" @change="loadData">
             <el-option v-for="d in departments" :key="d.id" :label="d.name" :value="d.id" />
           </el-select>
-        </div>
-        <div>
-          <el-button v-if="authStore.hasPerm('event.export')" type="success" :icon="'Download'" @click="exportData">导出Word（按年汇总）</el-button>
-          <el-button v-if="authStore.hasPerm('event.manage')" type="primary" :icon="'Plus'" @click="openCreate">录入大事记</el-button>
         </div>
       </div>
 
@@ -30,7 +36,7 @@
       </el-table>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="editId ? '编辑大事记' : '录入大事记'" width="620px">
+    <el-drawer v-model="dialogVisible" :title="editId ? '编辑大事记' : '录入大事记'" size="660px">
       <el-form :model="form" label-width="90px">
         <el-form-item label="所属科室" required v-if="authStore.isAdmin">
           <el-select v-model="form.department_id" placeholder="选择科室" style="width:100%">
@@ -48,7 +54,7 @@
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="save">保存</el-button>
       </template>
-    </el-dialog>
+    </el-drawer>
   </div>
 </template>
 
@@ -58,6 +64,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import request, { exportFile } from '../utils/request'
 import dayjs from 'dayjs'
 import { useAuthStore } from '../store/auth'
+import PageHeader from '../components/PageHeader.vue'
 
 const authStore = useAuthStore()
 const list = ref([])

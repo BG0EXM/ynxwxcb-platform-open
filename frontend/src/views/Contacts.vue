@@ -1,5 +1,15 @@
 <template>
-  <div>
+  <div class="contacts-page">
+    <page-header 
+      title="通讯录" 
+      subtitle="部机关干部职工与宣传系统各单位联系人名册，方便日常工作联络对接"
+    >
+      <template #actions>
+        <el-button type="primary" :icon="'Plus'" @click="openCreate">添加联系人</el-button>
+        <el-button :icon="'Refresh'" circle @click="loadData" />
+      </template>
+    </page-header>
+
     <el-card shadow="never">
       <div class="toolbar">
         <div>
@@ -11,7 +21,6 @@
             <el-option v-for="d in departments" :key="d.id" :label="d.name" :value="d.id" />
           </el-select>
         </div>
-        <el-button type="primary" @click="openCreate">添加联系人</el-button>
       </div>
 
       <el-table :data="list" stripe v-loading="loading" empty-text="暂无联系人">
@@ -31,7 +40,7 @@
       </div>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="editId ? '编辑联系人' : '添加联系人'" width="480px">
+    <el-drawer v-model="dialogVisible" :title="editId ? '编辑联系人' : '添加联系人'" size="540px">
       <el-form :model="form" label-width="80px">
         <el-form-item label="姓名" required>
           <el-input v-model="form.name" />
@@ -52,7 +61,7 @@
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="save">保存</el-button>
       </template>
-    </el-dialog>
+    </el-drawer>
   </div>
 </template>
 
@@ -60,6 +69,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '../utils/request'
+import PageHeader from '../components/PageHeader.vue'
 
 const list = ref([])
 const loading = ref(false)

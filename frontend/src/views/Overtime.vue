@@ -1,14 +1,21 @@
 <template>
-  <div>
+  <div class="overtime-page">
+    <page-header 
+      title="加班管理" 
+      subtitle="精确统计干部职工日常及节假日加班工时，支持自动折算补休天数与台账导出"
+    >
+      <template #actions>
+        <el-button v-if="authStore.hasPerm('overtime.manage')" type="primary" :icon="'Plus'" @click="openCreate">录入加班</el-button>
+        <el-button v-if="authStore.hasPerm('overtime.export')" type="success" :icon="'Download'" @click="exportData">导出Excel</el-button>
+        <el-button :icon="'Refresh'" circle @click="loadAll" />
+      </template>
+    </page-header>
+
     <el-card shadow="never">
       <div class="toolbar">
         <div>
           <el-date-picker v-model="year" type="year" value-format="YYYY" placeholder="按年筛选" style="width:130px" @change="loadAll" />
           <el-date-picker v-model="month" type="month" value-format="YYYY-MM" placeholder="按年+按月" clearable style="width:140px;margin-left:10px" @change="loadAll" />
-        </div>
-        <div>
-          <el-button v-if="authStore.hasPerm('overtime.export')" type="success" :icon="'Download'" @click="exportData">导出Excel</el-button>
-          <el-button v-if="authStore.hasPerm('overtime.manage')" type="primary" :icon="'Plus'" @click="openCreate">录入加班</el-button>
         </div>
       </div>
 
@@ -25,12 +32,12 @@
         </el-table-column>
         <el-table-column label="已补休(天)" width="110">
           <template #default="{ row }">
-            <b style="color:#e6a23c">{{ row.used_days }}</b>
+            <b style="color:var(--el-color-warning)">{{ row.used_days }}</b>
           </template>
         </el-table-column>
         <el-table-column label="剩余可补(天)" width="110">
           <template #default="{ row }">
-            <b :style="{ color: row.remain_days < 0 ? '#f56c6c' : '#67c23a' }">{{ row.remain_days.toFixed(1) }}</b>
+            <b :style="{ color: row.remain_days < 0 ? 'var(--el-color-danger)' : 'var(--el-color-success)' }">{{ row.remain_days.toFixed(1) }}</b>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="110" fixed="right" v-if="authStore.hasPerm('overtime.manage')">
@@ -56,7 +63,7 @@
     </el-card>
 
     <!-- 录入加班 -->
-    <el-dialog v-model="dialogVisible" title="录入加班" width="500px">
+    <el-drawer v-model="dialogVisible" title="录入加班" size="540px">
       <el-form :model="form" label-width="90px">
         <el-form-item label="人员" required>
           <el-select v-model="form.user_id" filterable placeholder="选择人员" style="width:100%">
@@ -78,7 +85,7 @@
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="save">保存</el-button>
       </template>
-    </el-dialog>
+    </el-drawer>
   </div>
 </template>
 
@@ -89,6 +96,7 @@ import request, { exportFile } from '../utils/request'
 import dayjs from 'dayjs'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../store/auth'
+import PageHeader from '../components/PageHeader.vue'
 
 const authStore = useAuthStore()
 const router = useRouter()
@@ -220,14 +228,14 @@ onMounted(() => {
 .section-title {
   font-weight: 600;
   margin: 8px 0 12px;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 .mt-16 {
   margin-top: 16px;
 }
 .form-tip {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   margin-top: 4px;
 }
 </style>

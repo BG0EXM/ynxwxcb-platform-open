@@ -1,13 +1,20 @@
 <template>
-  <div>
+  <div class="annual-leave-page">
+    <page-header 
+      title="年休假管理" 
+      subtitle="精准维护每位干部职工年度应休年假天数、核销已休天数与结余额度校验"
+    >
+      <template #actions>
+        <el-button v-if="authStore.hasPerm('annualleave.manage')" type="primary" :icon="'Plus'" @click="openCreate">配置年休假</el-button>
+        <el-button v-if="authStore.hasPerm('annualleave.export')" type="success" :icon="'Download'" @click="exportData">导出Excel</el-button>
+        <el-button :icon="'Refresh'" circle @click="loadData" />
+      </template>
+    </page-header>
+
     <el-card shadow="never">
       <div class="toolbar">
         <div>
           <el-date-picker v-model="year" type="year" value-format="YYYY" placeholder="选择年份" style="width:140px" @change="loadData" />
-        </div>
-        <div>
-          <el-button v-if="authStore.hasPerm('annualleave.export')" type="success" :icon="'Download'" @click="exportData">导出Excel</el-button>
-          <el-button v-if="authStore.hasPerm('annualleave.manage')" type="primary" :icon="'Plus'" @click="openCreate">配置年休假</el-button>
         </div>
       </div>
 
@@ -20,12 +27,12 @@
         </el-table-column>
         <el-table-column label="已休天数" width="110">
           <template #default="{ row }">
-            <b style="color:#e6a23c">{{ row.used_days }}</b>
+            <b style="color:var(--el-color-warning)">{{ row.used_days }}</b>
           </template>
         </el-table-column>
         <el-table-column label="剩余天数" width="110">
           <template #default="{ row }">
-            <b :style="{ color: row.remain_days < 0 ? '#f56c6c' : '#67c23a' }">{{ row.remain_days }}</b>
+            <b :style="{ color: row.remain_days < 0 ? 'var(--el-color-danger)' : 'var(--el-color-success)' }">{{ row.remain_days }}</b>
           </template>
         </el-table-column>
         <el-table-column v-if="authStore.hasPerm('annualleave.manage')" label="操作" width="100" fixed="right">
@@ -37,7 +44,7 @@
     </el-card>
 
     <!-- 配置年休假 -->
-    <el-dialog v-model="dialogVisible" title="配置年休假" width="460px">
+    <el-drawer v-model="dialogVisible" title="配置年休假" size="540px">
       <el-form :model="form" label-width="90px">
         <el-form-item label="人员" required>
           <el-select v-model="form.user_id" filterable placeholder="选择人员" style="width:100%">
@@ -56,7 +63,7 @@
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="save">保存</el-button>
       </template>
-    </el-dialog>
+    </el-drawer>
   </div>
 </template>
 
@@ -66,6 +73,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import request, { exportFile } from '../utils/request'
 import dayjs from 'dayjs'
 import { useAuthStore } from '../store/auth'
+import PageHeader from '../components/PageHeader.vue'
 
 const authStore = useAuthStore()
 const year = ref(dayjs().format('YYYY'))
@@ -139,11 +147,11 @@ onMounted(() => {
 .section-title {
   font-weight: 600;
   margin: 8px 0 12px;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 .form-tip {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   margin-top: 4px;
 }
 </style>

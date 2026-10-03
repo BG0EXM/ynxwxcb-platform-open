@@ -1,125 +1,94 @@
-/* ===== 全局主题（V1.3.7 现代化）=====
-   纯本地 CSS，无外部字体/CDN，单机离线可用。
-   党政现代风：墨蓝渐变侧边栏 + 暗金点缀 + 中国红主色 + 毛玻璃 + 圆角阴影 */
-
-:root {
-  /* 主色系 */
-  --yx-primary: #c8102e;        /* 中国红 */
-  --yx-primary-dark: #a90d26;
-  --yx-primary-light: #e6415a;
-  --yx-gold: #c9a063;           /* 暗金 */
-  --yx-gold-light: #e6c78a;
-  --yx-ink: #1f2d3d;            /* 墨蓝 */
-  --yx-ink-dark: #141c28;
-  --yx-bg: #f4f6fa;
-  --yx-radius: 12px;
-  --yx-radius-sm: 8px;
-  --yx-shadow: 0 6px 20px rgba(31, 45, 61, 0.08);
-  --yx-shadow-hover: 0 10px 28px rgba(31, 45, 61, 0.15);
-}
-
-/* Element Plus 主色覆盖为党政红 */
-:root {
-  --el-color-primary: var(--yx-primary);
-  --el-color-primary-light-3: #e05a6f;
-  --el-color-primary-light-5: #ec93a1;
-  --el-color-primary-light-7: #f5c3cb;
-  --el-color-primary-light-8: #f9d8dd;
-  --el-color-primary-light-9: #fdecef;
-  --el-color-primary-dark-2: var(--yx-primary-dark);
-  --el-border-radius-base: 6px;
-}
+/* ===== 全局主题（V1.5 方向 B：墨蓝主导 + 红金点缀）=====
+   颜色、字号等一律引用 tokens.css 中的变量。
+   原则：少用 !important；装饰点到为止；打印页不受影响。 */
 
 body {
   background: var(--yx-bg);
-  color: #303133;
+  color: var(--yx-text-1);
+  font-size: var(--yx-fs-sm);
+  -webkit-font-smoothing: antialiased;
 }
 
-/* 卡片：大圆角 + 分层阴影 + 顶部渐变细条 */
+/* 统计数字使用等宽数字，排列更整齐 */
+.yx-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 卡片：圆角 + 柔和阴影 + 官方尊贵三色鎏金顶边 */
 .el-card {
-  border-radius: var(--yx-radius) !important;
-  border: none !important;
-  box-shadow: var(--yx-shadow) !important;
+  --el-card-border-radius: var(--yx-radius);
+  --el-card-border-color: rgba(220, 223, 229, 0.6);
+  box-shadow: 0 4px 18px rgba(19, 26, 38, 0.05);
+  position: relative;
   overflow: hidden;
-}
-.el-card.is-hover-shadow:hover {
-  box-shadow: var(--yx-shadow-hover) !important;
-  transform: translateY(-2px);
-  transition: all 0.25s ease;
-}
-.el-card > .el-card__header {
-  border-bottom: 1px solid #f0f0f0;
-  font-weight: 600;
 }
 .el-card::before {
   content: '';
-  display: block;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
   height: 3px;
-  background: linear-gradient(90deg, var(--yx-primary), var(--yx-gold));
+  background: var(--yx-crest-gradient);
+  z-index: 2;
+}
+.el-card.is-always-shadow,
+.el-card.is-hover-shadow:hover {
+  box-shadow: var(--yx-shadow-hover);
+}
+.el-card.is-hover-shadow {
+  transition: box-shadow 0.2s ease;
+}
+.el-card > .el-card__header {
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  font-weight: 600;
+  color: var(--yx-text-1);
 }
 
-/* 主按钮：渐变（仅实心按钮；link 文字按钮、plain 浅色按钮不受影响） */
-.el-button--primary:not(.is-link):not(.is-plain) {
-  background: linear-gradient(135deg, var(--yx-primary), var(--yx-primary-dark)) !important;
-  border: none !important;
-  box-shadow: 0 4px 12px rgba(200, 16, 46, 0.25);
+/* 主按钮：官方墨蓝微渐变，沉稳大气 */
+.el-button--primary:not(.is-link):not(.is-plain):not(.is-text) {
+  background: linear-gradient(135deg, #24406e 0%, #1b2433 100%);
+  border-color: #1b2433;
+  box-shadow: 0 2px 6px rgba(36, 64, 110, 0.22);
   transition: all 0.2s ease;
 }
-.el-button--primary:not(.is-link):not(.is-plain):hover {
-  box-shadow: 0 6px 16px rgba(200, 16, 46, 0.35);
-  transform: translateY(-1px);
+.el-button--primary:not(.is-link):not(.is-plain):not(.is-text):hover {
+  background: linear-gradient(135deg, #2f538e 0%, #24406e 100%);
+  border-color: #24406e;
+  box-shadow: 0 4px 12px rgba(36, 64, 110, 0.32);
 }
-.el-button--success:not(.is-link):not(.is-plain) {
-  background: linear-gradient(135deg, #5cb87a, #3e9c60) !important;
-  border: none !important;
+.el-button {
+  border-radius: var(--yx-radius-sm);
 }
-/* plain 按钮还原为浅色样式（透明底+描边+彩色字） */
-.el-button--primary.is-plain {
-  background: transparent !important;
-  border-color: var(--yx-primary) !important;
-  color: var(--yx-primary) !important;
-}
-.el-button--primary.is-plain:hover {
-  background: rgba(200, 16, 46, 0.08) !important;
-}
-/* link 文字按钮：保证可读性 */
 .el-button.is-link {
   padding: 2px 4px;
 }
-.el-button {
-  border-radius: 6px;
-}
 
-/* 表格：表头渐变 + hover 提亮 */
+/* 表格：表头浅底，悬停行浅墨蓝 */
 .el-table {
-  --el-table-header-bg-color: #f7f8fc;
+  --el-table-header-bg-color: var(--el-fill-color-light);
+  --el-table-row-hover-bg-color: var(--el-color-primary-light-9);
+  --el-table-header-text-color: var(--yx-text-1);
   border-radius: var(--yx-radius-sm);
 }
 .el-table th.el-table__cell {
-  background: linear-gradient(180deg, #fafbfe, #f2f4fa) !important;
   font-weight: 600;
-  color: #303133;
-}
-.el-table tbody tr:hover > td.el-table__cell {
-  background: #f5f8ff !important;
 }
 
-/* 标签页 / 面包屑微调 */
+/* 面包屑 */
 .el-breadcrumb {
-  font-size: 13px;
+  font-size: var(--yx-fs-sm);
 }
 
 /* 对话框 */
 .el-dialog {
-  border-radius: var(--yx-radius) !important;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2) !important;
+  --el-dialog-border-radius: var(--yx-radius);
+  box-shadow: 0 12px 40px rgba(27, 36, 51, 0.18);
 }
 .el-dialog__header {
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--el-border-color-lighter);
   font-weight: 600;
 }
-
-/* 菜单胶囊效果由 Layout.vue 内联处理 */
 
 /* 页面容器淡入动画 */
 .fade-enter-active,
@@ -131,7 +100,105 @@ body {
   opacity: 0;
 }
 
-/* 表单提示 */
+/* 表单标签 */
 .el-form-item__label {
   font-weight: 500;
+  color: var(--yx-text-2);
+}
+
+/* 抽屉样式：平滑阴影、政务宋体头、左侧尊贵金边与吸底操作栏 */
+.el-drawer {
+  --el-drawer-bg-color: var(--yx-surface);
+  box-shadow: -10px 0 36px rgba(19, 26, 38, 0.14);
+  position: relative;
+}
+.el-drawer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 3.5px;
+  background: var(--yx-crest-gradient);
+  z-index: 3;
+}
+.el-drawer__header {
+  margin-bottom: 0;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  font-family: var(--yx-font-serif);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--yx-text-1);
+}
+.el-drawer__body {
+  padding: 20px 24px;
+  overflow-y: auto;
+}
+.el-drawer__footer {
+  padding: 14px 24px;
+  border-top: 1px solid var(--el-border-color-lighter);
+  background: var(--yx-bg);
+}
+/* 手机端：右侧抽屉铺满屏宽，避免固定像素宽度溢出 */
+@media (max-width: 768px) {
+  .el-drawer.rtl {
+    width: 100% !important;
+  }
+  .el-drawer__body {
+    padding: 16px;
+  }
+}
+
+/* 表单逻辑分组卡片 */
+.form-section {
+  background: #fafaf8;
+  border: 1px solid #ebe9e3;
+  border-radius: var(--yx-radius-sm);
+  padding: 16px 18px 6px 18px;
+  margin-bottom: 16px;
+}
+.form-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--yx-ink-2);
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.form-section-title::before {
+  content: '';
+  width: 3.5px;
+  height: 14px;
+  background: var(--yx-gold);
+  border-radius: 2px;
+}
+
+/* 高级筛选区展开折叠容器：公文信笺卡质感（米白暖底 + 4px 鎏金竖线） */
+.advanced-filter-panel {
+  background: #fafaf8;
+  border: 1px solid #ebe9e3;
+  border-left: 4px solid var(--yx-gold);
+  border-radius: var(--yx-radius-sm);
+  padding: 14px 18px;
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+/* 打印保护：确保国家公文红头与呈批单绝对白底纯黑/红，无阴影与多余留白 */
+@media print {
+  body {
+    background: #ffffff !important;
+  }
+  .header,
+  .sidebar,
+  .sidebar-mask,
+  .page-header,
+  .toolbar {
+    display: none !important;
+  }
 }

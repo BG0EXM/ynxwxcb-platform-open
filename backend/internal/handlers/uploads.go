@@ -118,7 +118,7 @@ func DownloadAttachment(cfg *config.Config) http.HandlerFunc {
 		roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
 		id := pathID(r)
 		if id == 0 {
-			http.Error(w, "缺少附件ID", http.StatusBadRequest)
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少附件ID"})
 			return
 		}
 		var a models.Attachment
@@ -127,12 +127,12 @@ func DownloadAttachment(cfg *config.Config) http.HandlerFunc {
 			"SELECT id, file_name, file_path, file_size, uploader_id, owner_id FROM attachments WHERE id=?", id).
 			Scan(&a.ID, &a.FileName, &a.FilePath, &a.FileSize, &uploaderID, &ownerID)
 		if err != nil {
-			http.Error(w, "附件不存在", http.StatusNotFound)
+			middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "附件不存在"})
 			return
 		}
 		// 权限：管理员、上传者本人、或已关联到业务对象的附件（业务数据已由各自接口鉴权）可下载
 		if roleCode != "admin" && uploaderID != userID && ownerID == 0 {
-			http.Error(w, "无权下载该附件", http.StatusForbidden)
+			middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "无权下载该附件"})
 			return
 		}
 		// 文件路径以 /uploads/ 开头则转实际路径（使用配置的上传目录，兼容旧数据）
@@ -142,10 +142,10 @@ func DownloadAttachment(cfg *config.Config) http.HandlerFunc {
 		}
 		// 若数据库存的是绝对路径，直接使用
 		if _, err := os.Stat(fullPath); err != nil {
-			http.Error(w, "文件已被移除", http.StatusNotFound)
+			middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "文件已被移除"})
 			return
 		}
-		w.Header().Set("Content-Disposition", "attachment; filename=%q; filename*=UTF-8''"+url.PathEscape(a.FileName))
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q; filename*=UTF-8''%s", a.FileName, url.PathEscape(a.FileName)))
 		w.Header().Set("Content-Type", "application/octet-stream")
 		http.ServeFile(w, r, fullPath)
 	}
@@ -290,7 +290,10 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 		latest := []IncomingBrief{}
 		for rows.Next() {
 			var b IncomingBrief
-			rows.Scan(&b.ID, &b.ReceiveNo, &b.ReceivedDate, &b.FromUnit, &b.FromDocNo, &b.Title, &b.Status)
+			if err := rows.Scan(&b.ID, &b.ReceiveNo, &b.ReceivedDate, &b.FromUnit, &b.FromDocNo, &b.Title, &b.Status); err != nil {
+				middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "读取数据失败"})
+				return
+			}
 			latest = append(latest, b)
 		}
 		if err := rows.Err(); err != nil {
@@ -319,7 +322,10 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 		weekDuty := []DutyBrief{}
 		for weekRows.Next() {
 			var d DutyBrief
-			weekRows.Scan(&d.DutyDate, &d.UserName, &d.IsDaWangYuan)
+			if err := weekRows.Scan(&d.DutyDate, &d.UserName, &d.IsDaWangYuan); err != nil {
+				middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "读取数据失败"})
+				return
+			}
 			weekDuty = append(weekDuty, d)
 		}
 		if err := weekRows.Err(); err != nil {
@@ -349,6 +355,41 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 			) WHERE eff > 0`,
 			yearEnd, yearEnd, yearStart, yearStart, yearEnd, yearStart).Scan(&annualDays)
 		result["year_leave_days"] = annualDays
+	}
+
+	// 近 6 个月业务趋势（收文量按收文日期、用车量按用车日期），空月份补 0
+	now := time.Now()
+	firstMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).AddDate(0, -5, 0)
+	trendMonths := make([]string, 6)
+	for i := 0; i < 6; i++ {
+		trendMonths[i] = firstMonth.AddDate(0, i, 0).Format("2006-01")
+	}
+	countByMonth := func(query string) []int {
+		counts := make([]int, 6)
+		idx := map[string]int{}
+		for i, m := range trendMonths {
+			idx[m] = i
+		}
+		rows, err := database.DB.Query(query, trendMonths[0]+"-01")
+		if err != nil {
+			return counts
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var m string
+			var c int
+			if rows.Scan(&m, &c) == nil {
+				if i, ok := idx[m]; ok {
+					counts[i] = c
+				}
+			}
+		}
+		return counts
+	}
+	result["trend"] = map[string]interface{}{
+		"months":   trendMonths,
+		"incoming": countByMonth("SELECT substr(received_date,1,7) AS m, COUNT(*) FROM incoming_docs WHERE received_date >= ? GROUP BY m"),
+		"vehicle":  countByMonth("SELECT substr(use_date,1,7) AS m, COUNT(*) FROM vehicle_applies WHERE use_date >= ? GROUP BY m"),
 	}
 
 	middleware.JSON(w, http.StatusOK, result)

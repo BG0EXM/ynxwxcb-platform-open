@@ -93,5 +93,5 @@ onMounted(load)
   margin-bottom: 16px;
 }
 .title { font-size: 16px; font-weight: 600; }
-.tip { font-size: 12px; color: #909399; margin-top: 4px; }
+.tip { font-size: 12px; color: var(--el-text-color-secondary); margin-top: 4px; }
 </style>

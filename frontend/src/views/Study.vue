@@ -1,5 +1,16 @@
-﻿<template>
-  <div>
+<template>
+  <div class="study-page">
+    <page-header 
+      title="公共资料" 
+      subtitle="集中共享宣传理论文件、政策法规、学习材料与部务工作参考资料"
+    >
+      <template #actions>
+        <el-button v-if="authStore.hasPerm('study.publish')" type="primary" :icon="'Plus'" @click="openCreate">发布资料</el-button>
+        <el-button v-if="authStore.hasPerm('study.category')" type="warning" :icon="'Setting'" @click="openCategory">分类管理</el-button>
+        <el-button :icon="'Refresh'" circle @click="loadData" />
+      </template>
+    </page-header>
+
     <el-card shadow="never">
       <div class="toolbar">
         <div>
@@ -10,10 +21,6 @@
           <el-select v-model="category" placeholder="分类" clearable style="width: 140px" class="ml-8" @change="loadData">
             <el-option v-for="c in categories" :key="c.code" :label="c.name" :value="c.code" />
           </el-select>
-        </div>
-        <div>
-          <el-button v-if="authStore.hasPerm('study.category')" type="warning" :icon="'Setting'" class="ml-8" @click="openCategory">分类管理</el-button>
-          <el-button v-if="authStore.hasPerm('study.publish')" type="primary" class="ml-8" @click="openCreate">发布资料</el-button>
         </div>
       </div>
 
@@ -43,7 +50,7 @@
     </el-card>
 
     <!-- 发布资料 -->
-    <el-dialog v-model="dialogVisible" title="发布公共资料" width="600px">
+    <el-drawer v-model="dialogVisible" title="发布公共资料" size="640px">
       <el-form :model="form" label-width="80px">
         <el-form-item label="标题" required>
           <el-input v-model="form.title" placeholder="请输入标题" />
@@ -69,10 +76,10 @@
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="save">发布</el-button>
       </template>
-    </el-dialog>
+    </el-drawer>
 
     <!-- 分类管理 -->
-    <el-dialog v-model="catVisible" title="分类管理" width="480px">
+    <el-drawer v-model="catVisible" title="分类管理" size="540px">
       <div class="dept-add-bar">
         <el-input v-model="newCatName" placeholder="新分类名称" clearable style="width: 180px" @keyup.enter="addCategory" />
         <el-input v-model="newCatCode" placeholder="英文标识" clearable style="width: 130px" @keyup.enter="addCategory" />
@@ -88,10 +95,10 @@
           </template>
         </el-table-column>
       </el-table>
-    </el-dialog>
+    </el-drawer>
 
     <!-- 详情 -->
-    <el-dialog v-model="detailVisible" :title="detail.title" width="600px">
+    <el-drawer v-model="detailVisible" :title="detail.title" size="640px">
       <div class="meta">
         <el-tag size="small">{{ categoryName(detail.category) }}</el-tag>
         <span>发布人：{{ detail.publisher }}</span>
@@ -107,7 +114,7 @@
           <a href="javascript:;" @click="downloadAtt(a)">{{ a.file_name }}</a>
         </div>
       </div>
-    </el-dialog>
+    </el-drawer>
   </div>
 </template>
 
@@ -117,6 +124,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import request, { downloadFile } from '../utils/request'
 import dayjs from 'dayjs'
 import { useAuthStore } from '../store/auth'
+import PageHeader from '../components/PageHeader.vue'
 
 const authStore = useAuthStore()
 
@@ -298,17 +306,17 @@ onMounted(() => {
 }
 .ml-8 { margin-left: 8px; }
 .title-link {
-  color: #303133;
+  color: var(--el-text-color-primary);
   cursor: pointer;
 }
 .title-link:hover {
-  color: #409eff;
+  color: var(--el-color-primary);
 }
 .meta {
   display: flex;
   gap: 16px;
   align-items: center;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
 }
 .content {
@@ -317,17 +325,17 @@ onMounted(() => {
 }
 .attachments h4 {
   margin-bottom: 8px;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 .attach-item {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 6px 0;
-  color: #409eff;
+  color: var(--el-color-primary);
 }
 .attach-item a {
-  color: #409eff;
+  color: var(--el-color-primary);
   text-decoration: none;
 }
 .attach-item a:hover {

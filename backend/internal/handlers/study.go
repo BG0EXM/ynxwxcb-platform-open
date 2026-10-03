@@ -136,13 +136,8 @@ func GetStudyMaterial(w http.ResponseWriter, r *http.Request) {
 	middleware.JSON(w, http.StatusOK, s)
 }
 
-// DeleteStudyMaterial 删除公共资料（仅管理员，级联清理附件）
+// DeleteStudyMaterial 删除公共资料（级联清理附件）
 func DeleteStudyMaterial(w http.ResponseWriter, r *http.Request) {
-	roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
-	if roleCode != "admin" {
-		middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "仅管理员可删除资料"})
-		return
-	}
 	id := pathID(r)
 	if id == 0 {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
@@ -156,7 +151,9 @@ func DeleteStudyMaterial(w http.ResponseWriter, r *http.Request) {
 		paths := []string{}
 		for rows.Next() {
 			var p sql.NullString
-			rows.Scan(&p)
+			if err := rows.Scan(&p); err != nil {
+				continue
+			}
 			if p.Valid && p.String != "" {
 				paths = append(paths, p.String)
 			}
@@ -195,7 +192,10 @@ func ListStudyCategories(w http.ResponseWriter, r *http.Request) {
 	list := []StudyCategory{}
 	for rows.Next() {
 		var c StudyCategory
-		rows.Scan(&c.ID, &c.Name, &c.Code, &c.Sort)
+		if err := rows.Scan(&c.ID, &c.Name, &c.Code, &c.Sort); err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "读取数据失败"})
+			return
+		}
 		list = append(list, c)
 	}
 	if err := rows.Err(); err != nil {

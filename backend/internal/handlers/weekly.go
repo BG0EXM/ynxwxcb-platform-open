@@ -236,7 +236,9 @@ func ExportWeeklySummaries(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var deptID int64
 		var dept, content sql.NullString
-		rows.Scan(&deptID, &dept, new(sql.NullString), new(sql.NullString), &content)
+		if err := rows.Scan(&deptID, &dept, new(sql.NullString), new(sql.NullString), &content); err != nil {
+			continue
+		}
 		name := dept.String
 		if name == "" {
 			name = fmt.Sprintf("科室%d", deptID)

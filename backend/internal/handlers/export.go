@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"database/sql"
 	"fmt"
 	"net/http"
@@ -78,11 +79,15 @@ func exportExcel(w http.ResponseWriter, sheetName, fileName string, headers []st
 	// 列宽自适应（粗略）
 	f.SetColWidth(sheet, "A", "Z", 18)
 
+	var buf bytes.Buffer
+	if err := f.Write(&buf); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "导出失败"})
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q; filename*=UTF-8''%s", fileName, url.PathEscape(fileName)))
-	if err := f.Write(w); err != nil {
-		http.Error(w, "导出失败", http.StatusInternalServerError)
-	}
+	w.Write(buf.Bytes())
 }
 
 // ExportVehicleApplies 导出用车报备 Excel
@@ -109,7 +114,7 @@ func ExportVehicleApplies(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := database.DB.Query(query, args...)
 	if err != nil {
-		http.Error(w, "查询失败", http.StatusInternalServerError)
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
 	defer rows.Close()
@@ -169,7 +174,7 @@ func ExportLeaveRecords(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := database.DB.Query(query, args...)
 	if err != nil {
-		http.Error(w, "查询失败", http.StatusInternalServerError)
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
 	defer rows.Close()
@@ -233,7 +238,7 @@ func ExportAttendances(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := database.DB.Query(query, args...)
 	if err != nil {
-		http.Error(w, "查询失败", http.StatusInternalServerError)
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
 	defer rows.Close()
@@ -289,7 +294,7 @@ func ExportDutySchedules(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := database.DB.Query(query, args...)
 	if err != nil {
-		http.Error(w, "查询失败", http.StatusInternalServerError)
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
 	defer rows.Close()
@@ -357,7 +362,7 @@ func ExportIncomingDocs(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := database.DB.Query(query, args...)
 	if err != nil {
-		http.Error(w, "查询失败", http.StatusInternalServerError)
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
 	defer rows.Close()

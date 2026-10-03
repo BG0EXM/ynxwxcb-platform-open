@@ -402,7 +402,10 @@ func IncomingDocStats(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	for rows.Next() {
 		var status, count int
-		rows.Scan(&status, &count)
+		if err := rows.Scan(&status, &count); err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "读取数据失败"})
+			return
+		}
 		switch status {
 		case 1:
 			stats["draft"] = count
@@ -425,8 +428,12 @@ func IncomingDocStats(w http.ResponseWriter, r *http.Request) {
 	middleware.JSON(w, http.StatusOK, stats)
 }
 
-// isOfficeUser 判断当前用户是否属于"办公室"部门
+// isOfficeUser 判断当前用户是否为管理员或属于"办公室"部门
 func isOfficeUser(r *http.Request) bool {
+	roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
+	if roleCode == "admin" {
+		return true
+	}
 	userID, _ := r.Context().Value(middleware.ContextUserID).(int64)
 	if userID == 0 {
 		return false

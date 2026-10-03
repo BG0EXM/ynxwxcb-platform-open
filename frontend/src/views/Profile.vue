@@ -84,16 +84,16 @@ const changePwd = async () => {
   gap: 20px;
 }
 .avatar {
-  background: #c8102e;
+  background: var(--yx-brand);
   font-size: 24px;
 }
 .name {
   font-size: 22px;
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 .desc {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   margin-top: 4px;
 }
 .mt-16 {

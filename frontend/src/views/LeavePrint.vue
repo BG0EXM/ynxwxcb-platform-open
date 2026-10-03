@@ -61,7 +61,7 @@
         <span class="footer-left">打印日期：{{ today }}</span>
         <span class="footer-right">
           <div>中共伊宁县委宣传部办公室</div>
-          <div>伊宁县委宣传部部务工作平台V1.4.3</div>
+          <div>伊宁县委宣传部部务工作平台V1.5.0</div>
         </span>
       </div>
     </div>
@@ -128,13 +128,18 @@ const printPage = () => {
 onMounted(async () => {
   const cached = sessionStorage.getItem('printLeave')
   if (cached) {
-    record.value = JSON.parse(cached)
-  } else {
     try {
-      const res = await request.get(`/leave-records/${route.params.id}`)
-      if (res && res.id) record.value = res
+      const parsed = JSON.parse(cached)
+      if (String(parsed.id) === String(route.params.id)) {
+        record.value = parsed
+        return
+      }
     } catch (e) {}
   }
+  try {
+    const res = await request.get(`/leave-records/${route.params.id}`)
+    if (res && res.id) record.value = res
+  } catch (e) {}
 })
 </script>
 

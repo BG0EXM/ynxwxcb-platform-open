@@ -23,7 +23,7 @@
             <td class="label">开车人</td>
             <td class="value">{{ detail.driver_name || detail.vehicle_driver || '' }}</td>
             <td class="label">乘车人数</td>
-            <td class="value">{{ detail.passengers }} 人</td>
+            <td class="value">{{ detail.passengers ? detail.passengers + ' 人' : '' }}</td>
           </tr>
           <tr>
             <td class="label">用车人</td>
@@ -66,7 +66,7 @@
         <span>打印日期：{{ today }}</span>
         <span class="footer-right">
           <div>中共伊宁县委宣传部办公室</div>
-          <div>伊宁县委宣传部部务工作平台V1.4.3</div>
+          <div>伊宁县委宣传部部务工作平台V1.5.0</div>
         </span>
       </div>
     </div>
@@ -94,14 +94,19 @@ const printPage = () => {
 }
 
 onMounted(async () => {
-  const cached = sessionStorage.getItem('printVehicle')
+  const cached = sessionStorage.getItem('printVehicle') || sessionStorage.getItem('printApply')
   if (cached) {
-    detail.value = JSON.parse(cached)
-  } else {
     try {
-      detail.value = await request.get(`/vehicle-applies/${route.params.id}`)
+      const parsed = JSON.parse(cached)
+      if (String(parsed.id) === String(route.params.id)) {
+        detail.value = parsed
+        return
+      }
     } catch (e) {}
   }
+  try {
+    detail.value = await request.get(`/vehicle-applies/${route.params.id}`)
+  } catch (e) {}
 })
 </script>
 

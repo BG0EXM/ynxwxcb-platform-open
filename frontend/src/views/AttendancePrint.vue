@@ -197,7 +197,7 @@
         <span>统计期间：{{ period }} · 打印日期：{{ today }}</span>
         <span class="footer-right">
           <div>中共伊宁县委宣传部办公室</div>
-          <div>伊宁县委宣传部部务工作平台V1.4.3</div>
+          <div>伊宁县委宣传部部务工作平台V1.5.0</div>
         </span>
       </div>
     </div>

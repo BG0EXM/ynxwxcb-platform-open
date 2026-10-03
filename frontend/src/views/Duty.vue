@@ -1,14 +1,14 @@
 <template>
-  <div>
-    <!-- 值守规则说明 -->
-    <el-alert type="info" :closable="false" class="rule-alert">
-      <template #title>
-        <div class="rule-content">
-          <b>值守规则说明：</b>当天值守至晚上21:00（收文结束）。若当日无文件接收，可提前回家。
-          一天可安排<b>一至两人</b>值守。若当日同时有<b>县委大院排班</b>，请在排班时勾选对应选项。
-        </div>
+  <div class="duty-page">
+    <page-header 
+      title="值守排班" 
+      subtitle="值守干部当天值守至晚上21:00收文结束。若当日有县委大院排班，请在排班时勾选对应选项"
+    >
+      <template #actions>
+        <el-tag type="warning" effect="plain" class="mr-8">值守至21:00收文</el-tag>
+        <el-button type="success" :icon="'Download'" @click="exportData">导出Excel</el-button>
       </template>
-    </el-alert>
+    </page-header>
 
     <el-card shadow="never" class="mt-12">
       <div class="toolbar">
@@ -16,10 +16,6 @@
           <el-date-picker v-model="currentMonth" type="month" value-format="YYYY-MM"
             placeholder="选择月份" @change="loadData" />
           <span class="ml-8 tip">{{ authStore.hasPerm('duty.manage') ? '点击日历格子安排当日值守人员' : '排班仅供查看，由管理员安排' }}</span>
-        </div>
-        <div>
-          <el-tag type="warning" effect="light" class="mr-8">值守至21:00收文</el-tag>
-          <el-button type="success" :icon="'Download'" @click="exportData">导出Excel</el-button>
         </div>
       </div>
 
@@ -59,7 +55,7 @@
     </el-card>
 
     <!-- 排班编辑对话框 -->
-    <el-dialog v-model="dialogVisible" :title="`安排值守 - ${editDate}`" width="520px">
+    <el-drawer v-model="dialogVisible" :title="`安排值守 - ${editDate}`" size="540px">
       <div class="dialog-rule">
         当天值守至 21:00（收文结束），无文件可提前回家。一天最多安排两人值守。
       </div>
@@ -103,7 +99,7 @@
       <template #footer>
         <el-button @click="dialogVisible = false">关闭</el-button>
       </template>
-    </el-dialog>
+    </el-drawer>
   </div>
 </template>
 
@@ -113,6 +109,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import request, { exportFile } from '../utils/request'
 import dayjs from 'dayjs'
 import { useAuthStore } from '../store/auth'
+import PageHeader from '../components/PageHeader.vue'
 
 const authStore = useAuthStore()
 const currentMonth = ref(dayjs().format('YYYY-MM'))
@@ -257,7 +254,7 @@ const exportData = () => {
 }
 .rule-content {
   line-height: 1.8;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 .mt-12 {
   margin-top: 12px;
@@ -271,23 +268,23 @@ const exportData = () => {
   margin-bottom: 16px;
 }
 .ml-8 { margin-left: 8px; }
-.tip { color: #909399; font-size: 13px; }
+.tip { color: var(--el-text-color-secondary); font-size: 13px; }
 .duty-calendar {
-  border: 1px solid #e4e7ed;
+  border: 1px solid var(--el-border-color-light);
   border-radius: 4px;
 }
 .week-header {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  background: #f5f7fa;
-  border-bottom: 1px solid #e4e7ed;
+  background: var(--el-fill-color-light);
+  border-bottom: 1px solid var(--el-border-color-light);
 }
 .week-cell {
   padding: 10px;
   text-align: center;
   font-weight: 600;
-  color: #606266;
-  border-right: 1px solid #e4e7ed;
+  color: var(--el-text-color-regular);
+  border-right: 1px solid var(--el-border-color-light);
 }
 .week-cell:last-child { border-right: none; }
 .duty-grid {
@@ -296,24 +293,24 @@ const exportData = () => {
 }
 .day-cell {
   min-height: 100px;
-  border-right: 1px solid #e4e7ed;
-  border-bottom: 1px solid #e4e7ed;
+  border-right: 1px solid var(--el-border-color-light);
+  border-bottom: 1px solid var(--el-border-color-light);
   padding: 6px;
   position: relative;
 }
 .day-cell:nth-child(7n) { border-right: none; }
-.day-cell.empty { background: #fafafa; }
+.day-cell.empty { background: var(--el-fill-color-lighter); }
 .day-cell.today {
-  background: #fdf0f2;
+  background: var(--yx-brand-bg);
 }
 .day-num {
   font-size: 14px;
-  color: #303133;
+  color: var(--el-text-color-primary);
   margin-bottom: 6px;
   font-weight: 600;
 }
 .today .day-num {
-  color: #c8102e;
+  color: var(--yx-brand);
 }
 .duty-box {
   border-radius: 4px;
@@ -327,18 +324,18 @@ const exportData = () => {
   cursor: pointer;
 }
 .duty-box.assigned {
-  background: #e8f4fd;
-  border: 1px solid #a0cfff;
+  background: var(--el-color-primary-light-9);
+  border: 1px solid var(--el-color-primary-light-5);
 }
 .duty-box.empty-shift {
-  background: #f5f7fa;
-  border: 1px dashed #dcdfe6;
+  background: var(--el-fill-color-light);
+  border: 1px dashed var(--el-border-color);
   align-items: center;
   justify-content: center;
 }
 .duty-name {
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary);
   font-size: 13px;
 }
 .duty-person {
@@ -354,13 +351,13 @@ const exportData = () => {
 }
 .duty-note {
   font-size: 11px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   line-height: 1.4;
   margin-top: 2px;
   word-break: break-all;
 }
 .duty-empty {
-  color: #c0c4cc;
+  color: var(--el-text-color-placeholder);
   font-size: 12px;
 }
 .legend {
@@ -368,7 +365,7 @@ const exportData = () => {
   display: flex;
   gap: 24px;
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 .legend-item {
   display: inline-flex;
@@ -376,9 +373,9 @@ const exportData = () => {
   gap: 6px;
 }
 .dialog-rule {
-  background: #fdf6ec;
-  border: 1px solid #faecd8;
-  color: #b88230;
+  background: var(--el-color-warning-light-9);
+  border: 1px solid var(--el-color-warning-light-8);
+  color: var(--el-color-warning-dark-2);
   border-radius: 4px;
   padding: 8px 12px;
   font-size: 13px;
@@ -390,11 +387,11 @@ const exportData = () => {
 .sched-title {
   font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary);
   margin-bottom: 8px;
 }
 .add-section {
-  border-top: 1px solid #ebeef5;
+  border-top: 1px solid var(--el-border-color-lighter);
   padding-top: 12px;
 }
 .add-row {
@@ -404,7 +401,7 @@ const exportData = () => {
 }
 .max-tip {
   margin-top: 6px;
-  color: #e6a23c;
+  color: var(--el-color-warning);
   font-size: 12px;
 }
 </style>

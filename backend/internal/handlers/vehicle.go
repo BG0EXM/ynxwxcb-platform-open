@@ -164,6 +164,10 @@ func CreateVehicleApply(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请选择车辆并填写事由"})
 		return
 	}
+	if !isValidDate(req.UseDate) {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "用车日期格式应为 YYYY-MM-DD"})
+		return
+	}
 	if req.UserName == "" {
 		req.UserName, _ = r.Context().Value(middleware.ContextRealName).(string)
 	}
@@ -198,6 +202,10 @@ func UpdateVehicleApply(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.VehicleID == 0 || req.Purpose == "" {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请选择车辆并填写事由"})
+		return
+	}
+	if !isValidDate(req.UseDate) {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "用车日期格式应为 YYYY-MM-DD"})
 		return
 	}
 	// 权限校验：管理员可改任意，普通用户只能改自己的报备
@@ -382,7 +390,9 @@ func VehicleStats(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	for rows.Next() {
 		var status, count int
-		rows.Scan(&status, &count)
+		if err := rows.Scan(&status, &count); err != nil {
+			continue
+		}
 		stats["total"] += count
 		switch status {
 		case 1:

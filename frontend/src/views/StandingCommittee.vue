@@ -1,14 +1,21 @@
 <template>
-  <div>
+  <div class="standing-committee-page">
+    <page-header 
+      title="常委大事记" 
+      subtitle="专卷规范记录县委常委、宣传部部长重要公务活动与重大决策部署"
+    >
+      <template #actions>
+        <el-button type="primary" :icon="'Plus'" @click="openCreate">录入大事记</el-button>
+        <el-button type="success" :icon="'Download'" @click="exportData">导出Word</el-button>
+        <el-button :icon="'Refresh'" circle @click="loadData" />
+      </template>
+    </page-header>
+
     <el-card shadow="never">
       <div class="toolbar">
         <div>
           <el-date-picker v-model="year" type="year" value-format="YYYY" placeholder="按年筛选" style="width:130px" @change="loadData" />
           <el-date-picker v-model="month" type="month" value-format="YYYY-MM" placeholder="按月筛选" clearable style="width:150px;margin-left:10px" @change="loadData" />
-        </div>
-        <div>
-          <el-button type="success" :icon="'Download'" @click="exportData">导出Word</el-button>
-          <el-button type="primary" :icon="'Plus'" @click="openCreate">录入大事记</el-button>
         </div>
       </div>
 
@@ -25,7 +32,7 @@
       </el-table>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="editId ? '编辑大事记' : '录入大事记'" width="560px">
+    <el-drawer v-model="dialogVisible" :title="editId ? '编辑大事记' : '录入大事记'" size="600px">
       <el-form :model="form" label-width="90px">
         <el-form-item label="日期" required>
           <el-date-picker v-model="form.event_date" type="date" value-format="YYYY-MM-DD" style="width:100%" />
@@ -38,7 +45,7 @@
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="save">保存</el-button>
       </template>
-    </el-dialog>
+    </el-drawer>
   </div>
 </template>
 
@@ -47,6 +54,7 @@ import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request, { exportFile } from '../utils/request'
 import dayjs from 'dayjs'
+import PageHeader from '../components/PageHeader.vue'
 
 const list = ref([])
 const loading = ref(false)

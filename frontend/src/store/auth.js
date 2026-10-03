@@ -42,17 +42,22 @@ export const useAuthStore = defineStore('auth', {
       this.mustChange = val
       localStorage.setItem('must_change', val ? '1' : '0')
     },
-    async logout() {
-      // 通知后端使旧令牌失效（尽力而为，失败也继续本地登出）
-      try {
-        await request.post('/auth/logout')
-      } catch (e) {}
+    logout() {
+      const oldToken = this.token || localStorage.getItem('token')
+      // 1. 立即同步清空本地响应式状态与持久化缓存，确保路由守卫立即判定为未登录
       this.token = ''
       this.user = null
       this.mustChange = false
       localStorage.removeItem('token')
       localStorage.removeItem('user')
       localStorage.removeItem('must_change')
+
+      // 2. 异步通知后端递增令牌版本使服务端失效（后台执行，不阻塞界面跳转）
+      if (oldToken) {
+        request.post('/auth/logout', {}, {
+          headers: { Authorization: `Bearer ${oldToken}` }
+        }).catch(() => {})
+      }
     }
   }
 })

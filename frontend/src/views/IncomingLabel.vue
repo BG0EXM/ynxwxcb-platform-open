@@ -40,7 +40,7 @@
           <span class="label-val">{{ doc.from_unit || '—' }}</span>
         </div>
         <div class="label-title">{{ doc.title || '' }}</div>
-        <div class="label-platform">伊宁县委宣传部部务工作平台 V1.4.3</div>
+        <div class="label-platform">伊宁县委宣传部部务工作平台 V1.5.0</div>
       </div>
     </div>
   </div>
@@ -63,15 +63,20 @@ const printPage = () => {
 }
 
 onMounted(async () => {
-  // 优先用 sessionStorage（列表页传来的完整数据）
+  // 优先用 sessionStorage（列表页传来的完整数据，需比对ID一致）
   const cached = sessionStorage.getItem('printLabel')
   if (cached) {
-    doc.value = JSON.parse(cached)
-  } else {
     try {
-      doc.value = await request.get(`/incoming-docs/${route.params.id}`)
+      const parsed = JSON.parse(cached)
+      if (String(parsed.id) === String(route.params.id)) {
+        doc.value = parsed
+        return
+      }
     } catch (e) {}
   }
+  try {
+    doc.value = await request.get(`/incoming-docs/${route.params.id}`)
+  } catch (e) {}
 })
 </script>
 

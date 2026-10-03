@@ -136,6 +136,14 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("GET /api/leave-records", perm("leave.view", handlers.ListLeaveRecords))
 	mux.Handle("DELETE /api/leave-records/{id}", perm("leave.delete", handlers.DeleteLeaveRecord))
 	mux.Handle("GET /api/leave-stats", perm("leave.view", handlers.LeaveStats))
+	// 兼容别名（适配前端 /leaves 请求路径）
+	mux.Handle("GET /api/leaves/{id}", perm("leave.view", handlers.GetLeaveRecord))
+	mux.Handle("POST /api/leaves", perm("leave.manage", handlers.CreateLeaveRecord))
+	mux.Handle("PUT /api/leaves", perm("leave.manage", handlers.UpdateLeaveRecord))
+	mux.Handle("GET /api/leaves", perm("leave.view", handlers.ListLeaveRecords))
+	mux.Handle("DELETE /api/leaves/{id}", perm("leave.delete", handlers.DeleteLeaveRecord))
+	mux.Handle("GET /api/leaves/stats", perm("leave.view", handlers.LeaveStats))
+	mux.Handle("GET /api/export/leaves", perm("leave.export", handlers.ExportLeaveRecords))
 
 	// ---- 公车管理 ----
 	mux.Handle("GET /api/vehicles", perm("vehicle.view", handlers.ListVehicles))
@@ -165,6 +173,10 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("POST /api/circulations", perm("incoming.circulation", handlers.AddCirculation))
 	mux.Handle("PUT /api/circulations", perm("incoming.circulation", handlers.UpdateCirculation))
 	mux.Handle("DELETE /api/circulations/{id}", perm("incoming.circulation", handlers.DeleteCirculation))
+	// 兼容别名（适配前端 /incoming-circulations 请求路径）
+	mux.Handle("POST /api/incoming-circulations", perm("incoming.circulation", handlers.AddCirculation))
+	mux.Handle("PUT /api/incoming-circulations", perm("incoming.circulation", handlers.UpdateCirculation))
+	mux.Handle("DELETE /api/incoming-circulations/{id}", perm("incoming.circulation", handlers.DeleteCirculation))
 
 	// ---- 首页统计 ----
 	mux.Handle("GET /api/dashboard-stats", perm("dashboard.view", handlers.DashboardStats))

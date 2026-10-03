@@ -1,15 +1,14 @@
 <template>
-  <div>
-    <el-alert type="info" :closable="false" class="rule-alert">
-      <template #title>
-        考勤点到：由管理员在每日晨会上登录平台，为当日到岗人员手工点到（出勤/请假/出差/未到）。
+  <div class="attendance-page">
+    <page-header 
+      title="考勤点到" 
+      subtitle="每日晨会规范手工点到（出勤/请假/出差/未到），支持月度与年度统计报表打印及导出"
+    >
+      <template #actions>
+        <el-button v-if="authStore.hasPerm('attendance.stats')" type="primary" :icon="'DataAnalysis'" @click="goStats">考勤统计报表</el-button>
+        <el-button type="success" :icon="'Download'" @click="exportData">导出Excel</el-button>
       </template>
-    </el-alert>
-
-    <div class="stats-entry">
-      <el-button v-if="authStore.hasPerm('attendance.stats')" type="primary" :icon="'DataAnalysis'" @click="goStats">考勤统计（月度/年度，可打印）</el-button>
-      <el-button type="success" :icon="'Download'" @click="exportData">导出Excel</el-button>
-    </div>
+    </page-header>
 
     <!-- 管理员点到操作区 -->
     <el-card shadow="never" v-if="authStore.hasPerm('attendance.mark')" class="mt-12">
@@ -76,11 +75,11 @@
           <div v-if="stats">
             <div class="stat-row"><span>日期</span><b>{{ stats.date }}</b></div>
             <div class="stat-row"><span>已点到</span><b>{{ stats.stats.total }} 人</b></div>
-            <div class="stat-row"><span>出勤</span><b style="color:#67c23a">{{ stats.stats.present }} 人</b></div>
-            <div class="stat-row"><span>请假</span><b style="color:#e6a23c">{{ stats.stats.leave }} 人</b></div>
-            <div class="stat-row"><span>出差</span><b style="color:#409eff">{{ stats.stats.trip }} 人</b></div>
-            <div class="stat-row"><span>未到</span><b style="color:#f56c6c">{{ stats.stats.absent }} 人</b></div>
-            <div class="stat-row"><span>迟到</span><b style="color:#e6a23c">{{ stats.stats.late }} 人</b></div>
+            <div class="stat-row"><span>出勤</span><b style="color:var(--el-color-success)">{{ stats.stats.present }} 人</b></div>
+            <div class="stat-row"><span>请假</span><b style="color:var(--el-color-warning)">{{ stats.stats.leave }} 人</b></div>
+            <div class="stat-row"><span>出差</span><b style="color:var(--el-color-primary)">{{ stats.stats.trip }} 人</b></div>
+            <div class="stat-row"><span>未到</span><b style="color:var(--el-color-danger)">{{ stats.stats.absent }} 人</b></div>
+            <div class="stat-row"><span>迟到</span><b style="color:var(--el-color-warning)">{{ stats.stats.late }} 人</b></div>
             <div class="stat-row"><span>培训</span><b style="color:#1d8a99">{{ stats.stats.training }} 人</b></div>
           </div>
         </el-card>
@@ -125,6 +124,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import request, { exportFile } from '../utils/request'
 import dayjs from 'dayjs'
 import { useAuthStore } from '../store/auth'
+import PageHeader from '../components/PageHeader.vue'
 
 const authStore = useAuthStore()
 const router = useRouter()
@@ -314,8 +314,8 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   padding: 8px 0;
-  border-bottom: 1px dashed #ebeef5;
-  color: #606266;
+  border-bottom: 1px dashed var(--el-border-color-lighter);
+  color: var(--el-text-color-regular);
 }
 .stat-row:last-child {
   border-bottom: none;
@@ -327,7 +327,7 @@ onMounted(() => {
   margin-left: 4px;
 }
 :deep(.auto-leave-row) {
-  background: #fdf6ec;
+  background: var(--el-color-warning-light-9);
 }
 .pagination-wrap {
   margin-top: 14px;
@@ -339,14 +339,14 @@ onMounted(() => {
 <!-- 全局样式：日历面板渲染在 popper 中，scoped 样式无法穿透 -->
 <style>
 .el-date-table td.att-done {
-  background-color: #67c23a !important;
+  background-color: var(--el-color-success) !important;
   border-radius: 50%;
 }
 .el-date-table td.att-done .el-date-table-cell__text {
   color: #fff !important;
 }
 .el-date-table td.att-missing {
-  background-color: #f56c6c !important;
+  background-color: var(--el-color-danger) !important;
   border-radius: 50%;
 }
 .el-date-table td.att-missing .el-date-table-cell__text {

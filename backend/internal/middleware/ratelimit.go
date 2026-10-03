@@ -19,11 +19,14 @@ func (l *rateLimiter) allow(key string) bool {
 	cutoff := now.Add(-l.window)
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	kept := l.hits[key][:0]
+	var kept []time.Time
 	for _, t := range l.hits[key] {
 		if t.After(cutoff) {
 			kept = append(kept, t)
 		}
+	}
+	if len(kept) == 0 {
+		delete(l.hits, key)
 	}
 	if len(kept) >= l.max {
 		l.hits[key] = kept
