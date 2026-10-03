@@ -119,6 +119,7 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("GET /api/meetings/{id}", perm("meeting.manage", handlers.GetMeeting))
 	mux.Handle("GET /api/meetings/{id}/registrations", perm("meeting.manage", handlers.MeetingRegistrations))
 	mux.Handle("GET /api/export/meetings/{id}/registration", perm("meeting.manage", handlers.ExportMeetingRegistration))
+	mux.Handle("GET /api/export/meeting-registrations", perm("meeting.manage", handlers.ExportMeetingRegistration))
 
 	// ---- 考勤 ----
 	mux.Handle("POST /api/attendance/mark", perm("attendance.mark", handlers.MarkAttendance))

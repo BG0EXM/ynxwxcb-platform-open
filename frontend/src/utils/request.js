@@ -33,7 +33,7 @@ request.interceptors.response.use(
 )
 
 // 下载导出文件（Excel），触发浏览器下载
-export async function exportFile(url, params = {}) {
+export async function exportFile(url, params = {}, defaultName = '导出.xlsx') {
   const token = localStorage.getItem('token')
   try {
     // 用全局 axios 获取 blob（不走 JSON 响应拦截器）
@@ -52,16 +52,19 @@ export async function exportFile(url, params = {}) {
       return
     }
     // 从 Content-Disposition 提取文件名
-    let fileName = '导出.xlsx'
+    let fileName = defaultName
     const cd = res.headers['content-disposition']
     if (cd) {
-      const match = cd.match(/filename\*=UTF-8''([^;]+)/)
-      if (match && match[1]) {
+      const matchUtf8 = cd.match(/filename\*=UTF-8''([^;]+)/i)
+      const matchNormal = cd.match(/filename=(?:"([^"]+)"|([^;\n]+))/i)
+      if (matchUtf8 && matchUtf8[1]) {
         try {
-          fileName = decodeURIComponent(match[1])
+          fileName = decodeURIComponent(matchUtf8[1])
         } catch (e) {
-          fileName = '导出.xlsx'
+          fileName = defaultName
         }
+      } else if (matchNormal) {
+        fileName = (matchNormal[1] || matchNormal[2] || defaultName).trim()
       }
     }
     // 用 FileReader 兼容方式触发下载（更稳）
@@ -108,9 +111,16 @@ export async function downloadFile(url, defaultName = '下载文件') {
     let fileName = defaultName
     const cd = res.headers['content-disposition']
     if (cd) {
-      const match = cd.match(/filename\*=UTF-8''([^;]+)/)
-      if (match && match[1]) {
-        try { fileName = decodeURIComponent(match[1]) } catch (e) {}
+      const matchUtf8 = cd.match(/filename\*=UTF-8''([^;]+)/i)
+      const matchNormal = cd.match(/filename=(?:"([^"]+)"|([^;\n]+))/i)
+      if (matchUtf8 && matchUtf8[1]) {
+        try {
+          fileName = decodeURIComponent(matchUtf8[1])
+        } catch (e) {
+          fileName = defaultName
+        }
+      } else if (matchNormal) {
+        fileName = (matchNormal[1] || matchNormal[2] || defaultName).trim()
       }
     }
     const blob = new Blob([res.data], { type: res.headers['content-type'] || 'application/octet-stream' })

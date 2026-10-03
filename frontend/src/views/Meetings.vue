@@ -279,11 +279,11 @@ const openDetail = async (row) => {
   try {
     detailMeeting.value = row
     detailTitle.value = `会务报名统计 - ${row.title}`
-    const res = await request.get(`/meetings/${row.id}/registrations`)
-    const regs = res.list || []
-    attendRegs.value = regs.filter(r => r.is_attending === 1)
-    notAttendRegs.value = regs.filter(r => r.is_attending === 0)
-    unconfirmedUnits.value = res.unconfirmed || []
+    const res = await request.get(`/meetings/${row.id}`)
+    const regs = res.registrations || res.list || []
+    attendRegs.value = regs.filter(r => r.not_attend === 0 || r.is_attending === 1)
+    notAttendRegs.value = regs.filter(r => r.not_attend === 1 || r.is_attending === 0)
+    unconfirmedUnits.value = res.unconfirmed_units || res.unconfirmed || []
     detailTab.value = 'attend'
     detailVisible.value = true
   } catch (e) {}

@@ -181,6 +181,7 @@ type MeetingRegistration struct {
 	AttendeeTitle string    `json:"attendee_title"`
 	Phone         string    `json:"phone"`
 	NotAttend     int       `json:"not_attend"` // 1=不参加
+	IsAttending   int       `json:"is_attending"` // 兼容字段: 1=参会, 0=不参加
 	Reason        string    `json:"reason"`
 	CreatedAt     time.Time `json:"created_at"`
 }

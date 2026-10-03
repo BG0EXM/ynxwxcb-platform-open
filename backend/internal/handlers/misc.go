@@ -209,6 +209,12 @@ func SaveDutySchedule(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请选择值守人员"})
 		return
 	}
+	var currentCount int
+	database.DB.QueryRow("SELECT COUNT(*) FROM duty_schedules WHERE duty_date=? AND user_id!=?", req.DutyDate, req.UserID).Scan(&currentCount)
+	if currentCount >= 3 {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "一天最多安排 3 人值守"})
+		return
+	}
 	_, err := database.DB.Exec(
 		`INSERT INTO duty_schedules (duty_date, user_id, is_dawangyuan, note, status) VALUES (?, ?, ?, ?, 1)
 		 ON CONFLICT(duty_date, user_id) DO UPDATE SET is_dawangyuan=?, note=?`,

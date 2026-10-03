@@ -56,7 +56,7 @@
           </thead>
           <tbody>
             <tr v-for="(c, i) in rows" :key="i" class="blank-row">
-              <td class="center"></td>
+              <td class="center">{{ c.index }}</td>
               <td class="center">{{ c.user_name || '' }}</td>
               <td class="center"></td>
               <td class="center"></td>
@@ -70,7 +70,7 @@
         <span class="footer-left">打印日期：{{ today }}</span>
         <span class="footer-right">
           <div>中共伊宁县委宣传部办公室</div>
-          <div>伊宁县委宣传部部务工作平台V1.5.0</div>
+          <div>伊宁县委宣传部部务工作平台V1.5.1</div>
         </span>
       </div>
     </div>
@@ -92,12 +92,15 @@ const today = computed(() => {
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`
 })
 
-// 至少 15 行空白行，让表格填满 A4 纸；已有传阅人则填充姓名，其余留空手写
+// 默认 11 行，严格适配单页 A4 纸不溢出；已有传阅人则填充姓名，其余留空手写
 const rows = computed(() => {
   const list = []
-  const count = Math.max(15, circs.value.length)
+  const count = Math.max(11, circs.value.length)
   for (let i = 0; i < count; i++) {
-    list.push({ user_name: circs.value[i] ? circs.value[i].user_name : '' })
+    list.push({
+      index: i + 1,
+      user_name: circs.value[i] ? circs.value[i].user_name : ''
+    })
   }
   return list
 })
@@ -109,6 +112,16 @@ const printPage = () => {
 }
 
 onMounted(async () => {
+  const cached = sessionStorage.getItem('printCard') || sessionStorage.getItem('printDoc')
+  if (cached) {
+    try {
+      const parsed = JSON.parse(cached)
+      if (String(parsed.id) === String(route.params.id)) {
+        doc.value = parsed
+        circs.value = parsed.circulations || []
+      }
+    } catch (e) {}
+  }
   try {
     const res = await request.get(`/incoming-docs/${route.params.id}`)
     doc.value = res
@@ -130,9 +143,10 @@ onMounted(async () => {
 }
 .a4-page {
   width: 794px;
-  min-height: 1122px;   /* A4 297mm */
+  min-height: 1100px;
+  max-height: 1122px;
   margin: 0 auto;
-  padding: 40px 56px 60px;
+  padding: 30px 48px 36px;
   background: #fff;
   box-shadow: 0 2px 12px rgba(0,0,0,.12);
   position: relative;
@@ -149,9 +163,9 @@ onMounted(async () => {
   right: 24px;
   border: 3px solid #c8102e;
   color: #c8102e;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 700;
-  padding: 6px 16px;
+  padding: 5px 14px;
   letter-spacing: 4px;
   background: #fff;
 }
@@ -161,9 +175,9 @@ onMounted(async () => {
   left: 24px;
   border: 3px solid #c8102e;
   color: #c8102e;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 700;
-  padding: 6px 16px;
+  padding: 5px 14px;
   letter-spacing: 4px;
   transform: rotate(-12deg);
   background: #fff;
@@ -175,25 +189,25 @@ onMounted(async () => {
 }
 .doc-title {
   text-align: center;
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 700;
-  margin: 20px 0 20px;
+  margin: 12px 0 16px;
   letter-spacing: 6px;
 }
 .info-table {
   width: 100%;
   border-collapse: collapse;
   border: 1px solid #000;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 .info-table td {
   border: 1px solid #000;
-  padding: 7px 12px;
-  font-size: 14px;
-  line-height: 1.6;
+  padding: 6px 10px;
+  font-size: 13.5px;
+  line-height: 1.5;
 }
 .info-table .label {
-  width: 110px;
+  width: 100px;
   text-align: center;
   font-weight: 600;
   background: #f5f5f5;
@@ -203,7 +217,7 @@ onMounted(async () => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 200px;
+  min-height: 180px;
 }
 .circ-table {
   width: 100%;
@@ -214,25 +228,25 @@ onMounted(async () => {
 .circ-table th,
 .circ-table td {
   border: 1px solid #000;
-  padding: 8px;
-  font-size: 14px;
+  padding: 6px;
+  font-size: 13.5px;
 }
 .circ-table th {
   background: #f5f5f5;
   font-weight: 600;
 }
 .circ-table tbody tr {
-  height: 44px;
+  height: 36px;
 }
 .blank-row td {
-  height: 44px;
+  height: 36px;
 }
 .center {
   text-align: center;
 }
 .note {
-  margin-bottom: 10px;
-  font-size: 13px;
+  margin-bottom: 8px;
+  font-size: 12.5px;
   color: #333;
   flex-shrink: 0;
   padding: 2px;
@@ -241,41 +255,54 @@ onMounted(async () => {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
-  font-size: 13px;
+  font-size: 12.5px;
   color: #333;
-  padding-top: 14px;
+  padding-top: 10px;
   flex-shrink: 0;
 }
 .footer-right {
   text-align: center;
-  line-height: 1.7;
+  line-height: 1.6;
 }
 @media print {
   @page {
     size: A4 portrait;
-    margin: 0;
+    margin: 8mm 10mm;
   }
-  body {
+  html, body {
     background: #fff !important;
+    height: auto !important;
+    overflow: hidden !important;
   }
   .no-print {
     display: none !important;
   }
   .a4-page {
-    width: 100%;
-    min-height: auto;
-    height: 1122px;   /* 固定 A4 高度，防止视口差异导致溢出 */
-    box-shadow: none;
-    padding: 36px 44px 50px;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-height: auto !important;
+    height: auto !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    page-break-inside: avoid !important;
+    page-break-after: avoid !important;
   }
-  .circ-wrap {
-    flex: 1;
-  }
-  .circ-table tbody tr {
-    height: auto;
-  }
+  .circ-table tbody tr,
   .blank-row td {
-    height: 44px;
+    height: 32px !important;
+    padding: 2px 4px !important;
+  }
+  .info-table td {
+    padding: 4px 8px !important;
+  }
+  .doc-title {
+    margin: 8px 0 12px !important;
+  }
+  .note {
+    margin-bottom: 6px !important;
+  }
+  .doc-footer {
+    padding-top: 8px !important;
   }
 }
 </style>

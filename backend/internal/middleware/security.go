@@ -36,6 +36,7 @@ func SecurityHeaders(next http.Handler) http.Handler {
 			"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "+
 				"script-src 'self'; connect-src 'self'; font-src 'self' data:; "+
 				"frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+		h.Set("Access-Control-Expose-Headers", "Content-Disposition")
 		next.ServeHTTP(w, r)
 	})
 }

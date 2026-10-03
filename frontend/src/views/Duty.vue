@@ -57,7 +57,7 @@
     <!-- 排班编辑对话框 -->
     <el-drawer v-model="dialogVisible" :title="`安排值守 - ${editDate}`" size="540px">
       <div class="dialog-rule">
-        当天值守至 21:00（收文结束），无文件可提前回家。一天最多安排两人值守。
+        当天值守至 21:00（收文结束），无文件可提前回家。一天最多安排 3 人值守。
       </div>
 
       <!-- 当天已排班人员 -->
@@ -91,9 +91,9 @@
             <el-option v-for="a in availableAssignees" :key="a.id"
               :label="a.real_name + (a.department ? ' (' + a.department + ')' : '')" :value="a.id" />
           </el-select>
-          <el-button type="primary" :icon="'Plus'" @click="addSchedule" :disabled="daySchedules.length >= 2">添加</el-button>
+          <el-button type="primary" :icon="'Plus'" @click="addSchedule" :disabled="daySchedules.length >= 3">添加</el-button>
         </div>
-        <div v-if="daySchedules.length >= 2" class="max-tip">一天最多安排两人值守</div>
+        <div v-if="daySchedules.length >= 3" class="max-tip">一天最多安排 3 人值守</div>
       </div>
 
       <template #footer>
@@ -179,7 +179,7 @@ const openEdit = (date) => {
 
 const addSchedule = async () => {
   if (!addUser.value) return ElMessage.warning('请选择值守人员')
-  if (daySchedules.value.length >= 2) return ElMessage.warning('一天最多安排两人值守')
+  if (daySchedules.value.length >= 3) return ElMessage.warning('一天最多安排 3 人值守')
   try {
     await request.post('/duty-schedules', {
       duty_date: editDate.value,

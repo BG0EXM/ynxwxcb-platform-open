@@ -202,3 +202,64 @@ body {
     display: none !important;
   }
 }
+
+/* 侧边栏折叠弹出子菜单（Popper）样式：深色政务墨蓝底色 + 尊贵红金边框 + 高亮文本 */
+.sidebar-menu-popper.el-popper {
+  background: #141c2b !important;
+  border: 1px solid rgba(184, 146, 90, 0.35) !important;
+  box-shadow: 0 8px 24px rgba(10, 15, 24, 0.45) !important;
+  border-radius: 8px !important;
+  padding: 6px !important;
+}
+
+.sidebar-menu-popper .el-popper__arrow::before {
+  background: #141c2b !important;
+  border-color: rgba(184, 146, 90, 0.35) !important;
+}
+
+.sidebar-menu-popper .el-menu--popup {
+  background: #141c2b !important;
+  padding: 0 !important;
+  min-width: 140px !important;
+  border: none !important;
+}
+
+.sidebar-menu-popper .el-menu-item {
+  height: 40px !important;
+  line-height: 40px !important;
+  color: rgba(255, 255, 255, 0.82) !important;
+  border-radius: 6px !important;
+  margin-bottom: 2px !important;
+  padding: 0 16px !important;
+  font-size: var(--yx-fs-sm) !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  background: transparent !important;
+  transition: all 0.2s ease !important;
+}
+
+.sidebar-menu-popper .el-menu-item:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #ffffff !important;
+}
+
+.sidebar-menu-popper .el-menu-item.is-active {
+  background: rgba(184, 146, 90, 0.25) !important;
+  color: #ffffff !important;
+  font-weight: 500 !important;
+  position: relative !important;
+}
+
+.sidebar-menu-popper .el-menu-item.is-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3.5px;
+  height: 20px;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(180deg, var(--yx-gold-light), var(--yx-gold));
+}
+

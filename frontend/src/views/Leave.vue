@@ -82,8 +82,7 @@
           </el-select>
         </div>
         <div>
-          <el-button type="primary" :icon="'Plus'" @click="openCreate">发起申请</el-button>
-          <el-button :icon="'Refresh'" circle class="ml-8" @click="loadData" />
+          <el-button :icon="'Refresh'" circle @click="loadData" />
         </div>
       </div>
 
@@ -259,7 +258,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import request, { exportFile } from '../utils/request'
 import dayjs from 'dayjs'
 import { useAuthStore } from '../store/auth'
@@ -299,14 +298,23 @@ const statItems = ref([])
 const loadStats = async () => {
   try {
     const res = await request.get('/leaves/stats', { params: { year: statsYear.value } })
-    stats.year = res.year
-    stats.total_count = res.total_count
-    stats.total_days = res.total_days
-    statItems.value = (res.types || []).map(t => ({
+    stats.year = res.year || statsYear.value
+    stats.total_count = res.total_count || 0
+    stats.total_days = res.total_days || 0
+
+    let types = res.types
+    if (!types || !types.length) {
+      types = Object.keys(leaveTypeNames).map(k => ({
+        type: k,
+        days: res[k + '_days'] ?? 0,
+        count: res[k + '_count'] ?? 0
+      }))
+    }
+    statItems.value = types.map(t => ({
       key: t.type,
       label: leaveTypeNames[t.type] || t.type,
-      days: t.days,
-      count: t.count,
+      days: t.days ?? 0,
+      count: t.count ?? 0,
       color: statColors[t.type] || '#909399'
     }))
   } catch (e) {}
@@ -419,6 +427,7 @@ const saveLeave = async () => {
       start_date: form.start_date,
       end_date: form.duration_type === 'hour' ? form.start_date : form.end_date,
       days: form.days,
+      leave_hours: form.duration_type === 'hour' ? form.leave_hours : 0,
       reason: form.reason
     }
     if (editId.value) {
@@ -473,6 +482,28 @@ onMounted(() => {
   loadData()
   loadStats()
   loadAssignees()
+
+  // 检查是否有从加班管理带来的“登记补休”人员信息
+  const compUserRaw = localStorage.getItem('compUser')
+  if (compUserRaw) {
+    try {
+      const comp = JSON.parse(compUserRaw)
+      localStorage.removeItem('compUser')
+      openCreate()
+      if (comp.user_id) {
+        form.user_id = comp.user_id
+      }
+      form.leave_type = 'comp'
+      ElNotification({
+        title: '已联动补休人员',
+        message: `已自动载入【${comp.user_name || '补休人员'}】（剩余补休 ${comp.remain_days || 0} 天），请选择休假起止日期`,
+        type: 'info',
+        duration: 4500
+      })
+    } catch (e) {
+      localStorage.removeItem('compUser')
+    }
+  }
 })
 </script>
 

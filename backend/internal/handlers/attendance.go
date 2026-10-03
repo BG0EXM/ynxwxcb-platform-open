@@ -706,9 +706,15 @@ func LeaveStats(w http.ResponseWriter, r *http.Request) {
 	result := map[string]interface{}{"year": year}
 	totalDays := 0.0
 	totalCount := 0
+	typeItemMap := map[string]map[string]interface{}{}
 	for _, lt := range LeaveTypes {
 		result[lt+"_count"] = 0
 		result[lt+"_days"] = 0
+		typeItemMap[lt] = map[string]interface{}{
+			"type":  lt,
+			"count": 0,
+			"days":  0.0,
+		}
 	}
 	for rows.Next() {
 		var lt string
@@ -725,12 +731,27 @@ func LeaveStats(w http.ResponseWriter, r *http.Request) {
 		result[lt+"_days"] = d
 		totalDays += d
 		totalCount += cnt
+		if item, ok := typeItemMap[lt]; ok {
+			item["count"] = cnt
+			item["days"] = d
+		} else {
+			typeItemMap[lt] = map[string]interface{}{
+				"type":  lt,
+				"count": cnt,
+				"days":  d,
+			}
+		}
 	}
 	if err := rows.Err(); err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
 
+	typesList := []map[string]interface{}{}
+	for _, lt := range LeaveTypes {
+		typesList = append(typesList, typeItemMap[lt])
+	}
+	result["types"] = typesList
 	result["total_count"] = totalCount
 	result["total_days"] = totalDays
 	middleware.JSON(w, http.StatusOK, result)

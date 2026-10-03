@@ -36,7 +36,7 @@
 
         <!-- 分组菜单 -->
         <template v-for="group in menuGroups" :key="group.title">
-          <el-sub-menu :index="group.title">
+          <el-sub-menu :index="group.title" popper-class="sidebar-menu-popper">
             <template #title>
               <el-icon><component :is="group.icon" /></el-icon>
               <span>{{ group.title }}</span>

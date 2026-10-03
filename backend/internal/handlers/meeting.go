@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -247,7 +248,10 @@ func GetMeeting(w http.ResponseWriter, r *http.Request) {
 			regs = append(regs, rg)
 			registeredUnits[unit.String] = true
 			if rg.NotAttend == 0 {
+				rg.IsAttending = 1
 				attendCount++
+			} else {
+				rg.IsAttending = 0
 			}
 		}
 		if err := regRows.Err(); err != nil {
@@ -269,7 +273,11 @@ func GetMeeting(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{
-		"meeting": m, "registrations": regs, "unconfirmed_units": unconfirmed,
+		"meeting":           m,
+		"registrations":     regs,
+		"list":              regs,
+		"unconfirmed":       unconfirmed,
+		"unconfirmed_units": unconfirmed,
 	})
 }
 
@@ -677,6 +685,13 @@ func PublicCancelMeetingRegister(w http.ResponseWriter, r *http.Request) {
 func ExportMeetingRegistration(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
 	if id == 0 {
+		if qid := r.URL.Query().Get("meeting_id"); qid != "" {
+			if parsed, err := strconv.ParseInt(qid, 10, 64); err == nil {
+				id = parsed
+			}
+		}
+	}
+	if id == 0 {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
 		return
 	}
@@ -764,6 +779,9 @@ func MeetingRegistrations(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
 		return
 	}
+	var unitsRaw sql.NullString
+	database.DB.QueryRow(`SELECT units FROM meetings WHERE id=?`, id).Scan(&unitsRaw)
+
 	regRows, err := database.DB.Query(
 		`SELECT id, meeting_id, unit, attendee_name, attendee_title, phone, not_attend, reason, created_at
 		 FROM meeting_registrations WHERE meeting_id=? ORDER BY not_attend, id`, id)
@@ -773,6 +791,7 @@ func MeetingRegistrations(w http.ResponseWriter, r *http.Request) {
 	}
 	defer regRows.Close()
 	regs := []models.MeetingRegistration{}
+	registeredUnits := map[string]bool{}
 	for regRows.Next() {
 		var rg models.MeetingRegistration
 		var unit, name, title, phone, reason sql.NullString
@@ -785,13 +804,33 @@ func MeetingRegistrations(w http.ResponseWriter, r *http.Request) {
 		rg.AttendeeTitle = title.String
 		rg.Phone = phone.String
 		rg.Reason = reason.String
+		if rg.NotAttend == 0 {
+			rg.IsAttending = 1
+		} else {
+			rg.IsAttending = 0
+		}
 		regs = append(regs, rg)
+		registeredUnits[unit.String] = true
 	}
 	if err := regRows.Err(); err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
-	middleware.JSON(w, http.StatusOK, map[string]interface{}{"list": regs})
+
+	unconfirmed := []string{}
+	for _, u := range strings.Split(unitsRaw.String, "\n") {
+		u = strings.TrimSpace(u)
+		if u != "" && !registeredUnits[u] {
+			unconfirmed = append(unconfirmed, u)
+		}
+	}
+
+	middleware.JSON(w, http.StatusOK, map[string]interface{}{
+		"list":              regs,
+		"registrations":     regs,
+		"unconfirmed":       unconfirmed,
+		"unconfirmed_units": unconfirmed,
+	})
 }
 
 // isValidPhone 校验手机号：11 位、1 开头、第二位 3-9（与前端一致）

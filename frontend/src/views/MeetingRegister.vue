@@ -79,7 +79,7 @@
               </div>
               <div class="dossier-text">
                 <span class="dossier-label">组织单位</span>
-                <span class="dossier-val font-serif">中共伊宁县委宣传部</span>
+                <span class="dossier-val font-serif">伊宁县委宣传部</span>
               </div>
             </div>
 
@@ -435,7 +435,7 @@
           <span class="footer-org font-serif">中共伊宁县委宣传部</span>
           <span class="crest-dot"></span>
         </div>
-        <div class="footer-system">部务工作平台 · 数字化会务服务终端 V1.5.0</div>
+        <div class="footer-system">部务工作平台 · 数字化会务服务终端 V1.5.1</div>
         <div class="footer-beian">
           <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">ICP备案号占位</a>
           <span class="sep">|</span>
@@ -998,15 +998,17 @@ onMounted(loadMeeting)
 
 .weekday-badge {
   font-size: 11px;
-  font-weight: normal;
+  font-weight: 500;
   background: #e9ecf2;
   color: #4e5969;
   padding: 1px 6px;
   border-radius: 4px;
   margin-left: 6px;
   white-space: nowrap;
-  display: inline-block;
-  vertical-align: middle;
+  display: inline-flex;
+  align-items: center;
+  vertical-align: 1.5px;
+  line-height: 1.4;
 }
 
 /* 议程公文卡 */
