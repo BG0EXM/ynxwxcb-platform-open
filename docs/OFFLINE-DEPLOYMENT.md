@@ -18,16 +18,16 @@
 | Element Plus 图标 | 内嵌为 SVG（628 处 svg） | ✅ 本地 |
 | CSS 样式 | 全部本地 CSS 文件（17 个） | ✅ 本地 |
 | 图片 url() | data URI（base64 内嵌） | ✅ 本地 |
-| 字体 | 无 @font-face，走系统字体（微软雅黑等） | ✅ 本地 |
+| 字体 | 内嵌本地思源宋体子集 woff2（740KB，完全同源静态资源）+ 系统宋体/黑体回退 | ✅ 本地 |
 | favicon / 党徽 | public/ 和 src/assets/ 本地 PNG | ✅ 本地 |
 
 ### 2. 前端无外链确认
 
-- index.html：仅引用 `/favicon.png`、`/assets/*.js`、`/assets/*.css`（全部同源本地）
+- index.html：仅引用 `/favicon.png`、`/assets/*.js`、`/assets/*.css`、`/assets/*.woff2`（全部同源本地）
 - axios baseURL：`/api`（同源相对路径，经 Nginx 反代到后端）
 - **无** `<script src="https://...">`、`<link href="https://...">` 外部标签
 - **无** 动态创建远程 script/link 的代码
-- **无** Web 字体下载（无 @font-face）
+- **无** 外部在线 Web 字体下载（字体文件为本地静态打包的 740KB woff2 本地子集，零外链）
 
 ### 3. 构建产物中的链接说明（无需处理）
 
