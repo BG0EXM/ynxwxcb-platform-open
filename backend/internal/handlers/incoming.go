@@ -16,7 +16,6 @@ import (
 func ListIncomingDocs(w http.ResponseWriter, r *http.Request) {
 	keyword := r.URL.Query().Get("keyword")
 	status := r.URL.Query().Get("status")
-	handlingStatus := r.URL.Query().Get("handling_status")
 	archiveBoxNo := r.URL.Query().Get("archive_box_no")
 	archiveYear := r.URL.Query().Get("archive_year")
 	start := r.URL.Query().Get("start")
@@ -41,10 +40,6 @@ func ListIncomingDocs(w http.ResponseWriter, r *http.Request) {
 	if status != "" {
 		where += ` AND d.status = ?`
 		args = append(args, status)
-	}
-	if handlingStatus != "" {
-		where += ` AND d.handling_status = ?`
-		args = append(args, handlingStatus)
 	}
 	if archiveBoxNo != "" {
 		where += ` AND d.archive_box_no LIKE ?`
@@ -86,7 +81,7 @@ func ListIncomingDocs(w http.ResponseWriter, r *http.Request) {
 		d.copies, d.secret_level, d.urgency, d.suggest, d.leader_comment, d.processing,
 		d.return_date, d.returned, d.need_return,
 		d.registrar_id, u.real_name, d.status,
-		COALESCE(d.handling_status, 'pending'), COALESCE(d.archive_box_no, ''), COALESCE(d.archive_year, ''), d.assigned_department, d.handling_remarks,
+		COALESCE(d.archive_box_no, ''), COALESCE(d.archive_year, ''), COALESCE(d.assigned_department, ''), COALESCE(d.handling_remarks, ''),
 		d.created_at, d.updated_at
 		FROM incoming_docs d LEFT JOIN users u ON d.registrar_id = u.id` + where +
 		` ORDER BY d.id DESC LIMIT ? OFFSET ?`
@@ -103,12 +98,12 @@ func ListIncomingDocs(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var d models.IncomingDoc
 		var receiveNo, receivedDate, fromUnit, fromDocNo, docNo, title, secretLevel, urgency, suggest, leaderComment, processing, returnDate, registrar sql.NullString
-		var handlingStatus, archiveBoxNo, archiveYear, assignedDepartment, handlingRemarks sql.NullString
+		var archiveBoxNo, archiveYear, assignedDepartment, handlingRemarks sql.NullString
 		if err := rows.Scan(&d.ID, &receiveNo, &receivedDate, &fromUnit, &fromDocNo, &docNo, &title,
 			&d.Copies, &secretLevel, &urgency, &suggest, &leaderComment, &processing,
 			&returnDate, &d.Returned, &d.NeedReturn,
 			&d.RegistrarID, &registrar, &d.Status,
-			&handlingStatus, &archiveBoxNo, &archiveYear, &assignedDepartment, &handlingRemarks,
+			&archiveBoxNo, &archiveYear, &assignedDepartment, &handlingRemarks,
 			&d.CreatedAt, &d.UpdatedAt); err != nil {
 			continue
 		}
@@ -125,12 +120,10 @@ func ListIncomingDocs(w http.ResponseWriter, r *http.Request) {
 		d.Processing = processing.String
 		d.ReturnDate = returnDate.String
 		d.Registrar = registrar.String
-		d.HandlingStatus = handlingStatus.String
-		if d.HandlingStatus == "" {
-			d.HandlingStatus = "pending"
-		}
 		d.ArchiveBoxNo = archiveBoxNo.String
 		d.ArchiveYear = archiveYear.String
+		d.AssignedDepartment = assignedDepartment.String
+		d.HandlingRemarks = handlingRemarks.String
 		docs = append(docs, d)
 	}
 	if err := rows.Err(); err != nil {
@@ -150,20 +143,20 @@ func GetIncomingDoc(w http.ResponseWriter, r *http.Request) {
 	}
 	var d models.IncomingDoc
 	var receiveNo, receivedDate, fromUnit, fromDocNo, docNo, title, secretLevel, urgency, suggest, leaderComment, processing, returnDate, registrar sql.NullString
-	var handlingStatus, archiveBoxNo, archiveYear, assignedDepartment, handlingRemarks sql.NullString
+	var archiveBoxNo, archiveYear, assignedDepartment, handlingRemarks sql.NullString
 	err := database.DB.QueryRow(
 		`SELECT d.id, d.receive_no, d.received_date, d.from_unit, d.from_doc_no, d.doc_no, d.title,
 		d.copies, d.secret_level, d.urgency, d.suggest, d.leader_comment, d.processing,
 		d.return_date, d.returned, d.need_return,
 		d.registrar_id, u.real_name, d.status,
-		COALESCE(d.handling_status, 'pending'), COALESCE(d.archive_box_no, ''), COALESCE(d.archive_year, ''), d.assigned_department, d.handling_remarks,
+		COALESCE(d.archive_box_no, ''), COALESCE(d.archive_year, ''), COALESCE(d.assigned_department, ''), COALESCE(d.handling_remarks, ''),
 		d.created_at, d.updated_at
 		FROM incoming_docs d LEFT JOIN users u ON d.registrar_id = u.id WHERE d.id = ?`, id).
 		Scan(&d.ID, &receiveNo, &receivedDate, &fromUnit, &fromDocNo, &docNo, &title,
 			&d.Copies, &secretLevel, &urgency, &suggest, &leaderComment, &processing,
 			&returnDate, &d.Returned, &d.NeedReturn,
 			&d.RegistrarID, &registrar, &d.Status,
-			&handlingStatus, &archiveBoxNo, &archiveYear, &assignedDepartment, &handlingRemarks,
+			&archiveBoxNo, &archiveYear, &assignedDepartment, &handlingRemarks,
 			&d.CreatedAt, &d.UpdatedAt)
 	if err == sql.ErrNoRows {
 		middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "文件不存在"})
@@ -186,10 +179,6 @@ func GetIncomingDoc(w http.ResponseWriter, r *http.Request) {
 	d.Processing = processing.String
 	d.ReturnDate = returnDate.String
 	d.Registrar = registrar.String
-	d.HandlingStatus = handlingStatus.String
-	if d.HandlingStatus == "" {
-		d.HandlingStatus = "pending"
-	}
 	d.ArchiveBoxNo = archiveBoxNo.String
 	d.ArchiveYear = archiveYear.String
 	d.AssignedDepartment = assignedDepartment.String
@@ -223,9 +212,6 @@ func CreateIncomingDoc(w http.ResponseWriter, r *http.Request) {
 	if req.Urgency == "" {
 		req.Urgency = "一般"
 	}
-	if req.HandlingStatus == "" {
-		req.HandlingStatus = "pending"
-	}
 	if req.ArchiveYear == "" {
 		if len(req.ReceivedDate) < 4 {
 			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "收文日期格式错误，无法提取年份"})
@@ -234,26 +220,17 @@ func CreateIncomingDoc(w http.ResponseWriter, r *http.Request) {
 		req.ArchiveYear = req.ReceivedDate[:4]
 	}
 	if req.Status == 0 {
-		switch req.HandlingStatus {
-		case "circulating":
-			req.Status = 3
-		case "processing":
-			req.Status = 4
-		case "completed", "archived":
-			req.Status = 5
-		default:
-			req.Status = 1
-		}
+		req.Status = 1
 	}
 	res, err := database.DB.Exec(
 		`INSERT INTO incoming_docs (receive_no, received_date, from_unit, from_doc_no, doc_no, title, copies,
 			secret_level, urgency, suggest, leader_comment, processing, return_date, returned, need_return, registrar_id, status,
-			handling_status, archive_box_no, archive_year, assigned_department, handling_remarks)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			archive_box_no, archive_year, assigned_department, handling_remarks)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		req.ReceiveNo, req.ReceivedDate, req.FromUnit, req.FromDocNo, req.DocNo, req.Title, req.Copies,
 		req.SecretLevel, req.Urgency, req.Suggest, req.LeaderComment, req.Processing,
 		req.ReturnDate, req.Returned, req.NeedReturn, userID, req.Status,
-		req.HandlingStatus, req.ArchiveBoxNo, req.ArchiveYear, req.AssignedDepartment, req.HandlingRemarks)
+		req.ArchiveBoxNo, req.ArchiveYear, req.AssignedDepartment, req.HandlingRemarks)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "登记失败"})
 		return
@@ -282,9 +259,6 @@ func UpdateIncomingDoc(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "文件标题必填"})
 		return
 	}
-	if req.HandlingStatus == "" {
-		req.HandlingStatus = "pending"
-	}
 	if req.ArchiveYear == "" {
 		if len(req.ReceivedDate) < 4 {
 			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "收文日期格式错误，无法提取年份"})
@@ -292,17 +266,17 @@ func UpdateIncomingDoc(w http.ResponseWriter, r *http.Request) {
 		}
 		req.ArchiveYear = req.ReceivedDate[:4]
 	}
-	if (req.HandlingStatus == "completed" || req.HandlingStatus == "archived") && req.Status < 5 {
-		req.Status = 5
+	if req.Status == 0 {
+		req.Status = 1
 	}
 	_, err := database.DB.Exec(
 		`UPDATE incoming_docs SET receive_no=?, received_date=?, from_unit=?, from_doc_no=?, doc_no=?, title=?, copies=?,
 			secret_level=?, urgency=?, suggest=?, leader_comment=?, processing=?, return_date=?, returned=?, need_return=?, status=?,
-			handling_status=?, archive_box_no=?, archive_year=?, assigned_department=?, handling_remarks=?, updated_at=? WHERE id=?`,
+			archive_box_no=?, archive_year=?, assigned_department=?, handling_remarks=?, updated_at=? WHERE id=?`,
 		req.ReceiveNo, req.ReceivedDate, req.FromUnit, req.FromDocNo, req.DocNo, req.Title, req.Copies,
 		req.SecretLevel, req.Urgency, req.Suggest, req.LeaderComment, req.Processing,
 		req.ReturnDate, req.Returned, req.NeedReturn, req.Status,
-		req.HandlingStatus, req.ArchiveBoxNo, req.ArchiveYear, req.AssignedDepartment, req.HandlingRemarks,
+		req.ArchiveBoxNo, req.ArchiveYear, req.AssignedDepartment, req.HandlingRemarks,
 		time.Now(), req.ID)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "更新失败"})
@@ -312,10 +286,10 @@ func UpdateIncomingDoc(w http.ResponseWriter, r *http.Request) {
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "更新成功"})
 }
 
-// UpdateIncomingDocStatus 快捷流转与归档更新（POST /api/incoming-docs/{id}/status）
+// UpdateIncomingDocStatus 快捷办理状态与归档更新（POST /api/incoming-docs/{id}/status）
 func UpdateIncomingDocStatus(w http.ResponseWriter, r *http.Request) {
 	if !isOfficeUser(r) {
-		middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "仅办公室用户可变更公文流转状态"})
+		middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "仅办公室用户可变更公文办理状态"})
 		return
 	}
 	id := pathID(r)
@@ -325,7 +299,7 @@ func UpdateIncomingDocStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		HandlingStatus     string `json:"handling_status"`
+		Status             int    `json:"status"`
 		ArchiveBoxNo       string `json:"archive_box_no"`
 		ArchiveYear        string `json:"archive_year"`
 		AssignedDepartment string `json:"assigned_department"`
@@ -336,25 +310,24 @@ func UpdateIncomingDocStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	validStatuses := map[string]string{
-		"pending":     "待办阅批",
-		"circulating": "领导传阅中",
-		"processing":  "科室承办中",
-		"completed":   "办结",
-		"archived":    "已归档",
+	statusNames := map[int]string{
+		1: "待登记",
+		2: "拟办中",
+		3: "待批示",
+		4: "办理中",
+		5: "已办结",
 	}
 
-	statusName, ok := validStatuses[req.HandlingStatus]
+	statusName, ok := statusNames[req.Status]
 	if !ok {
-		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "无效的流转状态"})
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "无效的办理状态"})
 		return
 	}
 
 	var title, currentBox, currentYear, receivedDate string
-	var currentStatus int
 	err := database.DB.QueryRow(
-		"SELECT title, COALESCE(archive_box_no, ''), COALESCE(archive_year, ''), COALESCE(received_date, ''), status FROM incoming_docs WHERE id=?", id).
-		Scan(&title, &currentBox, &currentYear, &receivedDate, &currentStatus)
+		"SELECT title, COALESCE(archive_box_no, ''), COALESCE(archive_year, ''), COALESCE(received_date, '') FROM incoming_docs WHERE id=?", id).
+		Scan(&title, &currentBox, &currentYear, &receivedDate)
 	if err == sql.ErrNoRows {
 		middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "文件不存在"})
 		return
@@ -377,40 +350,25 @@ func UpdateIncomingDocStatus(w http.ResponseWriter, r *http.Request) {
 		year = time.Now().Format("2006")
 	}
 
-	// 保持旧 status 字段同步映射，避免旧统计或逻辑失效
-	newStatus := currentStatus
-	switch req.HandlingStatus {
-	case "pending":
-		if newStatus > 2 {
-			newStatus = 2
-		}
-	case "circulating":
-		newStatus = 3
-	case "processing":
-		newStatus = 4
-	case "completed", "archived":
-		newStatus = 5
-	}
-
 	_, err = database.DB.Exec(
-		"UPDATE incoming_docs SET handling_status=?, archive_box_no=?, archive_year=?, assigned_department=?, handling_remarks=?, status=?, updated_at=? WHERE id=?",
-		req.HandlingStatus, boxNo, year, req.AssignedDepartment, req.HandlingRemarks, newStatus, time.Now(), id)
+		"UPDATE incoming_docs SET status=?, archive_box_no=?, archive_year=?, assigned_department=?, handling_remarks=?, updated_at=? WHERE id=?",
+		req.Status, boxNo, year, req.AssignedDepartment, req.HandlingRemarks, time.Now(), id)
 	if err != nil {
-		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "更新流转状态失败"})
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "更新办理状态失败"})
 		return
 	}
 
-	logMsg := fmt.Sprintf("将《%s》流转状态更新为“%s”", title, statusName)
+	logMsg := fmt.Sprintf("将《%s》办理状态更新为“%s”", title, statusName)
 	if boxNo != "" {
 		logMsg += fmt.Sprintf("（归档盒号：%s）", boxNo)
 	}
 	logOperation(r, "收文管理", "修改", logMsg)
 
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{
-		"message":         "流转状态更新成功",
-		"handling_status": req.HandlingStatus,
-		"archive_box_no":  boxNo,
-		"archive_year":    year,
+		"message":        "办理状态更新成功",
+		"status":         req.Status,
+		"archive_box_no": boxNo,
+		"archive_year":   year,
 	})
 }
 

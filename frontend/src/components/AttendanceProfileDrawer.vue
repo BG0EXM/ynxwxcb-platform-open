@@ -403,7 +403,7 @@
 
         <div class="print-footer-info">
           <span>单位：中共伊宁县委宣传部办公室</span>
-          <span>系统依据：伊宁县委宣传部部务工作平台V1.6.0</span>
+          <span>系统依据：伊宁县委宣传部部务工作平台V1.6.1</span>
           <span>打印存档专用</span>
         </div>
       </div>

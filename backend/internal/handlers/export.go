@@ -331,7 +331,7 @@ func ExportDutySchedules(w http.ResponseWriter, r *http.Request) {
 func ExportIncomingDocs(w http.ResponseWriter, r *http.Request) {
 	query := `SELECT d.id, d.receive_no, d.received_date, d.from_unit, d.from_doc_no, d.title,
 		d.secret_level, d.urgency, d.copies, d.status,
-		COALESCE(d.handling_status, 'pending'), COALESCE(d.archive_box_no, ''),
+		COALESCE(d.assigned_department, ''), COALESCE(d.handling_remarks, ''), COALESCE(d.archive_box_no, ''),
 		u.real_name, d.created_at
 		FROM incoming_docs d LEFT JOIN users u ON d.registrar_id = u.id WHERE 1=1`
 	args := []interface{}{}
@@ -343,10 +343,6 @@ func ExportIncomingDocs(w http.ResponseWriter, r *http.Request) {
 	if status := r.URL.Query().Get("status"); status != "" {
 		query += ` AND d.status = ?`
 		args = append(args, status)
-	}
-	if handlingStatus := r.URL.Query().Get("handling_status"); handlingStatus != "" {
-		query += ` AND d.handling_status = ?`
-		args = append(args, handlingStatus)
 	}
 	if archiveBoxNo := r.URL.Query().Get("archive_box_no"); archiveBoxNo != "" {
 		query += ` AND d.archive_box_no LIKE ?`
@@ -386,34 +382,24 @@ func ExportIncomingDocs(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	statusNames := map[int]string{1: "待登记", 2: "拟办中", 3: "待批示", 4: "办理中", 5: "已办结"}
-	handlingNames := map[string]string{
-		"pending":     "待办阅批",
-		"circulating": "领导传阅中",
-		"processing":  "科室承办中",
-		"completed":   "办结",
-		"archived":    "已归档",
-	}
 
-	headers := []string{"序号", "收文编号", "收文日期", "来文单位", "来文字号", "文件标题", "密级", "紧急程度", "份数", "流转状态", "归档盒号", "办理状态", "登记人", "登记时间"}
+	headers := []string{"序号", "收文编号", "收文日期", "来文单位", "来文字号", "文件标题", "办理状态", "承办科室", "流转备注", "归档盒号", "密级", "紧急程度", "份数", "登记人", "登记时间"}
 	data := [][]interface{}{}
 	idx := 1
 	for rows.Next() {
 		var id int64
 		var receiveNo, receivedDate, fromUnit, fromDocNo, title, secretLevel, urgency, realName sqlStr
-		var handlingStatus, archiveBoxNo sqlStr
+		var assignedDept, remarks, archiveBoxNo sqlStr
 		var copies, status int
 		var createdAt sql.NullTime
 		if err := rows.Scan(&id, &receiveNo, &receivedDate, &fromUnit, &fromDocNo, &title,
-			&secretLevel, &urgency, &copies, &status, &handlingStatus, &archiveBoxNo, &realName, &createdAt); err != nil {
+			&secretLevel, &urgency, &copies, &status, &assignedDept, &remarks, &archiveBoxNo, &realName, &createdAt); err != nil {
 			continue
-		}
-		hName := handlingNames[handlingStatus.String]
-		if hName == "" {
-			hName = handlingStatus.String
 		}
 		data = append(data, []interface{}{
 			idx, receiveNo.String, formatDateStr(receivedDate.String), fromUnit.String, fromDocNo.String,
-			title.String, secretLevel.String, urgency.String, copies, hName, archiveBoxNo.String, statusNames[status],
+			title.String, statusNames[status], assignedDept.String, remarks.String, archiveBoxNo.String,
+			secretLevel.String, urgency.String, copies,
 			realName.String, formatDateTime(createdAt.Time),
 		})
 		idx++

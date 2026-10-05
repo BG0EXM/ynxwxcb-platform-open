@@ -233,11 +233,11 @@ type IncomingDoc struct {
 	RegistrarID   int64               `json:"registrar_id"`
 	Registrar     string              `json:"registrar_name,omitempty"`
 	Status         int                 `json:"status"` // 1待登记 2拟办中 3待批示 4办理中 5已办结
-	HandlingStatus string              `json:"handling_status"` // 在办流转状态：pending 待办阅批, circulating 领导传阅中, processing 科室承办中, completed 办结, archived 已归档
+	HandlingStatus string              `json:"handling_status,omitempty"` // 历史废弃字段（已下线）
 	ArchiveBoxNo   string              `json:"archive_box_no"`   // 归档盒号/卷宗号，例如 '2026-宣-01盒'
-	ArchiveYear    string              `json:"archive_year"`
-	AssignedDepartment string `json:"assigned_department"`
-	HandlingRemarks string `json:"handling_remarks"`     // 归档年度，例如 '2026'
+	ArchiveYear    string              `json:"archive_year"`     // 归档年度，例如 '2026'
+	AssignedDepartment string          `json:"assigned_department"` // 承办科室
+	HandlingRemarks string             `json:"handling_remarks"`    // 流转与批示备注
 	CreatedAt      time.Time           `json:"created_at"`
 	UpdatedAt     time.Time           `json:"updated_at"`
 	CircList      []CirculationRecord `json:"circulations,omitempty"`
