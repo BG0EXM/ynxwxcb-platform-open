@@ -35,6 +35,7 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("POST /api/public/meetings/{id}/cancel", middleware.RateLimit(30, time.Minute)(http.HandlerFunc(handlers.PublicCancelMeetingRegister)))
 
 	// ---- 认证 ----
+
 	mux.Handle("GET /api/auth/profile", authOnly(handlers.GetProfile))
 	mux.Handle("POST /api/auth/change-password", authOnly(handlers.ChangePassword))
 	mux.Handle("POST /api/auth/logout", authOnly(handlers.Logout))
@@ -45,13 +46,20 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("PUT /api/users", perm("user.manage", handlers.UpdateUser))
 	mux.Handle("DELETE /api/users/{id}", perm("user.manage", handlers.DeleteUser))
 	mux.Handle("POST /api/users/reset-password", perm("user.manage", handlers.ResetPassword))
+	mux.Handle("GET /api/users/{id}/attendance-profile", perm("attendance.view", handlers.GetUserAttendanceProfile))
 	mux.Handle("GET /api/operation-logs", perm("oplog.view", handlers.ListOperationLogs))
 	mux.Handle("GET /api/permissions", perm("user.manage", handlers.GetPermissionMatrix))
 	mux.Handle("PUT /api/permissions", perm("user.manage", handlers.SavePermissionMatrix))
+	// 数据库备份与管理（仅超级管理员）
+	mux.Handle("GET /api/system/backups", perm("user.manage", handlers.ListBackups(cfg)))
+	mux.Handle("POST /api/system/backups", perm("user.manage", handlers.CreateBackup(cfg)))
+	mux.Handle("GET /api/system/backups/download", perm("user.manage", handlers.DownloadBackup(cfg)))
 	// 下拉数据：登录即可
 	mux.Handle("GET /api/roles", authOnly(handlers.ListRoles))
 	mux.Handle("GET /api/departments", authOnly(handlers.ListDepartments))
 	mux.Handle("GET /api/assignees", authOnly(handlers.GetAssignees))
+	// 全局快捷速查与指令
+	mux.Handle("GET /api/global-search", authOnly(handlers.GlobalSearch))
 	mux.Handle("POST /api/departments", perm("department.manage", handlers.CreateDepartment))
 	mux.Handle("PUT /api/departments", perm("department.manage", handlers.UpdateDepartment))
 	mux.Handle("DELETE /api/departments/{id}", perm("department.manage", handlers.DeleteDepartment))
@@ -169,6 +177,7 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	// ---- 收文登记 ----
 	mux.Handle("GET /api/incoming-docs", perm("incoming.view", handlers.ListIncomingDocs))
 	mux.Handle("POST /api/incoming-docs", perm("incoming.manage", handlers.CreateIncomingDoc))
+	mux.Handle("POST /api/incoming-docs/{id}/status", perm("incoming.manage", handlers.UpdateIncomingDocStatus))
 	mux.Handle("GET /api/incoming-docs/{id}", perm("incoming.view", handlers.GetIncomingDoc))
 	mux.Handle("PUT /api/incoming-docs", perm("incoming.manage", handlers.UpdateIncomingDoc))
 	mux.Handle("DELETE /api/incoming-docs/{id}", perm("incoming.manage", handlers.DeleteIncomingDoc))
@@ -191,6 +200,7 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("GET /api/export/attendances", perm("attendance.export", handlers.ExportAttendances))
 	mux.Handle("GET /api/export/duty-schedules", perm("duty.export", handlers.ExportDutySchedules))
 	mux.Handle("GET /api/export/incoming-docs", perm("incoming.export", handlers.ExportIncomingDocs))
+	mux.Handle("GET /api/export/incoming", perm("incoming.export", handlers.ExportIncomingDocs))
 	mux.Handle("GET /api/export/calendar-tasks", perm("calendar.export", handlers.ExportCalendarTasks))
 	mux.Handle("GET /api/export/overtime-records", perm("overtime.export", handlers.ExportOvertimeRecords))
 	mux.Handle("GET /api/export/annual-leave-configs", perm("annualleave.export", handlers.ExportAnnualLeaveConfigs))

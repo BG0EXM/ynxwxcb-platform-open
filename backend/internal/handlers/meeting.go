@@ -16,6 +16,21 @@ import (
 
 // ListMeetings 会议列表（管理员）
 func ListMeetings(w http.ResponseWriter, r *http.Request) {
+	pageStr := r.URL.Query().Get("page")
+	pageSizeStr := r.URL.Query().Get("page_size")
+	page, _ := strconv.Atoi(pageStr)
+	if page <= 0 {
+		page = 1
+	}
+	pageSize, _ := strconv.Atoi(pageSizeStr)
+	if pageSize <= 0 {
+		pageSize = 10
+	}
+	offset := (page - 1) * pageSize
+
+	var total int
+	database.DB.QueryRow("SELECT COUNT(*) FROM meetings").Scan(&total)
+
 	query := `SELECT m.id, m.title, m.meeting_date, m.meeting_time, m.location, m.content, m.units, m.unit_limit,
 			m.created_by, u.real_name, m.created_at, m.updated_at,
 			COALESCE(SUM(CASE WHEN r.not_attend = 0 THEN 1 ELSE 0 END), 0),
@@ -23,8 +38,8 @@ func ListMeetings(w http.ResponseWriter, r *http.Request) {
 		FROM meetings m
 		LEFT JOIN users u ON m.created_by = u.id
 		LEFT JOIN meeting_registrations r ON r.meeting_id = m.id
-		GROUP BY m.id ORDER BY m.meeting_date DESC, m.id DESC`
-	rows, err := database.DB.Query(query)
+		GROUP BY m.id ORDER BY m.meeting_date DESC, m.id DESC LIMIT ? OFFSET ?`
+	rows, err := database.DB.Query(query, pageSize, offset)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
@@ -63,7 +78,7 @@ func ListMeetings(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
-	middleware.JSON(w, http.StatusOK, map[string]interface{}{"list": list})
+	middleware.JSON(w, http.StatusOK, map[string]interface{}{"list": list, "total": total})
 }
 
 // CreateMeeting 新增会议（管理员）
@@ -230,6 +245,7 @@ func GetMeeting(w http.ResponseWriter, r *http.Request) {
 	registeredUnits := map[string]bool{}
 	attendCount := 0
 	if err == nil {
+		defer regRows.Close()
 		for regRows.Next() {
 			var rg models.MeetingRegistration
 			var unit, name, title, phone, reason sql.NullString
@@ -256,11 +272,9 @@ func GetMeeting(w http.ResponseWriter, r *http.Request) {
 			registeredUnits[unit.String] = true
 		}
 		if err := regRows.Err(); err != nil {
-			regRows.Close()
 			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 			return
 		}
-		regRows.Close()
 	}
 	// 报名人数只统计实际参加（不含整体不参加标记）
 	m.RegCount = attendCount
@@ -331,6 +345,7 @@ func PublicMeeting(w http.ResponseWriter, r *http.Request) {
 			`SELECT id, attendee_name, attendee_title, phone, not_attend, reason FROM meeting_registrations
 			 WHERE meeting_id=? AND unit=? ORDER BY id`, id, unit)
 		if qerr == nil {
+			defer rows.Close()
 			for rows.Next() {
 				var rgID int64
 				var name, title, phone, reason sql.NullString
@@ -347,7 +362,6 @@ func PublicMeeting(w http.ResponseWriter, r *http.Request) {
 					"id": rgID, "attendee_name": name.String, "attendee_title": title.String, "phone": maskPhone(phone.String),
 				})
 			}
-			rows.Close()
 		}
 	}
 	// 剩余可报 = 上限 - 已参加人数；unit_limit<=0 表示不限制（remain=-1）
@@ -721,6 +735,7 @@ func ExportMeetingRegistration(w http.ResponseWriter, r *http.Request) {
 		`SELECT unit, attendee_name, attendee_title, phone, not_attend, reason
 		 FROM meeting_registrations WHERE meeting_id=? ORDER BY id`, id)
 	if err == nil {
+		defer regRows.Close()
 		for regRows.Next() {
 			var unit, name, title, phone, reason sql.NullString
 			var na int
@@ -731,7 +746,6 @@ func ExportMeetingRegistration(w http.ResponseWriter, r *http.Request) {
 				name: name.String, title: title.String, phone: phone.String, notAttend: na, reason: reason.String,
 			})
 		}
-		regRows.Close()
 	}
 
 	// 参会单位列表（按录入顺序）

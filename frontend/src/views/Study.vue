@@ -11,20 +11,20 @@
       </template>
     </page-header>
 
-    <el-card shadow="never">
+    <el-card shadow="never" class="gov-card">
       <div class="toolbar">
         <div>
           <el-input v-model="keyword" placeholder="搜索公共资料" clearable style="width: 220px"
-            @keyup.enter="loadData" @clear="loadData">
-            <template #append><el-button :icon="'Search'" @click="loadData" /></template>
+            @keyup.enter="onSearch" @clear="onSearch">
+            <template #append><el-button :icon="'Search'" @click="onSearch" /></template>
           </el-input>
-          <el-select v-model="category" placeholder="分类" clearable style="width: 140px" class="ml-8" @change="loadData">
+          <el-select v-model="category" placeholder="分类" clearable style="width: 140px" class="ml-8" @change="onSearch">
             <el-option v-for="c in categories" :key="c.code" :label="c.name" :value="c.code" />
           </el-select>
         </div>
       </div>
 
-      <el-table :data="list" stripe v-loading="loading" empty-text="暂无资料">
+      <el-table :data="list" stripe v-loading="loading" empty-text="暂无资料" size="large">
         <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip>
           <template #default="{ row }">
             <a class="title-link" @click="openDetail(row)">{{ row.title }}</a>
@@ -47,6 +47,17 @@
           </template>
         </el-table-column>
       </el-table>
+      <div class="pagination-wrap" v-if="total > 0" style="margin-top: 16px; display: flex; justify-content: flex-end;">
+        <el-pagination
+          v-model:current-page="page"
+          v-model:page-size="pageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="total"
+          @size-change="handleSizeChange"
+          @current-change="handlePageChange"
+        />
+      </div>
     </el-card>
 
     <!-- 发布资料 -->
@@ -85,7 +96,7 @@
         <el-input v-model="newCatCode" placeholder="英文标识" clearable style="width: 130px" @keyup.enter="addCategory" />
         <el-button type="primary" :icon="'Plus'" @click="addCategory">添加</el-button>
       </div>
-      <el-table :data="categories" stripe empty-text="暂无分类">
+      <el-table :data="categories" stripe empty-text="暂无分类" size="large">
         <el-table-column prop="name" label="名称" min-width="120" />
         <el-table-column prop="code" label="标识" width="110" />
         <el-table-column label="操作" width="120" fixed="right">
@@ -119,16 +130,21 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, watch, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request, { downloadFile } from '../utils/request'
 import dayjs from 'dayjs'
 import { useAuthStore } from '../store/auth'
 import PageHeader from '../components/PageHeader.vue'
 
+const route = useRoute()
 const authStore = useAuthStore()
 
 const list = ref([])
+const total = ref(0)
+const page = ref(1)
+const pageSize = ref(10)
 const loading = ref(false)
 const keyword = ref('')
 const category = ref('')
@@ -159,22 +175,37 @@ const loadCategories = async () => {
   try {
     const res = await request.get('/study-categories')
     categories.value = res.list || []
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const loadData = async () => {
   loading.value = true
   try {
-    const res = await request.get('/study-materials', { params: { keyword: keyword.value, category: category.value } })
+    const res = await request.get('/study-materials', { params: { keyword: keyword.value, category: category.value, page: page.value, page_size: pageSize.value } })
     list.value = res.list || []
-  } catch (e) {
-  } finally {
+    total.value = res.total || 0
+  } catch (e) { console.error(e) } finally {
     loading.value = false
   }
 }
 
 // 分类管理
 const openCategory = () => {
+const handlePageChange = (val) => {
+  page.value = val
+  loadData()
+}
+
+const handleSizeChange = (val) => {
+  pageSize.value = val
+  page.value = 1
+  loadData()
+}
+
+const onSearch = () => {
+  page.value = 1
+  loadData()
+}
   editCatId.value = 0
   newCatName.value = ''
   newCatCode.value = ''
@@ -196,7 +227,7 @@ const addCategory = async () => {
     newCatCode.value = ''
     editCatId.value = 0
     loadCategories()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const editCategory = (row) => {
@@ -208,25 +239,25 @@ const editCategory = (row) => {
 const removeCategory = async (row) => {
   try {
     await ElMessageBox.confirm(`确认删除分类「${row.name}」？`, '删除确认', { type: 'warning', confirmButtonText: '删除' })
-  } catch (e) { return }
+  } catch (e) { console.error(e); return }
   try {
     await request.delete(`/study-categories/${row.id}`)
     ElMessage.success('分类已删除')
     loadCategories()
     loadData()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 // 删除资料
 const removeMaterial = async (row) => {
   try {
     await ElMessageBox.confirm(`确认删除资料「${row.title}」？`, '删除确认', { type: 'warning', confirmButtonText: '删除' })
-  } catch (e) { return }
+  } catch (e) { console.error(e); return }
   try {
     await request.delete(`/study-materials/${row.id}`)
     ElMessage.success('删除成功')
     loadData()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const uploadFile = async (options) => {
@@ -260,7 +291,7 @@ const save = async () => {
     for (const att of uploadedAttachments.value) {
       try {
         await request.put('/uploads/link', { id: att.id, owner_id: matId })
-      } catch (e) {}
+      } catch (e) { console.error(e) }
     }
     ElMessage.success('发布成功')
     dialogVisible.value = false
@@ -268,7 +299,7 @@ const save = async () => {
     fileList.value = []
     uploadedAttachments.value = []
     loadData()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const openDetail = async (row) => {
@@ -276,7 +307,7 @@ const openDetail = async (row) => {
     const res = await request.get(`/study-materials/${row.id}`)
     detail.value = res
     detailVisible.value = true
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 // 附件下载（带 token，避免直接 <a> 链接 401）
@@ -287,6 +318,15 @@ const downloadAtt = (a) => {
 onMounted(() => {
   loadData()
   loadCategories()
+  if (route.query.id) {
+    openDetail({ id: route.query.id })
+  }
+})
+
+watch(() => route.query.id, (newId) => {
+  if (newId) {
+    openDetail({ id: newId })
+  }
 })
 </script>
 

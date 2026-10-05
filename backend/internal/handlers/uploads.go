@@ -208,6 +208,7 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 	dutyNames := []string{}
 	dutyDaWangYuan := 0
 	if err == nil {
+		defer dutyRows.Close()
 		for dutyRows.Next() {
 			var name string
 			var isDa int
@@ -219,7 +220,6 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 				dutyDaWangYuan = 1
 			}
 		}
-		dutyRows.Close()
 	}
 	result["today_duty"] = strings.Join(dutyNames, "、")
 	result["today_duty_dawangyuan"] = dutyDaWangYuan
@@ -278,6 +278,7 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 		`SELECT id, receive_no, received_date, from_unit, from_doc_no, title, status
 		 FROM incoming_docs ORDER BY id DESC LIMIT 6`)
 	if err == nil {
+		defer rows.Close()
 		type IncomingBrief struct {
 			ID           int64  `json:"id"`
 			ReceiveNo    string `json:"receive_no"`
@@ -301,7 +302,6 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		rows.Close()
 		result["latest_incoming"] = latest
 	} else {
 		result["latest_incoming"] = []interface{}{}
@@ -314,6 +314,7 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 		 WHERE s.duty_date >= date('now','weekday 0','-6 days') AND s.duty_date <= date('now','weekday 0')
 		 ORDER BY s.duty_date`)
 	if err == nil {
+		defer weekRows.Close()
 		type DutyBrief struct {
 			DutyDate     string `json:"duty_date"`
 			UserName     string `json:"user_name"`
@@ -333,7 +334,6 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		weekRows.Close()
 		result["week_duty"] = weekDuty
 	} else {
 		result["week_duty"] = []interface{}{}

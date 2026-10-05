@@ -40,6 +40,7 @@ func ListAnnualLeaveConfigs(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
+	defer rows.Close()
 
 	type Row struct {
 		UserID     int64   `json:"user_id"`
@@ -66,7 +67,6 @@ func ListAnnualLeaveConfigs(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
-	rows.Close()
 
 	// 查询已休年假天数（leave_type='annual'，按当年实际覆盖天数，支持半天/小时假）
 	yearStart := year + "-01-01"
@@ -85,6 +85,7 @@ func ListAnnualLeaveConfigs(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
+	defer usedRows.Close()
 	for usedRows.Next() {
 		var uid int64
 		var used float64
@@ -96,11 +97,9 @@ func ListAnnualLeaveConfigs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := usedRows.Err(); err != nil {
-		usedRows.Close()
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
-	usedRows.Close()
 
 	list := []Row{}
 	var totalConfig, totalUsed float64
@@ -134,6 +133,7 @@ func ExportAnnualLeaveConfigs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "查询失败", http.StatusInternalServerError)
 		return
 	}
+	defer rows.Close()
 	// 先读完用户（含 id）并关闭，避免 MaxOpenConns=1 下未关闭 rows 再查询导致死锁
 	type userRow struct {
 		id         int64
@@ -152,11 +152,9 @@ func ExportAnnualLeaveConfigs(w http.ResponseWriter, r *http.Request) {
 		users = append(users, u)
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
 		http.Error(w, "查询失败", http.StatusInternalServerError)
 		return
 	}
-	rows.Close()
 
 	// 已休天数（联动请假 annual，支持半天/小时假）
 	yearStart := year + "-01-01"
@@ -175,6 +173,7 @@ func ExportAnnualLeaveConfigs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "查询失败", http.StatusInternalServerError)
 		return
 	}
+	defer urows.Close()
 	for urows.Next() {
 		var uid int64
 		var used float64
@@ -184,11 +183,9 @@ func ExportAnnualLeaveConfigs(w http.ResponseWriter, r *http.Request) {
 		usedMap[uid] = used
 	}
 	if err := urows.Err(); err != nil {
-		urows.Close()
 		http.Error(w, "查询失败", http.StatusInternalServerError)
 		return
 	}
-	urows.Close()
 
 	headers := []string{"序号", "姓名", "部门", "配置天数", "已休天数", "剩余天数"}
 	data := [][]interface{}{}

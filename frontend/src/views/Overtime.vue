@@ -124,7 +124,7 @@ const loadAssignees = async () => {
   try {
     const res = await request.get('/assignees')
     assignees.value = res.list || []
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const loadStats = async () => {
@@ -134,8 +134,7 @@ const loadStats = async () => {
     if (month.value) params.month = month.value
     const res = await request.get('/overtime-stats', { params })
     statsList.value = res.list || []
-  } catch (e) {
-  } finally {
+  } catch (e) { console.error(e) } finally {
     loading.value = false
   }
 }
@@ -150,8 +149,7 @@ const loadRecords = async () => {
     }
     const res = await request.get('/overtime-records', { params })
     records.value = res.list || []
-  } catch (e) {
-  } finally {
+  } catch (e) { console.error(e) } finally {
     recLoading.value = false
   }
 }
@@ -172,24 +170,24 @@ const save = async () => {
   if (!form.value.hours || form.value.hours <= 0) return ElMessage.warning('请填写加班时长')
   try {
     await ElMessageBox.confirm(`确认为该人员录入 ${form.value.hours} 小时加班？`, '录入确认', { type: 'warning' })
-  } catch (e) { return }
+  } catch (e) { console.error(e); return }
   try {
     await request.post('/overtime-records', form.value)
     ElMessage.success('录入成功')
     dialogVisible.value = false
     loadAll()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const removeRecord = async (row) => {
   try {
     await ElMessageBox.confirm(`确认删除 ${row.user_name} ${row.overtime_date} 的加班记录？`, '删除确认', { type: 'warning', confirmButtonText: '删除' })
-  } catch (e) { return }
+  } catch (e) { console.error(e); return }
   try {
     await request.delete(`/overtime-records/${row.id}`)
     ElMessage.success('删除成功')
     loadAll()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 // 登记补休：跳转到请假模块，并预填补休类型和人员

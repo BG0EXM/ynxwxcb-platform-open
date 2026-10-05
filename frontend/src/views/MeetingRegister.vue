@@ -435,7 +435,7 @@
           <span class="footer-org font-serif">中共伊宁县委宣传部</span>
           <span class="crest-dot"></span>
         </div>
-        <div class="footer-system">部务工作平台 · 数字化会务服务终端 V1.5.2</div>
+        <div class="footer-system">部务工作平台 · 数字化会务服务终端 V1.6.0</div>
         <div class="footer-beian">
           <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">ICP备案号占位</a>
           <span class="sep">|</span>
@@ -600,7 +600,7 @@ const loadUnitStatus = async () => {
       submittedText.value = `该单位当前已落实 ${registrations.value.length} 个参会席位${remain.value > 0 ? '，尚余 ' + remain.value + ' 个名额可补报' : ''}。`
       editHint.value = '如需修改或移除参会人员，可在下方席位列表中点击对应按钮操作。'
     }
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const changeUnit = () => {
@@ -665,13 +665,13 @@ const removeReg = async (rg) => {
       confirmButtonText: '确定移除', 
       cancelButtonText: '取消' 
     })
-  } catch (e) { return }
+  } catch (e) { console.error(e); return }
 
   try {
     await request.post(`/public/meetings/${meetingId}/remove`, { reg_id: rg.id, unit: form.value.unit })
     ElMessage.success('已成功移除该席位')
     loadUnitStatus()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const savePerson = async () => {
@@ -706,8 +706,7 @@ const savePerson = async () => {
     }
     personForm.value = { attendee_name: '', attendee_title: '', phone: '' }
     phonePlaceholder.value = ''
-  } catch (e) {
-  } finally {
+  } catch (e) { console.error(e) } finally {
     submitting.value = false
   }
 }
@@ -729,8 +728,7 @@ const saveAbsent = async () => {
     await loadUnitStatus()
     notAttend.value = 1
     showSuccess('已提交不参加报备', absentReason.value ? '已记录因故请假原因：' + absentReason.value : '已完成请假报备。', '如后续情况变更需参会，请点击上方「确认参加」后重新录入人员。')
-  } catch (e) {
-  } finally {
+  } catch (e) { console.error(e) } finally {
     submitting.value = false
   }
 }

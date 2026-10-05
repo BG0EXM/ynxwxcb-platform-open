@@ -60,8 +60,7 @@ const load = async () => {
         matrix[r.code][p.code] = r.code === 'admin' ? true : codes.includes(p.code)
       }
     }
-  } catch (e) {
-  } finally {
+  } catch (e) { console.error(e) } finally {
     loading.value = false
   }
 }
@@ -76,8 +75,7 @@ const save = async () => {
     }
     await request.put('/permissions', payload)
     ElMessage.success('保存成功，已立即生效')
-  } catch (e) {
-  } finally {
+  } catch (e) { console.error(e) } finally {
     saving.value = false
   }
 }

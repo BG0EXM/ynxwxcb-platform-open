@@ -46,8 +46,8 @@ func ReloadPermissions() {
 	permMu.Unlock()
 }
 
-// hasPermission 判断角色是否拥有某权限点（admin 始终通过）
-func hasPermission(roleCode, code string) bool {
+// HasPermission 判断角色是否拥有某权限点（admin 始终通过）
+func HasPermission(roleCode, code string) bool {
 	if roleCode == "admin" {
 		return true
 	}
@@ -65,7 +65,7 @@ func RequirePerm(codes ...string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			roleCode, _ := r.Context().Value(ContextRoleCode).(string)
 			for _, c := range codes {
-				if hasPermission(roleCode, c) {
+				if HasPermission(roleCode, c) {
 					next.ServeHTTP(w, r)
 					return
 				}

@@ -263,3 +263,14 @@ body {
   background: linear-gradient(180deg, var(--yx-gold-light), var(--yx-gold));
 }
 
+
+/* 政务字体与卡片样式 */
+.gov-serif {
+  font-family: "SimSun", "STSong", serif;
+}
+
+.gov-card {
+  background-color: #FFFFFF;
+  border-radius: 6px;
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.05);
+}

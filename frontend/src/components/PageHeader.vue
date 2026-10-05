@@ -2,7 +2,7 @@
   <div class="page-header" :class="{ 'with-divider': divider }">
     <div class="page-header-main">
       <div class="page-header-title-wrap">
-        <h1 class="page-title font-serif">
+        <h1 class="page-title gov-serif">
           {{ title }}
           <span v-if="tag" class="page-tag">{{ tag }}</span>
         </h1>
@@ -46,6 +46,7 @@ defineProps({
   padding: 18px 24px;
   border-radius: var(--yx-radius);
   border: 1px solid rgba(220, 223, 229, 0.6);
+  border-bottom: 1px solid var(--el-border-color);
   box-shadow: 0 4px 18px rgba(19, 26, 38, 0.05);
   position: relative;
   overflow: hidden;
@@ -96,6 +97,10 @@ defineProps({
   align-items: center;
   gap: 10px;
   line-height: 1.3;
+}
+
+.gov-serif {
+  font-family: 'SimSun', 'Songti SC', serif;
 }
 
 .page-tag {

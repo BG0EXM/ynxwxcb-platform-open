@@ -12,8 +12,8 @@
       </template>
     </page-header>
 
-    <el-card shadow="never">
-      <el-table :data="list" v-loading="loading">
+    <el-card shadow="never" class="gov-card">
+      <el-table :data="list" v-loading="loading" size="large">
         <template #empty>
           <empty-state description="暂无召开或安排的会议" />
         </template>
@@ -66,6 +66,17 @@
           </template>
         </el-table-column>
       </el-table>
+      <div class="pagination-wrap" v-if="total > 0" style="margin-top: 16px; display: flex; justify-content: flex-end;">
+        <el-pagination
+          v-model:current-page="page"
+          v-model:page-size="pageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="total"
+          @size-change="handleSizeChange"
+          @current-change="handlePageChange"
+        />
+      </div>
     </el-card>
 
     <!-- 1. 录入/编辑会议：右侧滑出抽屉（Drawer） -->
@@ -147,7 +158,7 @@
     >
       <el-tabs v-model="detailTab">
         <el-tab-pane :label="`参会人员名单 (${attendRegs.length}人)`" name="attend">
-          <el-table :data="attendRegs" size="small" class="mt-8">
+          <el-table :data="attendRegs" size="large" class="mt-8">
             <template #empty><empty-state description="暂无参会报名" /></template>
             <el-table-column prop="unit" label="参会单位" min-width="160" show-overflow-tooltip />
             <el-table-column prop="attendee_name" label="姓名" width="90" />
@@ -164,7 +175,7 @@
         </el-tab-pane>
 
         <el-tab-pane :label="`请假不参加 (${notAttendRegs.length}个单位)`" name="absent">
-          <el-table :data="notAttendRegs" size="small" class="mt-8">
+          <el-table :data="notAttendRegs" size="large" class="mt-8">
             <template #empty><empty-state description="全部参会，无请假单位" /></template>
             <el-table-column prop="unit" label="单位名称" width="180" show-overflow-tooltip />
             <el-table-column prop="reason" label="不参加事由" min-width="200" show-overflow-tooltip />
@@ -184,7 +195,7 @@
             class="mb-12"
             :title="`尚有 ${unconfirmedUnits.length} 个单位未进行网上报名确认。导出签到册时将自动留空供现场手填签到。`" 
           />
-          <el-table :data="unconfirmedUnits.map(u => ({ unit: u }))" size="small">
+          <el-table :data="unconfirmedUnits.map(u => ({ unit: u }))" size="large">
             <template #empty><empty-state description="所有参会单位均已确认完成！" /></template>
             <el-table-column prop="unit" label="待确认单位" min-width="220" />
             <el-table-column label="操作" width="140" align="center" fixed="right">
@@ -207,7 +218,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request, { exportFile } from '../utils/request'
 import dayjs from 'dayjs'
@@ -215,7 +227,12 @@ import PageHeader from '../components/PageHeader.vue'
 import StatusDot from '../components/StatusDot.vue'
 import EmptyState from '../components/EmptyState.vue'
 
+const route = useRoute()
+
 const list = ref([])
+const total = ref(0)
+const page = ref(1)
+const pageSize = ref(10)
 const loading = ref(false)
 const dialogVisible = ref(false)
 const editId = ref(0)
@@ -231,15 +248,25 @@ const detailMeeting = ref(null)
 const loadData = async () => {
   loading.value = true
   try {
-    const res = await request.get('/meetings')
+    const res = await request.get('/meetings', { params: { page: page.value, page_size: pageSize.value } })
     list.value = res.list || []
-  } catch (e) {
-  } finally {
+    total.value = res.total || 0
+  } catch (e) { console.error(e) } finally {
     loading.value = false
   }
 }
 
 const openCreate = () => {
+const handlePageChange = (val) => {
+  page.value = val
+  loadData()
+}
+
+const handleSizeChange = (val) => {
+  pageSize.value = val
+  page.value = 1
+  loadData()
+}
   editId.value = 0
   form.value = { title: '', meeting_date: dayjs().format('YYYY-MM-DD'), meeting_time: '', location: '', content: '', units: '', unit_limit: 1 }
   dialogVisible.value = true
@@ -273,7 +300,7 @@ const save = async () => {
     }
     dialogVisible.value = false
     loadData()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const handleRowCommand = (cmd, row) => {
@@ -303,7 +330,7 @@ const openDetail = async (row) => {
     unconfirmedUnits.value = res.unconfirmed_units || res.unconfirmed || []
     detailTab.value = 'attend'
     detailVisible.value = true
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const reloadDetail = async () => {
@@ -326,7 +353,7 @@ const handleAdminDeleteSeat = async (row) => {
     await request.post(`/meetings/${detailMeeting.value.id}/registrations/delete`, { reg_id: row.id })
     ElMessage.success('已移除该参会席位')
     reloadDetail()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const handleAdminChangeAbsent = async (unit) => {
@@ -347,7 +374,7 @@ const handleAdminChangeAbsent = async (unit) => {
     })
     ElMessage.success(`已成功将【${unit}】协调变更为请假不参加`)
     reloadDetail()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const handleAdminResetUnit = async (unit) => {
@@ -360,14 +387,14 @@ const handleAdminResetUnit = async (unit) => {
     await request.post(`/meetings/${detailMeeting.value.id}/registrations/reset-unit`, { unit })
     ElMessage.success(`已重置【${unit}】报名状态，恢复为待确认`)
     reloadDetail()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const exportReg = async (row) => {
   if (!row) return
   try {
     await exportFile(`/export/meeting-registrations?meeting_id=${row.id}`, {}, `${row.title}-签到册.xlsx`)
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const removeMeeting = async (row) => {
@@ -380,11 +407,20 @@ const removeMeeting = async (row) => {
     await request.delete(`/meetings/${row.id}`)
     ElMessage.success('已删除')
     loadData()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 onMounted(() => {
   loadData()
+  if (route.query.id) {
+    openDetail({ id: route.query.id, title: '' })
+  }
+})
+
+watch(() => route.query.id, (newId) => {
+  if (newId) {
+    openDetail({ id: newId, title: '' })
+  }
 })
 </script>
 

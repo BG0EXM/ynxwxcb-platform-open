@@ -13,7 +13,7 @@
     </page-header>
 
     <!-- 请假分类统计指标卡 -->
-    <el-card shadow="never">
+    <el-card shadow="never" class="gov-card">
       <template #header>
         <div class="card-header-flex">
           <div class="card-title-wrap">
@@ -49,7 +49,7 @@
     </el-card>
 
     <!-- 请假台账记录 -->
-    <el-card shadow="never" class="mt-16">
+    <el-card shadow="never" class="mt-16 gov-card">
       <div class="toolbar">
         <div class="filter-left">
           <el-date-picker 
@@ -86,7 +86,7 @@
         </div>
       </div>
 
-      <el-table :data="list" v-loading="loading" class="mt-12">
+      <el-table :data="list" v-loading="loading" class="mt-12" size="large">
         <template #empty>
           <empty-state description="暂无请假报备记录" />
         </template>
@@ -164,17 +164,17 @@
       size="560px"
       destroy-on-close
     >
-      <el-form :model="form" label-width="90px">
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
         <!-- 分组 1：申请主体与假期类型 -->
         <div class="form-section">
           <div class="form-section-title">休假主体与类型</div>
-          <el-form-item label="休假人员" v-if="authStore.isAdmin" required>
+          <el-form-item label="休假人员" v-if="authStore.isAdmin" prop="user_id">
             <el-select v-model="form.user_id" filterable placeholder="选择干部职工" style="width:100%">
               <el-option v-for="a in assignees" :key="a.id" :label="a.real_name + (a.department ? ' (' + a.department + ')' : '')" :value="a.id" />
             </el-select>
           </el-form-item>
 
-          <el-form-item label="假期类型" required>
+          <el-form-item label="假期类型" prop="leave_type">
             <el-select v-model="form.leave_type" placeholder="选择法定/因私假期" style="width:100%">
               <el-option v-for="(name, val) in leaveTypeNames" :key="val" :label="name" :value="val" />
             </el-select>
@@ -194,12 +194,12 @@
           <template v-if="form.duration_type === 'day'">
             <el-row :gutter="16">
               <el-col :span="12">
-                <el-form-item label="起始日期" required>
+                <el-form-item label="起始日期" prop="start_date">
                   <el-date-picker v-model="form.start_date" type="date" value-format="YYYY-MM-DD" style="width:100%" @change="calcDays" />
                 </el-form-item>
               </el-col>
               <el-col :span="12">
-                <el-form-item label="结束日期" required>
+                <el-form-item label="结束日期" prop="end_date">
                   <el-date-picker v-model="form.end_date" type="date" value-format="YYYY-MM-DD" style="width:100%" @change="calcDays" />
                 </el-form-item>
               </el-col>
@@ -213,7 +213,7 @@
           <template v-else>
             <el-row :gutter="16">
               <el-col :span="12">
-                <el-form-item label="休假日期" required>
+                <el-form-item label="休假日期" prop="start_date">
                   <el-date-picker v-model="form.start_date" type="date" value-format="YYYY-MM-DD" style="width:100%" @change="syncHourDate" />
                 </el-form-item>
               </el-col>
@@ -235,7 +235,7 @@
         <!-- 分组 3：事由 -->
         <div class="form-section">
           <div class="form-section-title">事由与审批备注</div>
-          <el-form-item label="请假事由" required>
+          <el-form-item label="请假事由" prop="reason">
             <el-input 
               v-model="form.reason" 
               type="textarea" 
@@ -279,7 +279,23 @@ const filterType = ref('')
 const userFilter = ref('')
 const monthFilter = ref('')
 const assignees = ref([])
+const formRef = ref(null)
 const form = reactive({ user_id: null, leave_type: 'annual', duration_type: 'day', start_date: dayjs().format('YYYY-MM-DD'), end_date: '', days: 1, leave_hours: 4, reason: '' })
+const rules = reactive({
+  user_id: [{ required: true, message: '请选择人员', trigger: 'change' }],
+  leave_type: [{ required: true, message: '请选择假期类型', trigger: 'change' }],
+  start_date: [{ required: true, message: '请选择开始日期', trigger: 'change' }],
+  end_date: [{ 
+    validator: (rule, value, callback) => {
+      if (form.duration_type === 'day' && !value) callback(new Error('请选择结束日期'))
+      else callback()
+    }, trigger: 'change' 
+  }],
+  reason: [
+    { required: true, message: '请填写请假事由', trigger: 'blur' },
+    { max: 200, message: '事由不超过 200 个字符', trigger: 'blur' }
+  ]
+})
 
 const leaveTypeNames = {
   annual: '年休假', sick: '病假', personal: '事假', marriage: '婚假',
@@ -317,14 +333,14 @@ const loadStats = async () => {
       count: t.count ?? 0,
       color: statColors[t.type] || '#909399'
     }))
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const loadAssignees = async () => {
   try {
     const res = await request.get('/assignees')
     assignees.value = res.list || []
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const loadData = async () => {
@@ -337,8 +353,7 @@ const loadData = async () => {
     const res = await request.get('/leaves', { params })
     list.value = res.list || []
     total.value = res.total || 0
-  } catch (e) {
-  } finally {
+  } catch (e) { console.error(e) } finally {
     loading.value = false
   }
 }
@@ -415,32 +430,31 @@ const openEdit = (row) => {
 }
 
 const saveLeave = async () => {
-  if (authStore.isAdmin && !form.user_id) return ElMessage.warning('请选择人员')
-  if (!form.start_date) return ElMessage.warning('请选择开始日期')
-  if (form.duration_type === 'day' && !form.end_date) return ElMessage.warning('请选择结束日期')
-  if (!form.reason) return ElMessage.warning('请填写请假事由')
-
-  try {
-    const payload = {
-      user_id: form.user_id || authStore.user?.id,
-      leave_type: form.leave_type,
-      start_date: form.start_date,
-      end_date: form.duration_type === 'hour' ? form.start_date : form.end_date,
-      days: form.days,
-      leave_hours: form.duration_type === 'hour' ? form.leave_hours : 0,
-      reason: form.reason
-    }
-    if (editId.value) {
-      await request.put('/leaves', { ...payload, id: editId.value })
-      ElMessage.success('修改成功')
-    } else {
-      await request.post('/leaves', payload)
-      ElMessage.success('请假登记成功')
-    }
-    drawerVisible.value = false
-    loadData()
-    loadStats()
-  } catch (e) {}
+  if (!formRef.value) return
+  await formRef.value.validate(async (valid) => {
+    if (!valid) return
+    try {
+      const payload = {
+        user_id: form.user_id || authStore.user?.id,
+        leave_type: form.leave_type,
+        start_date: form.start_date,
+        end_date: form.duration_type === 'hour' ? form.start_date : form.end_date,
+        days: form.days,
+        leave_hours: form.duration_type === 'hour' ? form.leave_hours : 0,
+        reason: form.reason
+      }
+      if (editId.value) {
+        await request.put('/leaves', { ...payload, id: editId.value })
+        ElMessage.success('修改成功')
+      } else {
+        await request.post('/leaves', payload)
+        ElMessage.success('请假登记成功')
+      }
+      drawerVisible.value = false
+      loadData()
+      loadStats()
+    } catch (e) { console.error(e) }
+  })
 }
 
 const handleRowCommand = (cmd, row) => {
@@ -459,7 +473,7 @@ const removeLeave = async (row) => {
     ElMessage.success('已删除')
     loadData()
     loadStats()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const openPrint = (row) => {
@@ -475,7 +489,7 @@ const exportData = async () => {
     if (userFilter.value) params.user_id = userFilter.value
     if (monthFilter.value) params.month = monthFilter.value
     await exportFile('/export/leaves', params, '请假登记台账.xlsx')
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 onMounted(() => {

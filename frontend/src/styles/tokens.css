@@ -16,7 +16,7 @@
   --yx-ink-2: #24406e;            /* 墨蓝：主操作色（= Element primary） */
 
   /* ---------- 中性色 ---------- */
-  --yx-bg: #f6f5f2;               /* 页面暖白背景 */
+  --yx-bg: #F5F7FA;               /* 页面暖白背景 */
   --yx-surface: #ffffff;          /* 卡片 / 顶栏 */
   --yx-text-1: #1f2329;           /* 正文、标题 */
   --yx-text-2: #4e5969;           /* 次要文字 */
@@ -48,7 +48,7 @@
 
   /* ---------- 字体栈 ---------- */
   --yx-font-serif: "YX Serif SC", "Source Han Serif SC", "Noto Serif SC", "Songti SC", "STSong", "SimSun", serif;
-  --yx-font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
+  --yx-font-sans: "SimHei", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
   --yx-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
 
@@ -133,14 +133,14 @@
 
 /* ===== Element Plus 色板映射 ===== */
 :root {
-  /* 主色：墨蓝 */
-  --el-color-primary: #24406e;
-  --el-color-primary-light-3: #66799a;
-  --el-color-primary-light-5: #92a0b7;
-  --el-color-primary-light-7: #bdc6d4;
-  --el-color-primary-light-8: #d3d9e2;
-  --el-color-primary-light-9: #e9ecf1;
-  --el-color-primary-dark-2: #1d3358;
+  /* 主色：政务红 */
+  --el-color-primary: #a62122;
+  --el-color-primary-light-3: #c16364;
+  --el-color-primary-light-5: #d39091;
+  --el-color-primary-light-7: #e4bcbd;
+  --el-color-primary-light-8: #ecd2d3;
+  --el-color-primary-light-9: #f6e9e9;
+  --el-color-primary-dark-2: #851a1b;
 
   /* 成功：松绿 */
   --el-color-success: #2e7d5b;
@@ -202,7 +202,7 @@
   --el-fill-color: #f0f1f3;
   --el-fill-color-light: #f5f6f8;
   --el-fill-color-lighter: #f9fafb;
-  --el-bg-color-page: #f6f5f2;
+  --el-bg-color-page: #F5F7FA;
 
   /* 圆角 / 字号 */
   --el-border-radius-base: 6px;

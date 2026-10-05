@@ -16,7 +16,7 @@
         <circle cx="76" cy="62" r="6" fill="rgba(184, 146, 90, 0.15)" stroke="var(--yx-gold)" stroke-width="1.2" />
       </svg>
     </div>
-    <p class="empty-text">{{ description || '暂无相关记录' }}</p>
+    <p class="empty-text">{{ description || '暂无相关档案或卷宗记录' }}</p>
     <div v-if="$slots.action" class="empty-action">
       <slot name="action"></slot>
     </div>
@@ -27,7 +27,7 @@
 defineProps({
   description: {
     type: String,
-    default: '暂无相关记录'
+    default: '暂无相关档案或卷宗记录'
   }
 })
 </script>

@@ -148,7 +148,7 @@ const loadDepartments = async () => {
   try {
     const res = await request.get('/departments')
     departments.value = res.list || []
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 // 当月所有日历格子（含前后补位）
@@ -223,8 +223,7 @@ const loadData = async () => {
   try {
     const res = await request.get('/calendar-tasks', { params: { start: range.value.start, end: range.value.end } })
     tasks.value = (res.list || []).map(markSpan)
-  } catch (e) {
-  } finally {
+  } catch (e) { console.error(e) } finally {
     loading.value = false
   }
 }
@@ -289,7 +288,7 @@ const save = async () => {
     }
     dialogVisible.value = false
     loadData()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const removeTask = async (row) => {
@@ -299,12 +298,12 @@ const removeTask = async (row) => {
   }
   try {
     await ElMessageBox.confirm(`确认删除工作「${row.title}」？`, '删除确认', { type: 'warning', confirmButtonText: '删除' })
-  } catch (e) { return }
+  } catch (e) { console.error(e); return }
   try {
     await request.delete(`/calendar-tasks/${row.id}`)
     ElMessage.success('删除成功')
     loadData()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const reloadExport = () => {}

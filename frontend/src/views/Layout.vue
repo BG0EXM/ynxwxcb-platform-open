@@ -104,6 +104,16 @@
         </div>
 
         <div class="header-right">
+          <!-- 全局搜索控制台触发按钮 -->
+          <div class="header-search-btn" @click="openSearchModal" title="全局搜索 (⌘K / Ctrl+K)">
+            <el-icon class="search-btn-icon"><Search /></el-icon>
+            <span class="search-btn-text hidden-xs">搜索公文、人员、资料...</span>
+            <div class="search-btn-shortcut hidden-xs">
+              <kbd>{{ isMac ? '⌘' : 'Ctrl' }}</kbd>
+              <kbd>K</kbd>
+            </div>
+          </div>
+
           <!-- 今日日期 -->
           <div class="header-date hidden-xs">
             <el-icon class="date-icon"><Calendar /></el-icon>
@@ -148,6 +158,9 @@
         <router-view />
       </el-main>
     </el-container>
+
+    <!-- 全局快捷速查与指令面板 -->
+    <GlobalSearchModal ref="searchModalRef" />
   </el-container>
 </template>
 
@@ -157,10 +170,18 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../store/auth'
 import request from '../utils/request'
+import GlobalSearchModal from '../components/GlobalSearchModal.vue'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+
+const searchModalRef = ref(null)
+const isMac = ref(typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform))
+
+const openSearchModal = () => {
+  searchModalRef.value?.open()
+}
 
 const collapsed = ref(false)
 const mobileOpen = ref(false)
@@ -214,7 +235,8 @@ const menuGroups = computed(() => {
     hp('standing.manage') && { path: '/standing', title: '常委管理', icon: 'UserFilled' },
     hp('user.manage') && { path: '/users', title: '用户管理', icon: 'User' },
     hp('user.manage') && { path: '/permissions', title: '权限管理', icon: 'Lock' },
-    hp('oplog.view') && { path: '/operation-logs', title: '操作日志', icon: 'Files' }
+    hp('oplog.view') && { path: '/operation-logs', title: '操作日志', icon: 'Files' },
+    hp('user.manage') && { path: '/backups', title: '数据备份', icon: 'Coin' }
   ].filter(Boolean)
   if (sys.length) {
     groups.push({ title: '系统管理', icon: 'Setting', items: sys })
@@ -250,11 +272,99 @@ const loadUnread = async () => {
   try {
     const res = await request.get('/dashboard-stats')
     unread.value = res.pending_incoming || 0
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const refreshUnread = () => {
   loadUnread()
+}
+
+const initWatermark = () => {
+  const userStr = localStorage.getItem('user')
+  let real_name = '用户'
+  let phone = ''
+  if (userStr) {
+    try {
+      const user = JSON.parse(userStr)
+      if (user.real_name) real_name = user.real_name
+      if (user.phone) phone = String(user.phone).slice(-4)
+    } catch (e) {}
+  }
+  
+  const text1 = '内部系统 严禁外传'
+  const text2 = `${real_name} ${phone}`
+  const now = new Date()
+  const text3 = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`
+
+  const canvas = document.createElement('canvas')
+  canvas.width = 320
+  canvas.height = 220
+  const ctx = canvas.getContext('2d')
+  ctx.translate(160, 110)
+  ctx.rotate(-20 * Math.PI / 180)
+  ctx.fillStyle = 'rgba(150, 150, 150, 0.15)'
+  ctx.font = '16px "Microsoft YaHei"'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(text1, 0, -25)
+  ctx.fillText(text2, 0, 0)
+  ctx.fillText(text3, 0, 25)
+
+  const bgUrl = canvas.toDataURL('image/png')
+  
+  const createDiv = () => {
+    let div = document.getElementById('sys-watermark')
+    if (!div) {
+      div = document.createElement('div')
+      div.id = 'sys-watermark'
+      div.style.position = 'fixed'
+      div.style.top = '0'
+      div.style.left = '0'
+      div.style.width = '100vw'
+      div.style.height = '100vh'
+      div.style.pointerEvents = 'none'
+      div.style.zIndex = '99999'
+      document.body.appendChild(div)
+    }
+    div.style.backgroundImage = `url(${bgUrl})`
+    div.style.display = 'block'
+    div.style.opacity = '1'
+    div.style.visibility = 'visible'
+    return div
+  }
+
+  let watermarkDiv = createDiv()
+
+  const observer = new MutationObserver((mutations) => {
+    let shouldRestore = false
+    for (const m of mutations) {
+      if (m.type === 'childList') {
+        m.removedNodes.forEach(node => {
+          if (node === watermarkDiv || node.id === 'sys-watermark') {
+            shouldRestore = true
+          }
+        })
+      } else if (m.type === 'attributes' && m.target === watermarkDiv) {
+        if (
+          watermarkDiv.style.display === 'none' ||
+          watermarkDiv.style.opacity === '0' ||
+          watermarkDiv.style.visibility === 'hidden' ||
+          watermarkDiv.style.zIndex !== '99999'
+        ) {
+          shouldRestore = true
+        }
+      }
+    }
+    if (shouldRestore) {
+      observer.disconnect()
+      const oldDiv = document.getElementById('sys-watermark')
+      if (oldDiv) oldDiv.remove()
+      watermarkDiv = createDiv()
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true })
+    }
+  })
+  
+  observer.observe(document.body, { childList: true, subtree: true, attributes: true })
 }
 
 onMounted(() => {
@@ -263,6 +373,7 @@ onMounted(() => {
   checkMobile()
   window.addEventListener('resize', checkMobile)
   window.addEventListener('incoming-changed', refreshUnread)
+  setTimeout(() => initWatermark(), 500)
 })
 
 onUnmounted(() => {
@@ -389,6 +500,7 @@ const handleCommand = (cmd) => {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
+  transition: all 0.3s ease;
 }
 
 .sidebar-menu :deep(.el-menu-item) {
@@ -399,7 +511,7 @@ const handleCommand = (cmd) => {
   color: rgba(255, 255, 255, 0.72);
   font-size: var(--yx-fs-sm);
   position: relative;
-  transition: background 0.2s ease, color 0.2s ease;
+  transition: all 0.3s ease;
 }
 
 .sidebar-menu :deep(.el-menu-item:hover) {
@@ -407,9 +519,9 @@ const handleCommand = (cmd) => {
   color: #ffffff;
 }
 
-/* 选中项：鎏金细条 + 雅致金色底 */
+/* 选中项：政务红变体 */
 .sidebar-menu :deep(.el-menu-item.is-active) {
-  background: rgba(184, 146, 90, 0.16) !important;
+  background: rgba(158, 27, 30, 0.16) !important;
   color: #ffffff !important;
   font-weight: 500;
 }
@@ -423,7 +535,7 @@ const handleCommand = (cmd) => {
   width: 3.5px;
   height: 22px;
   border-radius: 0 3px 3px 0;
-  background: linear-gradient(180deg, var(--yx-gold-light), var(--yx-gold));
+  background: linear-gradient(180deg, #e53935, #9e1b1e);
 }
 
 .sidebar-menu :deep(.el-sub-menu__title) {
@@ -433,7 +545,7 @@ const handleCommand = (cmd) => {
   margin-bottom: 4px;
   color: rgba(255, 255, 255, 0.65);
   font-size: var(--yx-fs-sm);
-  transition: background 0.2s ease, color 0.2s ease;
+  transition: all 0.3s ease;
 }
 
 .sidebar-menu :deep(.el-sub-menu__title:hover) {
@@ -456,7 +568,7 @@ const handleCommand = (cmd) => {
 }
 
 .sidebar-menu :deep(.el-sub-menu .el-menu-item.is-active) {
-  background: rgba(184, 146, 90, 0.16) !important;
+  background: rgba(158, 27, 30, 0.16) !important;
   color: #ffffff !important;
 }
 
@@ -543,7 +655,63 @@ const handleCommand = (cmd) => {
 .header-right {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 14px;
+}
+
+/* 顶栏全局搜索按钮 */
+.header-search-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f5f6f8;
+  border: 1px solid #dcdfe5;
+  border-radius: 20px;
+  padding: 5px 12px;
+  cursor: pointer;
+  color: var(--yx-text-3);
+  font-size: 13px;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.header-search-btn:hover {
+  background: #ffffff;
+  border-color: var(--yx-brand);
+  color: var(--yx-text-1);
+  box-shadow: 0 2px 8px rgba(158, 27, 30, 0.08);
+}
+
+.search-btn-icon {
+  font-size: 14px;
+  color: var(--yx-brand);
+}
+
+.search-btn-text {
+  font-size: 13px;
+  color: var(--yx-text-3);
+}
+
+.header-search-btn:hover .search-btn-text {
+  color: var(--yx-text-2);
+}
+
+.search-btn-shortcut {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+}
+
+.search-btn-shortcut kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  font-size: 10.5px;
+  font-family: var(--yx-font-mono, monospace);
+  color: var(--yx-text-3);
+  background: #ffffff;
+  border: 1px solid #dcdfe5;
+  border-radius: 4px;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.06);
 }
 
 .header-date {

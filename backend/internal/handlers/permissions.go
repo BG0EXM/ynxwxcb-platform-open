@@ -17,6 +17,7 @@ func GetPermissionMatrix(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
+	defer roleRows.Close()
 	roles := []models.Role{}
 	for roleRows.Next() {
 		var role models.Role
@@ -26,11 +27,9 @@ func GetPermissionMatrix(w http.ResponseWriter, r *http.Request) {
 		roles = append(roles, role)
 	}
 	if err := roleRows.Err(); err != nil {
-		roleRows.Close()
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
-	roleRows.Close()
 
 	// 角色-权限映射（按角色 code 聚合）
 	matrix := map[string][]string{}
@@ -43,6 +42,7 @@ func GetPermissionMatrix(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
+	defer permRows.Close()
 	for permRows.Next() {
 		var roleCode, code string
 		if err := permRows.Scan(&roleCode, &code); err != nil {
@@ -51,11 +51,9 @@ func GetPermissionMatrix(w http.ResponseWriter, r *http.Request) {
 		matrix[roleCode] = append(matrix[roleCode], code)
 	}
 	if err := permRows.Err(); err != nil {
-		permRows.Close()
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
-	permRows.Close()
 
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{
 		"permissions": database.PermissionCatalog,
@@ -89,6 +87,7 @@ func SavePermissionMatrix(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "保存失败"})
 		return
 	}
+	defer rrows.Close()
 	for rrows.Next() {
 		var id int64
 		var code string
@@ -96,7 +95,6 @@ func SavePermissionMatrix(w http.ResponseWriter, r *http.Request) {
 			roleCodeByID[id] = code
 		}
 	}
-	rrows.Close()
 
 	tx, err := database.DB.Begin()
 	if err != nil {

@@ -11,46 +11,67 @@
       </template>
     </page-header>
 
-    <el-card shadow="never">
-      <div class="toolbar">
-        <div>
-          <el-input v-model="keyword" placeholder="搜索姓名/用户名" clearable style="width: 220px"
-            @keyup.enter="loadData" @clear="loadData">
-            <template #append><el-button :icon="'Search'" @click="loadData" /></template>
-          </el-input>
-        </div>
-      </div>
+    <el-row :gutter="20">
+      <el-col :span="5">
+        <el-card shadow="never" class="gov-card" style="height: 100%; border: none;">
+          <el-tree
+            :data="treeData"
+            :props="{ label: 'name', children: 'children' }"
+            default-expand-all
+            highlight-current
+            @node-click="handleNodeClick"
+          />
+        </el-card>
+      </el-col>
+      
+      <el-col :span="19">
+        <el-card shadow="never" class="gov-card">
+          <div class="toolbar">
+            <div>
+              <el-input v-model="keyword" placeholder="搜索姓名/用户名" clearable style="width: 220px"
+                @keyup.enter="loadData" @clear="loadData">
+                <template #append><el-button :icon="'Search'" @click="loadData" /></template>
+              </el-input>
+            </div>
+          </div>
 
-      <el-table :data="list" stripe v-loading="loading" empty-text="暂无用户">
-        <el-table-column prop="id" label="ID" width="60" />
-        <el-table-column prop="username" label="用户名" width="130" />
-        <el-table-column prop="real_name" label="姓名" width="120" />
-        <el-table-column prop="department_name" label="部门" width="140" />
-        <el-table-column prop="role_name" label="角色" width="120">
-          <template #default="{ row }">
-            <el-tag size="small" :type="roleTag(row.role_name)">{{ row.role_name }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="phone" label="电话" width="140" />
-        <el-table-column label="状态" width="80">
-          <template #default="{ row }">
-            <el-tag size="small" :type="row.status === 1 ? 'success' : 'danger'">
-              {{ row.status === 1 ? '启用' : '禁用' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="240" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
-            <el-button link type="warning" size="small" @click="resetPwd(row)">重置密码</el-button>
-            <el-button link type="danger" size="small" @click="toggleStatus(row)">
-              {{ row.status === 1 ? '禁用' : '启用' }}
-            </el-button>
-            <el-button link type="danger" size="small" @click="removeUser(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
+          <el-table size="large" :data="list" stripe v-loading="loading" empty-text="暂无用户">
+            <el-table-column prop="id" label="ID" width="60" />
+            <el-table-column prop="username" label="用户名" width="130" />
+            <el-table-column prop="real_name" label="姓名" width="120">
+              <template #default="{ row }">
+                <el-button link type="primary" class="font-medium" @click="openProfile(row)">{{ row.real_name }}</el-button>
+              </template>
+            </el-table-column>
+            <el-table-column prop="department_name" label="部门" width="140" />
+            <el-table-column prop="role_name" label="角色" width="120">
+              <template #default="{ row }">
+                <el-tag size="small" :type="roleTag(row.role_name)">{{ row.role_name }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="phone" label="电话" width="140" />
+            <el-table-column label="状态" width="80">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.status === 1 ? 'success' : 'danger'">
+                  {{ row.status === 1 ? '启用' : '禁用' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="300" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" size="small" @click="openProfile(row)">出勤档案</el-button>
+                <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
+                <el-button link type="warning" size="small" @click="resetPwd(row)">重置密码</el-button>
+                <el-button link type="danger" size="small" @click="toggleStatus(row)">
+                  {{ row.status === 1 ? '禁用' : '启用' }}
+                </el-button>
+                <el-button link type="danger" size="small" @click="removeUser(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </el-col>
+    </el-row>
 
     <el-drawer v-model="dialogVisible" :title="editId ? '编辑用户' : '新建用户'" size="540px">
       <el-form :model="form" label-width="80px">
@@ -87,7 +108,7 @@
           @keyup.enter="addDept" />
         <el-button type="primary" :icon="'Plus'" @click="addDept">添加部门</el-button>
       </div>
-      <el-table :data="depts" stripe empty-text="暂无部门">
+      <el-table size="large" :data="depts" stripe empty-text="暂无部门">
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column prop="name" label="部门名称" min-width="200" />
         <el-table-column label="操作" width="180" fixed="right">
@@ -98,15 +119,23 @@
         </el-table-column>
       </el-table>
     </el-drawer>
+
+    <!-- 干部出勤与休假个人全息档案抽屉 -->
+    <attendance-profile-drawer
+      v-model:visible="profileDrawerVisible"
+      :user-id="currentProfileUserId"
+      :user-name="currentProfileUserName"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '../utils/request'
 import { useAuthStore } from '../store/auth'
 import PageHeader from '../components/PageHeader.vue'
+import AttendanceProfileDrawer from '../components/AttendanceProfileDrawer.vue'
 
 const authStore = useAuthStore()
 
@@ -119,15 +148,34 @@ const dialogVisible = ref(false)
 const editId = ref(0)
 const form = reactive({ username: '', real_name: '', department_id: null, role_id: 2, phone: '', status: 1 })
 
+// 干部出勤全息档案
+const profileDrawerVisible = ref(false)
+const currentProfileUserId = ref(null)
+const currentProfileUserName = ref('')
+
+const openProfile = (row) => {
+  currentProfileUserId.value = row.id
+  currentProfileUserName.value = row.real_name
+  profileDrawerVisible.value = true
+}
+
 const roleTag = (r) => ({ '系统管理员': 'danger', '科室工作人员': 'primary', '乡镇/通讯员': 'success' }[r] || 'info')
+
+const searchDeptId = ref('')
+const treeData = computed(() => {
+  return [{ id: '', name: '中共伊宁县委宣传部', children: departments.value || [] }]
+})
+const handleNodeClick = (data) => {
+  searchDeptId.value = data.id || ''
+  loadData()
+}
 
 const loadData = async () => {
   loading.value = true
   try {
-    const res = await request.get('/users', { params: { keyword: keyword.value } })
+    const res = await request.get('/users', { params: { keyword: keyword.value, department_id: searchDeptId.value } })
     list.value = res.list || []
-  } catch (e) {
-  } finally {
+  } catch (e) { console.error(e) } finally {
     loading.value = false
   }
 }
@@ -138,7 +186,7 @@ const loadOptions = async () => {
     departments.value = d.list || []
     depts.value = d.list || []
     roles.value = r.list || []
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const openCreate = () => {
@@ -169,29 +217,29 @@ const save = async () => {
     }
     dialogVisible.value = false
     loadData()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const resetPwd = async (row) => {
   try {
     await ElMessageBox.confirm(`确认重置「${row.real_name}」的密码为 123456？`, '提示', { type: 'warning' })
-  } catch (e) { return }
+  } catch (e) { console.error(e); return }
   try {
     await request.post('/users/reset-password', { id: row.id })
     ElMessage.success('密码已重置')
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const toggleStatus = async (row) => {
   const newStatus = row.status === 1 ? 0 : 1
   try {
     await ElMessageBox.confirm(`确认${newStatus === 1 ? '启用' : '禁用'}「${row.real_name}」？`, '提示', { type: 'warning' })
-  } catch (e) { return }
+  } catch (e) { console.error(e); return }
   try {
     await request.put('/users', { ...row, status: newStatus })
     ElMessage.success('操作成功')
     loadData()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const removeUser = async (row) => {
@@ -204,12 +252,12 @@ const removeUser = async (row) => {
       '删除确认',
       { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
     )
-  } catch (e) { return }
+  } catch (e) { console.error(e); return }
   try {
     await request.delete(`/users/${row.id}`)
     ElMessage.success('用户已删除')
     loadData()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const deptVisible = ref(false)
@@ -228,7 +276,7 @@ const loadDepts = async () => {
   try {
     const res = await request.get('/departments')
     depts.value = res.list || []
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const addDept = async () => {
@@ -246,7 +294,7 @@ const addDept = async () => {
     editDeptId.value = 0
     loadDepts()
     loadOptions()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const editDept = (row) => {
@@ -257,13 +305,13 @@ const editDept = (row) => {
 const removeDept = async (row) => {
   try {
     await ElMessageBox.confirm(`确认删除部门「${row.name}」？`, '删除确认', { type: 'warning', confirmButtonText: '删除' })
-  } catch (e) { return }
+  } catch (e) { console.error(e); return }
   try {
     await request.delete(`/departments/${row.id}`)
     ElMessage.success('部门已删除')
     loadDepts()
     loadOptions()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 onMounted(() => {

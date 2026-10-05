@@ -167,6 +167,12 @@ const routes = [
         meta: { title: '操作日志', icon: 'Document', admin: true }
       },
       {
+        path: 'backups',
+        name: 'backups',
+        component: () => import('../views/DatabaseBackup.vue'),
+        meta: { title: '数据备份', icon: 'Coin', admin: true }
+      },
+      {
         path: 'profile',
         name: 'profile',
         component: () => import('../views/Profile.vue'),
@@ -178,7 +184,22 @@ const routes = [
 
 const router = createRouter({
   history: createWebHistory(),
-  routes
+  routes: [
+    ...routes,
+    {
+      path: '/mobile',
+      component: () => import('../views/mobile/Layout.vue'),
+      redirect: '/mobile/home',
+      children: [
+        {
+          path: 'home',
+          name: 'mobile-home',
+          component: () => import('../views/mobile/Home.vue'),
+          meta: { title: '移动端首页' }
+        }
+      ]
+    }
+  ]
 })
 
 // 公开路径（无需登录）
@@ -208,10 +229,16 @@ const routePerms = {
   meetings: 'meeting.manage',
   users: 'user.manage',
   permissions: 'user.manage',
-  'operation-logs': 'oplog.view'
+  'operation-logs': 'oplog.view',
+  backups: 'user.manage'
 }
 
 router.beforeEach((to, from, next) => {
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+  if (isMobile && to.path !== '/login' && !to.path.startsWith('/mobile')) {
+    return next('/mobile/home')
+  }
+
   const token = localStorage.getItem('token')
   const isPublic = publicPaths.some(p => to.path.startsWith(p))
   if (!token && !isPublic) {
@@ -240,7 +267,7 @@ router.beforeEach((to, from, next) => {
         return
       }
     }
-    document.title = to.meta.title ? `${to.meta.title} - 伊宁县委宣传部部务工作平台 V1.5.2` : '伊宁县委宣传部部务工作平台 V1.5.2'
+    document.title = to.meta.title ? `${to.meta.title} - 伊宁县委宣传部部务工作平台 V1.6.0` : '伊宁县委宣传部部务工作平台 V1.6.0'
     next()
   }
 })

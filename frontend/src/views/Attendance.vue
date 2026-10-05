@@ -163,7 +163,7 @@ const loadMarkUsers = async () => {
     const res = await request.get('/attendance/mark-users', { params: { date: markDate.value } })
     markUsers.value = res.list || []
     saved.value = !!res.saved
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const markAllPresent = () => {
@@ -182,7 +182,7 @@ const saveMark = async () => {
   if (!markUsers.value.length) return ElMessage.warning('没有人员')
   try {
     await ElMessageBox.confirm(`确认保存 ${markDate.value} 的考勤点到？保存后仍可再次修改。`, '点到确认', { type: 'warning' })
-  } catch (e) { return }
+  } catch (e) { console.error(e); return }
   saving.value = true
   try {
     const records = markUsers.value.map(u => ({
@@ -194,8 +194,7 @@ const saveMark = async () => {
     loadStats()
     loadData()
     loadRecordedDates()
-  } catch (e) {
-  } finally {
+  } catch (e) { console.error(e) } finally {
     saving.value = false
   }
 }
@@ -211,8 +210,7 @@ const loadData = async () => {
     const res = await request.get('/attendance/list', { params })
     list.value = res.list || []
     total.value = res.total || 0
-  } catch (e) {
-  } finally {
+  } catch (e) { console.error(e) } finally {
     loading.value = false
   }
 }
@@ -222,14 +220,14 @@ const loadStats = async () => {
   try {
     const res = await request.get('/attendance/stats', { params: { date: queryDate.value } })
     stats.value = res
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const loadAssignees = async () => {
   try {
     const res = await request.get('/assignees')
     assignees.value = res.list || []
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const goStats = () => {
@@ -247,7 +245,7 @@ const loadRecordedDates = async () => {
   try {
     const res = await request.get('/attendance/dates')
     recordedDates.value = res.dates || []
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 // 日历单元格样式：已点到标绿，未点到标红

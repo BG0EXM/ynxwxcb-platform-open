@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"strconv"
 
 	"ynxwxcb-platform/internal/database"
 	"ynxwxcb-platform/internal/middleware"
@@ -15,6 +16,31 @@ import (
 func ListStudyMaterials(w http.ResponseWriter, r *http.Request) {
 	keyword := r.URL.Query().Get("keyword")
 	category := r.URL.Query().Get("category")
+	pageStr := r.URL.Query().Get("page")
+	pageSizeStr := r.URL.Query().Get("page_size")
+
+	page, _ := strconv.Atoi(pageStr)
+	if page <= 0 {
+		page = 1
+	}
+	pageSize, _ := strconv.Atoi(pageSizeStr)
+	if pageSize <= 0 {
+		pageSize = 10
+	}
+	offset := (page - 1) * pageSize
+
+	countQuery := `SELECT COUNT(*) FROM study_materials s WHERE 1=1`
+	countArgs := []interface{}{}
+	if keyword != "" {
+		countQuery += ` AND s.title LIKE ?`
+		countArgs = append(countArgs, "%"+keyword+"%")
+	}
+	if category != "" {
+		countQuery += ` AND s.category = ?`
+		countArgs = append(countArgs, category)
+	}
+	var total int
+	database.DB.QueryRow(countQuery, countArgs...).Scan(&total)
 
 	query := `SELECT s.id, s.title, s.content, s.category, s.publisher_id, u.real_name, s.read_count, s.created_at, s.updated_at
 		FROM study_materials s LEFT JOIN users u ON s.publisher_id = u.id WHERE 1=1`
@@ -27,7 +53,8 @@ func ListStudyMaterials(w http.ResponseWriter, r *http.Request) {
 		query += ` AND s.category = ?`
 		args = append(args, category)
 	}
-	query += ` ORDER BY s.id DESC`
+	query += ` ORDER BY s.id DESC LIMIT ? OFFSET ?`
+	args = append(args, pageSize, offset)
 
 	rows, err := database.DB.Query(query, args...)
 	if err != nil {
@@ -56,7 +83,7 @@ func ListStudyMaterials(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	middleware.JSON(w, http.StatusOK, map[string]interface{}{"list": materials})
+	middleware.JSON(w, http.StatusOK, map[string]interface{}{"list": materials, "total": total})
 }
 
 // CreateStudyMaterial 发布公共资料
@@ -148,6 +175,7 @@ func DeleteStudyMaterial(w http.ResponseWriter, r *http.Request) {
 	// 先删附件文件，再删附件记录与资料本体
 	rows, err := database.DB.Query("SELECT file_path FROM attachments WHERE owner_type='study' AND owner_id=?", id)
 	if err == nil {
+		defer rows.Close()
 		paths := []string{}
 		for rows.Next() {
 			var p sql.NullString
@@ -158,7 +186,6 @@ func DeleteStudyMaterial(w http.ResponseWriter, r *http.Request) {
 				paths = append(paths, p.String)
 			}
 		}
-		rows.Close()
 		for _, p := range paths {
 			os.Remove(p)
 		}

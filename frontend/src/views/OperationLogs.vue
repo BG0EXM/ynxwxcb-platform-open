@@ -81,8 +81,7 @@ const loadData = async () => {
     const res = await request.get('/operation-logs', { params })
     list.value = res.list || []
     total.value = res.total || 0
-  } catch (e) {
-  } finally {
+  } catch (e) { console.error(e) } finally {
     loading.value = false
   }
 }

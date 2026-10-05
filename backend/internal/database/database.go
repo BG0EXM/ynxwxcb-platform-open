@@ -25,8 +25,8 @@ func Init(dbPath string) error {
 		return fmt.Errorf("打开数据库失败: %v", err)
 	}
 
-	DB.SetMaxOpenConns(1) // SQLite 单写者，避免锁竞争
-	DB.SetMaxIdleConns(1)
+	DB.SetMaxOpenConns(20) // SQLite 单写者，避免锁竞争
+	DB.SetMaxIdleConns(5)
 	DB.SetConnMaxLifetime(time.Hour)
 
 	if err := DB.Ping(); err != nil {
@@ -105,6 +105,8 @@ var migrations = []migration{
 	{12, "新增操作日志表（管理员审计）", migrateV12},
 	{13, "新增权限点与角色-权限矩阵", migrateV13},
 	{14, "用户令牌版本（token_version，支持改密/禁用后旧令牌失效）", migrateV14},
+	{15, "公文在办流转状态与归档卷盒管理（handling_status, archive_box_no, archive_year）", migrateV15},
+	{16, "新增公文承办科室与备注", migrateV16},
 }
 
 // migrateV2 版本2：用车报备支持科室人开车（增加 driver_name 字段）
@@ -439,6 +441,32 @@ func migrateV14() error {
 			return err
 		}
 	}
+	return nil
+}
+
+// migrateV15 版本15：公文在办流转状态与归档卷盒管理
+func migrateV15() error {
+	if !hasColumn("incoming_docs", "handling_status") {
+		if _, err := DB.Exec("ALTER TABLE incoming_docs ADD COLUMN handling_status TEXT DEFAULT 'pending'"); err != nil {
+			return err
+		}
+	}
+	if !hasColumn("incoming_docs", "archive_box_no") {
+		if _, err := DB.Exec("ALTER TABLE incoming_docs ADD COLUMN archive_box_no TEXT DEFAULT ''"); err != nil {
+			return err
+		}
+	}
+	if !hasColumn("incoming_docs", "archive_year") {
+		if _, err := DB.Exec("ALTER TABLE incoming_docs ADD COLUMN archive_year TEXT DEFAULT ''"); err != nil {
+			return err
+		}
+	}
+	// 平滑过渡现有数据
+	DB.Exec("UPDATE incoming_docs SET handling_status = 'pending' WHERE handling_status IS NULL OR handling_status = ''")
+	DB.Exec("UPDATE incoming_docs SET archive_box_no = '' WHERE archive_box_no IS NULL")
+	DB.Exec("UPDATE incoming_docs SET archive_year = '' WHERE archive_year IS NULL")
+	DB.Exec("CREATE INDEX IF NOT EXISTS idx_incoming_handling_status ON incoming_docs(handling_status)")
+	DB.Exec("CREATE INDEX IF NOT EXISTS idx_incoming_archive_box ON incoming_docs(archive_box_no)")
 	return nil
 }
 
@@ -787,6 +815,9 @@ func createTables() error {
 			need_return INTEGER DEFAULT 0,
 			registrar_id INTEGER,
 			status INTEGER DEFAULT 1,
+			handling_status TEXT DEFAULT 'pending',
+			archive_box_no TEXT DEFAULT '',
+			archive_year TEXT DEFAULT '',
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
@@ -825,6 +856,10 @@ func createTables() error {
 		`CREATE INDEX IF NOT EXISTS idx_al_config_user ON annual_leave_configs(user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_al_config_year ON annual_leave_configs(year)`,
 		`CREATE INDEX IF NOT EXISTS idx_meeting_id ON meeting_registrations(meeting_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_attachments_owner_id ON attachments(owner_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_vehicle_applies_vehicle_id ON vehicle_applies(vehicle_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_circulation_records_doc_id ON circulation_records(doc_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_meeting_registrations_meeting_id ON meeting_registrations(meeting_id)`,
 		`CREATE TABLE IF NOT EXISTS operation_logs (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			user_id INTEGER,
@@ -915,5 +950,19 @@ func seed() error {
 		}
 	}
 
+	return nil
+}
+
+func migrateV16() error {
+	if !hasColumn("incoming_docs", "assigned_department") {
+		if _, err := DB.Exec("ALTER TABLE incoming_docs ADD COLUMN assigned_department TEXT DEFAULT ''"); err != nil {
+			return err
+		}
+	}
+	if !hasColumn("incoming_docs", "handling_remarks") {
+		if _, err := DB.Exec("ALTER TABLE incoming_docs ADD COLUMN handling_remarks TEXT DEFAULT ''"); err != nil {
+			return err
+		}
+	}
 	return nil
 }

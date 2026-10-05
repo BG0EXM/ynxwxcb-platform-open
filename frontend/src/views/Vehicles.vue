@@ -174,10 +174,10 @@
       size="560px"
       destroy-on-close
     >
-      <el-form :model="applyForm" label-width="90px">
+      <el-form ref="applyFormRef" :model="applyForm" :rules="applyRules" label-width="90px">
         <div class="form-section">
           <div class="form-section-title">车辆与人员信息</div>
-          <el-form-item label="出车车辆" required>
+          <el-form-item label="出车车辆" prop="vehicle_id">
             <el-select v-model="applyForm.vehicle_id" placeholder="选择车辆" style="width:100%">
               <el-option 
                 v-for="v in vehicles" 
@@ -190,7 +190,7 @@
 
           <el-row :gutter="16">
             <el-col :span="12">
-              <el-form-item label="用车人" required>
+              <el-form-item label="用车人" prop="user_name">
                 <el-input v-model="applyForm.user_name" placeholder="用车人姓名" />
               </el-form-item>
             </el-col>
@@ -204,17 +204,17 @@
 
         <div class="form-section">
           <div class="form-section-title">出车计划与目的地</div>
-          <el-form-item label="用车事由" required>
+          <el-form-item label="用车事由" prop="purpose">
             <el-input v-model="applyForm.purpose" placeholder="如：赴州委宣传部参加专题宣讲会" />
           </el-form-item>
 
-          <el-form-item label="目的地" required>
+          <el-form-item label="目的地" prop="destination">
             <el-input v-model="applyForm.destination" placeholder="如：伊犁州委宣传部会议室" />
           </el-form-item>
 
           <el-row :gutter="16">
             <el-col :span="12">
-              <el-form-item label="用车日期" required>
+              <el-form-item label="用车日期" prop="use_date">
                 <el-date-picker 
                   v-model="applyForm.use_date" 
                   type="date" 
@@ -251,10 +251,10 @@
       size="500px"
       destroy-on-close
     >
-      <el-form :model="vForm" label-width="95px">
+      <el-form ref="vFormRef" :model="vForm" :rules="vRules" label-width="95px">
         <div class="form-section">
           <div class="form-section-title">车辆基础信息</div>
-          <el-form-item label="车牌号" required>
+          <el-form-item label="车牌号" prop="plate_no">
             <el-input v-model="vForm.plate_no" placeholder="如：新F12345" />
           </el-form-item>
           <el-form-item label="品牌型号">
@@ -318,7 +318,14 @@ const vehicles = ref([])
 const vQuery = reactive({ keyword: '', status: '' })
 const vDialogVisible = ref(false)
 const vEditId = ref(0)
+const vFormRef = ref(null)
 const vForm = reactive({ plate_no: '', brand: '', seats: 5, driver: '', status: 1, vin: '', engine_no: '', insurance_date: '', inspect_date: '', register_date: '', purchase_at: '', note: '' })
+const vRules = reactive({
+  plate_no: [
+    { required: true, message: '请输入车牌号', trigger: 'blur' },
+    { max: 20, message: '最多 20 个字符', trigger: 'blur' }
+  ]
+})
 
 // 报备记录
 const applies = ref([])
@@ -329,7 +336,24 @@ const queryDate = ref('')
 const showAll = ref(false)
 const applyDialogVisible = ref(false)
 const applyEditId = ref(0)
+const applyFormRef = ref(null)
 const applyForm = reactive({ vehicle_id: null, user_name: '', driver_name: '', destination: '', purpose: '', use_date: dayjs().format('YYYY-MM-DD'), use_time: '09:00-18:00', passengers: 1 })
+const applyRules = reactive({
+  vehicle_id: [{ required: true, message: '请选择车辆', trigger: 'change' }],
+  user_name: [
+    { required: true, message: '请输入用车人', trigger: 'blur' },
+    { max: 20, message: '最多 20 个字符', trigger: 'blur' }
+  ],
+  purpose: [
+    { required: true, message: '请输入用车事由', trigger: 'blur' },
+    { max: 200, message: '最多 200 个字符', trigger: 'blur' }
+  ],
+  destination: [
+    { required: true, message: '请输入目的地', trigger: 'blur' },
+    { max: 100, message: '最多 100 个字符', trigger: 'blur' }
+  ],
+  use_date: [{ required: true, message: '请选择用车日期', trigger: 'change' }]
+})
 
 const vStatusNames = { 1: '可用', 2: '使用中', 3: '维修中', 4: '报废' }
 
@@ -348,7 +372,7 @@ const loadVehicles = async () => {
   try {
     const res = await request.get('/vehicles', { params: vQuery })
     vehicles.value = res.list || []
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const openVehicleCreate = () => {
@@ -369,18 +393,21 @@ const openVehicleEdit = (row) => {
 }
 
 const saveVehicle = async () => {
-  if (!vForm.plate_no) return ElMessage.warning('请输入车牌号')
-  try {
-    if (vEditId.value) {
-      await request.put('/vehicles', { ...vForm, id: vEditId.value })
-      ElMessage.success('更新成功')
-    } else {
-      await request.post('/vehicles', vForm)
-      ElMessage.success('新增成功')
-    }
-    vDialogVisible.value = false
-    loadVehicles()
-  } catch (e) {}
+  if (!vFormRef.value) return
+  await vFormRef.value.validate(async (valid) => {
+    if (!valid) return
+    try {
+      if (vEditId.value) {
+        await request.put('/vehicles', { ...vForm, id: vEditId.value })
+        ElMessage.success('更新成功')
+      } else {
+        await request.post('/vehicles', vForm)
+        ElMessage.success('新增成功')
+      }
+      vDialogVisible.value = false
+      loadVehicles()
+    } catch (e) { console.error(e) }
+  })
 }
 
 const removeVehicle = async (row) => {
@@ -393,7 +420,7 @@ const removeVehicle = async (row) => {
     await request.delete(`/vehicles/${row.id}`)
     ElMessage.success('已删除')
     loadVehicles()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const loadApplies = async () => {
@@ -405,8 +432,7 @@ const loadApplies = async () => {
     const res = await request.get('/vehicle-applies', { params })
     applies.value = res.list || []
     total.value = res.total || 0
-  } catch (e) {
-  } finally {
+  } catch (e) { console.error(e) } finally {
     loading.value = false
   }
 }
@@ -452,20 +478,21 @@ const openApplyEdit = (row) => {
 }
 
 const submitApply = async () => {
-  if (!applyForm.vehicle_id) return ElMessage.warning('请选择车辆')
-  if (!applyForm.user_name) return ElMessage.warning('请输入用车人')
-  if (!applyForm.purpose) return ElMessage.warning('请输入用车事由')
-  try {
-    if (applyEditId.value) {
-      await request.put('/vehicle-applies', { ...applyForm, id: applyEditId.value })
-      ElMessage.success('报备更新成功')
-    } else {
-      await request.post('/vehicle-applies', applyForm)
-      ElMessage.success('报备成功')
-    }
-    applyDialogVisible.value = false
-    loadApplies()
-  } catch (e) {}
+  if (!applyFormRef.value) return
+  await applyFormRef.value.validate(async (valid) => {
+    if (!valid) return
+    try {
+      if (applyEditId.value) {
+        await request.put('/vehicle-applies', { ...applyForm, id: applyEditId.value })
+        ElMessage.success('报备更新成功')
+      } else {
+        await request.post('/vehicle-applies', applyForm)
+        ElMessage.success('报备成功')
+      }
+      applyDialogVisible.value = false
+      loadApplies()
+    } catch (e) { console.error(e) }
+  })
 }
 
 const handleApplyRowCommand = (cmd, row) => {
@@ -483,7 +510,7 @@ const removeApply = async (row) => {
     await request.delete(`/vehicle-applies/${row.id}`)
     ElMessage.success('已删除')
     loadApplies()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const openPrint = (row) => {
@@ -499,7 +526,7 @@ const exportApplies = async () => {
     if (queryDate.value) params.date = queryDate.value
     if (showAll.value && authStore.isAdmin) params.all = 1
     await exportFile('/export/vehicles', params, '公车使用台账.xlsx')
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 onMounted(() => {

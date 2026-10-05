@@ -87,7 +87,7 @@ const loadAssignees = async () => {
   try {
     const res = await request.get('/assignees')
     assignees.value = res.list || []
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const loadData = async () => {
@@ -95,8 +95,7 @@ const loadData = async () => {
   try {
     const res = await request.get('/annual-leave-configs', { params: { year: year.value } })
     list.value = res.list || []
-  } catch (e) {
-  } finally {
+  } catch (e) { console.error(e) } finally {
     loading.value = false
   }
 }
@@ -116,13 +115,13 @@ const save = async () => {
   if (!form.value.year) return ElMessage.warning('请选择年份')
   try {
     await ElMessageBox.confirm(`确认将年休假天数设置为 ${form.value.days} 天？`, '保存确认', { type: 'warning' })
-  } catch (e) { return }
+  } catch (e) { console.error(e); return }
   try {
     await request.post('/annual-leave-configs', form.value)
     ElMessage.success('保存成功')
     dialogVisible.value = false
     loadData()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const exportData = () => {

@@ -69,7 +69,7 @@ func main() {
 
 	// 构建路由，并套上安全响应头 + 请求体大小限制（上传接口自行限制，故跳过）
 	r := router.NewRouter(cfg)
-	handler := middleware.SecurityHeaders(middleware.LimitBody(10<<20, "/api/uploads")(r))
+	handler := middleware.SecurityHeaders(middleware.WAF(middleware.LimitBody(10<<20, "/api/uploads")(r)))
 
 	addr := ":" + cfg.Server.Port
 	srv := &http.Server{

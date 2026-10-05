@@ -197,7 +197,7 @@
         <span>统计期间：{{ period }} · 打印日期：{{ today }}</span>
         <span class="footer-right">
           <div>中共伊宁县委宣传部办公室</div>
-          <div>伊宁县委宣传部部务工作平台V1.5.2</div>
+          <div>伊宁县委宣传部部务工作平台V1.6.0</div>
         </span>
       </div>
     </div>
@@ -239,7 +239,7 @@ const loadData = async () => {
       const res = await request.get('/attendance/yearly', { params: { year: period.value } })
       yearly.value = res
     }
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 watch(viewMode, (v) => {

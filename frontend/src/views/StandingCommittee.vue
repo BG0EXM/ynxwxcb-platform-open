@@ -71,8 +71,7 @@ const loadData = async () => {
     if (month.value) params.month = month.value
     const res = await request.get('/standing-events', { params })
     list.value = res.list || []
-  } catch (e) {
-  } finally {
+  } catch (e) { console.error(e) } finally {
     loading.value = false
   }
 }
@@ -102,18 +101,18 @@ const save = async () => {
     }
     dialogVisible.value = false
     loadData()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const removeEvent = async (row) => {
   try {
     await ElMessageBox.confirm(`确认删除该大事记「${row.title}」？`, '删除确认', { type: 'warning', confirmButtonText: '删除' })
-  } catch (e) { return }
+  } catch (e) { console.error(e); return }
   try {
     await request.delete(`/standing-events/${row.id}`)
     ElMessage.success('删除成功')
     loadData()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const exportData = () => {

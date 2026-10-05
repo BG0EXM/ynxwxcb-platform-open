@@ -95,7 +95,7 @@ const loadDepartments = async () => {
   try {
     const res = await request.get('/departments')
     departments.value = res.list || []
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const onWeekChange = () => {
@@ -115,8 +115,7 @@ const loadData = async () => {
     if (deptFilter.value) params.department_id = deptFilter.value
     const res = await request.get('/weekly-summaries', { params })
     list.value = res.list || []
-  } catch (e) {
-  } finally {
+  } catch (e) { console.error(e) } finally {
     loading.value = false
   }
 }
@@ -149,18 +148,18 @@ const save = async () => {
     }
     dialogVisible.value = false
     loadData()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const removeSummary = async (row) => {
   try {
     await ElMessageBox.confirm('确认删除该周工作总结？', '删除确认', { type: 'warning', confirmButtonText: '删除' })
-  } catch (e) { return }
+  } catch (e) { console.error(e); return }
   try {
     await request.delete(`/weekly-summaries/${row.id}`)
     ElMessage.success('删除成功')
     loadData()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const exportData = () => {

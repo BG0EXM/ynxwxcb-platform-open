@@ -110,7 +110,7 @@ func ExportVehicleApplies(w http.ResponseWriter, r *http.Request) {
 		query += ` AND a.reporter_id = ?`
 		args = append(args, userID)
 	}
-	query += ` ORDER BY a.id DESC`
+	query += ` ORDER BY a.id DESC LIMIT 10000`
 
 	rows, err := database.DB.Query(query, args...)
 	if err != nil {
@@ -170,7 +170,7 @@ func ExportLeaveRecords(w http.ResponseWriter, r *http.Request) {
 		query += ` AND l.start_date LIKE ?`
 		args = append(args, m+"%")
 	}
-	query += ` ORDER BY l.id DESC`
+	query += ` ORDER BY l.id DESC LIMIT 10000`
 
 	rows, err := database.DB.Query(query, args...)
 	if err != nil {
@@ -234,7 +234,7 @@ func ExportAttendances(w http.ResponseWriter, r *http.Request) {
 		query += ` AND a.user_id = ?`
 		args = append(args, userID)
 	}
-	query += ` ORDER BY a.attend_date DESC, a.user_id`
+	query += ` ORDER BY a.attend_date DESC, a.user_id LIMIT 10000`
 
 	rows, err := database.DB.Query(query, args...)
 	if err != nil {
@@ -290,7 +290,7 @@ func ExportDutySchedules(w http.ResponseWriter, r *http.Request) {
 		query += ` AND s.duty_date LIKE ?`
 		args = append(args, month+"%")
 	}
-	query += ` ORDER BY s.duty_date`
+	query += ` ORDER BY s.duty_date LIMIT 10000`
 
 	rows, err := database.DB.Query(query, args...)
 	if err != nil {
@@ -330,17 +330,27 @@ func ExportDutySchedules(w http.ResponseWriter, r *http.Request) {
 // ExportIncomingDocs 导出收文登记 Excel
 func ExportIncomingDocs(w http.ResponseWriter, r *http.Request) {
 	query := `SELECT d.id, d.receive_no, d.received_date, d.from_unit, d.from_doc_no, d.title,
-		d.secret_level, d.urgency, d.copies, d.status, u.real_name, d.created_at
+		d.secret_level, d.urgency, d.copies, d.status,
+		COALESCE(d.handling_status, 'pending'), COALESCE(d.archive_box_no, ''),
+		u.real_name, d.created_at
 		FROM incoming_docs d LEFT JOIN users u ON d.registrar_id = u.id WHERE 1=1`
 	args := []interface{}{}
 	if keyword := r.URL.Query().Get("keyword"); keyword != "" {
-		query += ` AND (d.title LIKE ? OR d.from_unit LIKE ? OR d.receive_no LIKE ?)`
+		query += ` AND (d.title LIKE ? OR d.from_unit LIKE ? OR d.receive_no LIKE ? OR d.from_doc_no LIKE ?)`
 		kw := "%" + keyword + "%"
-		args = append(args, kw, kw, kw)
+		args = append(args, kw, kw, kw, kw)
 	}
 	if status := r.URL.Query().Get("status"); status != "" {
 		query += ` AND d.status = ?`
 		args = append(args, status)
+	}
+	if handlingStatus := r.URL.Query().Get("handling_status"); handlingStatus != "" {
+		query += ` AND d.handling_status = ?`
+		args = append(args, handlingStatus)
+	}
+	if archiveBoxNo := r.URL.Query().Get("archive_box_no"); archiveBoxNo != "" {
+		query += ` AND d.archive_box_no LIKE ?`
+		args = append(args, "%"+archiveBoxNo+"%")
 	}
 	if returned := r.URL.Query().Get("returned"); returned != "" {
 		query += ` AND d.returned = ?`
@@ -350,15 +360,23 @@ func ExportIncomingDocs(w http.ResponseWriter, r *http.Request) {
 		query += ` AND d.need_return = ?`
 		args = append(args, needReturn)
 	}
-	if start := r.URL.Query().Get("start"); start != "" {
+	start := r.URL.Query().Get("start")
+	if start == "" {
+		start = r.URL.Query().Get("start_date")
+	}
+	if start != "" {
 		query += ` AND d.received_date >= ?`
 		args = append(args, start)
 	}
-	if end := r.URL.Query().Get("end"); end != "" {
+	end := r.URL.Query().Get("end")
+	if end == "" {
+		end = r.URL.Query().Get("end_date")
+	}
+	if end != "" {
 		query += ` AND d.received_date <= ?`
 		args = append(args, end)
 	}
-	query += ` ORDER BY d.id DESC`
+	query += ` ORDER BY d.id DESC LIMIT 10000`
 
 	rows, err := database.DB.Query(query, args...)
 	if err != nil {
@@ -368,22 +386,34 @@ func ExportIncomingDocs(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	statusNames := map[int]string{1: "待登记", 2: "拟办中", 3: "待批示", 4: "办理中", 5: "已办结"}
+	handlingNames := map[string]string{
+		"pending":     "待办阅批",
+		"circulating": "领导传阅中",
+		"processing":  "科室承办中",
+		"completed":   "办结",
+		"archived":    "已归档",
+	}
 
-	headers := []string{"序号", "收文编号", "收文日期", "来文单位", "来文字号", "文件标题", "密级", "紧急程度", "份数", "状态", "登记人", "登记时间"}
+	headers := []string{"序号", "收文编号", "收文日期", "来文单位", "来文字号", "文件标题", "密级", "紧急程度", "份数", "流转状态", "归档盒号", "办理状态", "登记人", "登记时间"}
 	data := [][]interface{}{}
 	idx := 1
 	for rows.Next() {
 		var id int64
 		var receiveNo, receivedDate, fromUnit, fromDocNo, title, secretLevel, urgency, realName sqlStr
+		var handlingStatus, archiveBoxNo sqlStr
 		var copies, status int
 		var createdAt sql.NullTime
 		if err := rows.Scan(&id, &receiveNo, &receivedDate, &fromUnit, &fromDocNo, &title,
-			&secretLevel, &urgency, &copies, &status, &realName, &createdAt); err != nil {
+			&secretLevel, &urgency, &copies, &status, &handlingStatus, &archiveBoxNo, &realName, &createdAt); err != nil {
 			continue
+		}
+		hName := handlingNames[handlingStatus.String]
+		if hName == "" {
+			hName = handlingStatus.String
 		}
 		data = append(data, []interface{}{
 			idx, receiveNo.String, formatDateStr(receivedDate.String), fromUnit.String, fromDocNo.String,
-			title.String, secretLevel.String, urgency.String, copies, statusNames[status],
+			title.String, secretLevel.String, urgency.String, copies, hName, archiveBoxNo.String, statusNames[status],
 			realName.String, formatDateTime(createdAt.Time),
 		})
 		idx++

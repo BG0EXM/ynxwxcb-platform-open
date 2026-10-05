@@ -66,7 +66,7 @@
         </el-form>
 
         <div class="form-footer-tip">
-          <span>伊宁县委宣传部部务工作平台 V1.5.2</span>
+          <span>伊宁县委宣传部部务工作平台 V1.6.0</span>
         </div>
       </div>
     </div>
@@ -114,6 +114,7 @@ const handleLogin = async () => {
       router.push('/dashboard')
     }
   } catch (e) {
+    console.error(e)
     // 错误已由请求拦截器统一提示
   } finally {
     loading.value = false

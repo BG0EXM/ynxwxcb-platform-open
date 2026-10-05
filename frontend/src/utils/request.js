@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import { showWafAlert } from './wafAlert'
 import router from '../router'
 
 const request = axios.create({
@@ -20,6 +21,12 @@ request.interceptors.response.use(
   error => {
     const status = error.response?.status
     const msg = error.response?.data?.error || error.message
+    const code = error.response?.data?.code
+    if (status === 403 && code === 'WAF_BLOCK') {
+      showWafAlert()
+      return Promise.reject(error)
+    }
+
     if (status === 401) {
       localStorage.removeItem('token')
       localStorage.removeItem('user')

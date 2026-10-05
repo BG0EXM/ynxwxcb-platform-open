@@ -160,14 +160,14 @@ const loadData = async () => {
   try {
     const res = await request.get('/duty-schedules', { params: { month: currentMonth.value } })
     schedules.value = res.list || []
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const loadAssignees = async () => {
   try {
     const res = await request.get('/assignees')
     assignees.value = res.list || []
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const openEdit = (date) => {
@@ -191,7 +191,7 @@ const addSchedule = async () => {
     addUser.value = null
     await loadData()
     daySchedules.value = schedules.value.filter(s => s.duty_date === editDate.value)
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const toggleDaWangYuan = async (row, val) => {
@@ -205,7 +205,7 @@ const toggleDaWangYuan = async (row, val) => {
     ElMessage.success(val ? '已标记县委大院排班' : '已取消县委大院标记')
     await loadData()
     daySchedules.value = schedules.value.filter(s => s.duty_date === editDate.value)
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 // 更新排班备注
@@ -221,19 +221,19 @@ const updateNote = async (row) => {
     ElMessage.success('备注已更新')
     await loadData()
     daySchedules.value = schedules.value.filter(s => s.duty_date === editDate.value)
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const removeOne = async (row) => {
   try {
     await ElMessageBox.confirm(`确认移除 ${editDate.value} 的「${row.user_name}」排班？`, '删除确认', { type: 'warning' })
-  } catch (e) { return }
+  } catch (e) { console.error(e); return }
   try {
     await request.delete(`/duty-schedules/${row.id}`)
     ElMessage.success('已删除')
     await loadData()
     daySchedules.value = schedules.value.filter(s => s.duty_date === editDate.value)
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 onMounted(() => {

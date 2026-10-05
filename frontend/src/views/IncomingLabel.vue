@@ -40,7 +40,7 @@
           <span class="label-val">{{ doc.from_unit || '—' }}</span>
         </div>
         <div class="label-title">{{ doc.title || '' }}</div>
-        <div class="label-platform">伊宁县委宣传部部务工作平台 V1.5.2</div>
+        <div class="label-platform">伊宁县委宣传部部务工作平台 V1.6.0</div>
       </div>
     </div>
   </div>
@@ -72,11 +72,11 @@ onMounted(async () => {
         doc.value = parsed
         return
       }
-    } catch (e) {}
+    } catch (e) { console.error(e) }
   }
   try {
     doc.value = await request.get(`/incoming-docs/${route.params.id}`)
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 })
 </script>
 

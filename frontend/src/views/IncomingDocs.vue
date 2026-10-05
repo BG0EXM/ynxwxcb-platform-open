@@ -14,7 +14,7 @@
     </page-header>
 
     <!-- 筛选工具栏 -->
-    <el-card shadow="never">
+    <el-card shadow="never" class="gov-card">
       <div class="filter-bar">
         <div class="filter-main-row">
           <el-input 
@@ -29,13 +29,18 @@
           </el-input>
 
           <el-select 
-            v-model="query.status" 
+            v-model="query.handling_status" 
             placeholder="流转状态" 
             clearable 
-            style="width: 130px" 
+            style="width: 140px" 
             @change="reloadFirstPage"
           >
-            <el-option v-for="(name, val) in statusNames" :key="val" :label="name" :value="Number(val)" />
+            <el-option label="全部流转状态" value="" />
+            <el-option label="待办阅批" value="pending" />
+            <el-option label="领导传阅中" value="circulating" />
+            <el-option label="科室承办中" value="processing" />
+            <el-option label="已办结" value="completed" />
+            <el-option label="已归档" value="archived" />
           </el-select>
 
           <el-button 
@@ -65,6 +70,19 @@
         <!-- 高级筛选折叠区 -->
         <transition name="fade">
           <div v-show="showAdvanced" class="advanced-filter-panel">
+            <el-input 
+              v-model="query.archive_box_no" 
+              placeholder="归档盒号/卷宗号" 
+              clearable 
+              style="width: 160px"
+              @keyup.enter="reloadFirstPage" 
+              @clear="reloadFirstPage"
+            />
+
+            <el-select v-model="query.status" placeholder="登记状态" clearable style="width: 120px" @change="reloadFirstPage">
+              <el-option v-for="(name, val) in statusNames" :key="val" :label="name" :value="Number(val)" />
+            </el-select>
+
             <el-select v-model="query.returned" placeholder="是否已退" clearable style="width: 120px" @change="reloadFirstPage">
               <el-option label="已退" :value="1" />
               <el-option label="未退" :value="0" />
@@ -90,7 +108,7 @@
       </div>
 
       <!-- 表格数据区 -->
-      <el-table 
+      <el-table size="large" 
         :data="list" 
         v-loading="loading" 
         empty-text="暂无收文记录" 
@@ -101,19 +119,55 @@
           <empty-state description="暂无符合条件的收文记录" />
         </template>
 
-        <el-table-column prop="status" label="状态" width="105">
+        <el-table-column prop="handling_status" label="流转状态" width="125">
           <template #default="{ row }">
-            <status-dot 
-              v-if="row.status < 5" 
-              :type="row.status === 1 ? 'warning' : 'primary'" 
-              :text="statusNames[row.status]" 
-              :pulse="row.status === 1"
-            />
-            <status-dot 
-              v-else 
-              type="success" 
-              text="已办结" 
-            />
+            <el-tag 
+              v-if="row.handling_status === 'pending' || !row.handling_status"
+              effect="plain" 
+              class="status-tag status-pending"
+            >
+              待办阅批
+            </el-tag>
+            <el-tag 
+              v-else-if="row.handling_status === 'circulating'"
+              effect="plain" 
+              class="status-tag status-circulating"
+            >
+              领导传阅中
+            </el-tag>
+            <el-tag 
+              v-else-if="row.handling_status === 'processing'"
+              effect="plain" 
+              class="status-tag status-processing"
+            >
+              科室承办中
+            </el-tag>
+            <el-tag 
+              v-else-if="row.handling_status === 'completed'"
+              effect="plain" 
+              class="status-tag status-completed"
+            >
+              已办结
+            </el-tag>
+            <el-tag 
+              v-else-if="row.handling_status === 'archived'"
+              effect="plain" 
+              class="status-tag status-archived"
+            >
+              已归档
+            </el-tag>
+            <el-tag v-else effect="plain" type="info">{{ row.handling_status }}</el-tag>
+          </template>
+        </el-table-column>
+
+        <el-table-column prop="assigned_department" label="承办科室" width="120" show-overflow-tooltip />
+        <el-table-column prop="archive_box_no" label="归档盒号" width="130" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span v-if="row.archive_box_no" class="box-no-badge">
+              <el-icon style="vertical-align: -1px; margin-right: 3px;"><FolderOpened /></el-icon>
+              {{ row.archive_box_no }}
+            </span>
+            <span v-else style="color: var(--yx-text-4); font-size: 12px;">—</span>
           </template>
         </el-table-column>
 
@@ -142,10 +196,19 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="160" fixed="right" align="right">
+        <el-table-column label="操作" width="200" fixed="right" align="right">
           <template #default="{ row }">
             <div class="row-action-wrap" @click.stop>
               <el-button link type="primary" @click="openDetail(row)">办理</el-button>
+              
+              <el-button 
+                v-if="authStore.hasPerm('incoming.manage')" 
+                link 
+                type="primary" 
+                @click="openStatusDialog(row)"
+              >
+                流转/归档
+              </el-button>
               
               <el-dropdown @command="(cmd) => handleRowCommand(cmd, row)" trigger="click">
                 <el-button link type="primary" class="more-link">
@@ -154,6 +217,13 @@
                 </el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
+                    <el-dropdown-item 
+                      v-if="authStore.hasPerm('incoming.manage')" 
+                      command="status" 
+                      icon="Promotion"
+                    >
+                      流转/归档
+                    </el-dropdown-item>
                     <el-dropdown-item command="print" icon="Printer">打印呈批单</el-dropdown-item>
                     <el-dropdown-item command="label" icon="PriceTag">打印文件标签</el-dropdown-item>
                     <el-dropdown-item command="card" icon="Tickets">打印传阅卡</el-dropdown-item>
@@ -309,12 +379,68 @@
 
         <!-- 分组 3：拟办意见与领导批示 -->
         <div class="form-section">
-          <div class="form-section-title">批示流转与办理</div>
-          <el-form-item label="流转状态">
-            <el-select v-model="form.status" style="width: 200px">
-              <el-option v-for="(name, val) in statusNames" :key="val" :label="name" :value="Number(val)" />
-            </el-select>
-          </el-form-item>
+          <div class="form-section-title">流转、批示与办理</div>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="流转状态">
+                <el-select v-model="form.handling_status" style="width: 100%">
+                  <el-option label="待办阅批" value="pending" />
+                  <el-option label="领导传阅中" value="circulating" />
+                  <el-option label="科室承办中" value="processing" />
+                  <el-option label="已办结" value="completed" />
+                  <el-option label="已归档" value="archived" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="办理状态">
+                <el-select v-model="form.status" style="width: 100%">
+                  <el-option v-for="(name, val) in statusNames" :key="val" :label="name" :value="Number(val)" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+          </el-row>
+
+          
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="承办科室">
+                <el-select
+                  v-model="form.assigned_department"
+                  placeholder="请选择或输入承办科室"
+                  filterable
+                  allow-create
+                  clearable
+                  style="width: 100%"
+                >
+                  <el-option
+                    v-for="dept in departments"
+                    :key="dept.id"
+                    :label="dept.name"
+                    :value="dept.name"
+                  />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="流转备注">
+                <el-input v-model="form.handling_remarks" placeholder="录入批示或备注" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+
+          <el-row :gutter="16">
+            <el-col :span="14">
+              <el-form-item label="归档盒号">
+                <el-input v-model="form.archive_box_no" placeholder="如：2026-宣-01盒" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="10">
+              <el-form-item label="归档年度">
+                <el-input v-model="form.archive_year" placeholder="如：2026" />
+              </el-form-item>
+            </el-col>
+          </el-row>
 
           <el-form-item label="拟办意见">
             <el-input 
@@ -371,6 +497,15 @@
               <el-descriptions-item label="文件编号">{{ detail.doc_no || '—' }}</el-descriptions-item>
               <el-descriptions-item label="密级">{{ detail.secret_level }}</el-descriptions-item>
               <el-descriptions-item label="紧急程度">{{ detail.urgency }}</el-descriptions-item>
+              <el-descriptions-item label="流转状态">
+                <el-tag :class="['status-tag', 'status-' + (detail.handling_status || 'pending')]" effect="plain">
+                  {{ handlingStatusLabels[detail.handling_status || 'pending'] || '待办阅批' }}
+                </el-tag>
+              </el-descriptions-item>
+              <el-descriptions-item label="承办科室">{{ detail.assigned_department || '—' }}</el-descriptions-item>
+              <el-descriptions-item label="流转备注">{{ detail.handling_remarks || '—' }}</el-descriptions-item>
+              <el-descriptions-item label="归档盒号">{{ detail.archive_box_no || '—' }}</el-descriptions-item>
+              <el-descriptions-item label="归档年度">{{ detail.archive_year || '—' }}</el-descriptions-item>
               <el-descriptions-item label="份数">{{ detail.copies }}</el-descriptions-item>
               <el-descriptions-item label="需退回">{{ detail.need_return === 1 ? '需要' : '不需要' }}</el-descriptions-item>
               <el-descriptions-item label="是否已退">{{ detail.returned === 1 ? '已退' : '未退' }}</el-descriptions-item>
@@ -382,6 +517,14 @@
             </el-descriptions>
 
             <div class="mt-20 print-btn-group">
+              <el-button 
+                v-if="authStore.hasPerm('incoming.manage')" 
+                type="success" 
+                :icon="'Promotion'" 
+                @click="openStatusDialog(detail)"
+              >
+                流转/归档
+              </el-button>
               <el-button type="primary" :icon="'Printer'" @click="openPrint(detail)">打印呈批单</el-button>
               <el-button type="warning" :icon="'Tickets'" @click="openPrintCard(detail)">打印传阅登记卡</el-button>
               <el-button type="info" :icon="'PriceTag'" @click="openLabel(detail)">打印文件标签</el-button>
@@ -396,7 +539,7 @@
               <el-button type="primary" :icon="'Plus'" @click="addCirc">添加传阅人</el-button>
             </div>
 
-            <el-table :data="detail.circulations || []" size="small" class="mt-12">
+            <el-table size="large" :data="detail.circulations || []" class="mt-12">
               <el-table-column prop="order_no" label="序号" width="60" />
               <el-table-column prop="user_name" label="传阅人" width="120" />
               <el-table-column label="传阅日期" width="150">
@@ -432,11 +575,93 @@
         </div>
       </template>
     </el-drawer>
+
+    <!-- 3. 快捷流转与归档弹窗 -->
+    <el-dialog 
+      v-model="statusDialogVisible" 
+      title="公文流转与归档" 
+      width="480px" 
+      destroy-on-close
+    >
+      <el-form :model="statusForm" label-width="95px" size="default">
+        <el-form-item label="公文标题">
+          <div class="status-dialog-doc-title">{{ currentStatusDoc.title }}</div>
+        </el-form-item>
+
+        <el-form-item label="收文编号" v-if="currentStatusDoc.receive_no">
+          <span style="font-family: monospace;">{{ currentStatusDoc.receive_no }}</span>
+        </el-form-item>
+
+        <el-form-item label="当前状态">
+          <el-tag :class="['status-tag', 'status-' + (currentStatusDoc.handling_status || 'pending')]" effect="plain">
+            {{ handlingStatusLabels[currentStatusDoc.handling_status || 'pending'] || '待办阅批' }}
+          </el-tag>
+        </el-form-item>
+
+        <el-form-item label="流转状态" required>
+          <el-select v-model="statusForm.handling_status" style="width: 100%" placeholder="请选择目标流转状态">
+            <el-option label="待办阅批" value="pending" />
+            <el-option label="领导传阅中" value="circulating" />
+            <el-option label="科室承办中" value="processing" />
+            <el-option label="办结" value="completed" />
+            <el-option label="已归档" value="archived" />
+          </el-select>
+        </el-form-item>
+
+        
+        <el-form-item label="承办科室" v-if="statusForm.handling_status === 'processing'">
+          <el-select
+            v-model="statusForm.assigned_department"
+            placeholder="请选择或输入承办科室"
+            filterable
+            allow-create
+            clearable
+            style="width: 100%"
+          >
+            <el-option
+              v-for="dept in departments"
+              :key="dept.id"
+              :label="dept.name"
+              :value="dept.name"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="流转备注">
+          <el-input type="textarea" v-model="statusForm.handling_remarks" rows="3" placeholder="录入领导批示意见或流转说明..." />
+        </el-form-item>
+
+        <el-form-item label="归档盒号">
+          <el-input 
+            v-model="statusForm.archive_box_no" 
+            placeholder="如：2026-宣-01盒" 
+            clearable
+          />
+          <div class="form-item-tip">用于实体卷宗盒归档定位与调阅，归档或办结时建议填写入盒</div>
+        </el-form-item>
+
+        <el-form-item label="归档年度">
+          <el-input 
+            v-model="statusForm.archive_year" 
+            placeholder="如：2026" 
+            style="width: 160px" 
+            clearable
+          />
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <div class="drawer-footer-wrap">
+          <el-button @click="statusDialogVisible = false">取消</el-button>
+          <el-button type="primary" :loading="statusSubmitting" @click="submitStatusChange">确认更新</el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request, { exportFile } from '../utils/request'
 import { useAuthStore } from '../store/auth'
@@ -444,6 +669,7 @@ import PageHeader from '../components/PageHeader.vue'
 import StatusDot from '../components/StatusDot.vue'
 import EmptyState from '../components/EmptyState.vue'
 
+const route = useRoute()
 const authStore = useAuthStore()
 
 const list = ref([])
@@ -452,11 +678,25 @@ const assignees = ref([])
 const page = ref(1)
 const pageSize = 20
 const total = ref(0)
-const query = reactive({ keyword: '', status: '', returned: '', need_return: '' })
+const query = reactive({ 
+  keyword: '', 
+  handling_status: '', 
+  archive_box_no: '', 
+  status: '', 
+  returned: '', 
+  need_return: '' 
+})
 const dateRange = ref([])
 const showAdvanced = ref(false)
 
 const statusNames = { 1: '待登记', 2: '拟办中', 3: '待批示', 4: '办理中', 5: '已办结' }
+const handlingStatusLabels = {
+  pending: '待办阅批',
+  circulating: '领导传阅中',
+  processing: '科室承办中',
+  completed: '已办结',
+  archived: '已归档'
+}
 const secretLevels = ['非密', '内部', '秘密★长期', '秘密★10年', '秘密★5年', '秘密★1年', '秘密', '秘密★1个月', '秘密★3个月', '秘密★6个月', '机密★长期', '机密', '机密★20年', '机密★10年', '机密★5年', '机密★3年', '机密★1年']
 const secretTag = (s) => (s && s.startsWith('机密') ? 'danger' : s && s.startsWith('秘密') ? 'warning' : s === '内部' ? 'info' : 'info')
 
@@ -467,17 +707,65 @@ const editId = ref(0)
 const form = reactive({
   receive_no: '', received_date: '', from_unit: '', from_doc_no: '', doc_no: '', title: '',
   copies: 1, secret_level: '非密', urgency: '一般', suggest: '', leader_comment: '', processing: '',
-  return_date: '', returned: 0, need_return: 0, status: 1
+  return_date: '', returned: 0, need_return: 0, status: 1,
+  handling_status: 'pending', archive_box_no: '', archive_year: ''
 })
 const detail = ref({})
 const circUser = ref(null)
 
+// 快捷流转与归档弹窗
+const statusDialogVisible = ref(false)
+const statusSubmitting = ref(false)
+const currentStatusDoc = ref({})
+const statusForm = reactive({
+  handling_status: 'pending',
+  archive_box_no: '',
+  archive_year: ''
+})
+
+const openStatusDialog = (row) => {
+  currentStatusDoc.value = row
+  statusForm.handling_status = row.handling_status || 'pending'
+  statusForm.archive_box_no = row.archive_box_no || ''
+  statusForm.archive_year = row.archive_year || (row.received_date ? row.received_date.slice(0, 4) : new Date().getFullYear().toString())
+  statusForm.assigned_department = row.assigned_department || ''
+  statusForm.handling_remarks = row.handling_remarks || ''
+  statusDialogVisible.value = true
+}
+
+const submitStatusChange = async () => {
+  if (!statusForm.handling_status) {
+    return ElMessage.warning('请选择流转状态')
+  }
+  statusSubmitting.value = true
+  try {
+    await request.post(`/incoming-docs/${currentStatusDoc.value.id}/status`, {
+      handling_status: statusForm.handling_status,
+      archive_box_no: statusForm.archive_box_no,
+      archive_year: statusForm.archive_year,
+      assigned_department: statusForm.assigned_department,
+      handling_remarks: statusForm.handling_remarks
+    })
+    ElMessage.success('流转状态已更新')
+    statusDialogVisible.value = false
+    loadData()
+    if (detailVisible.value && detail.value.id === currentStatusDoc.value.id) {
+      openDetail(currentStatusDoc.value)
+    }
+    emitIncomingChanged()
+  } catch (e) { console.error(e) } finally {
+    statusSubmitting.value = false
+  }
+}
+
 const hasActiveFilters = computed(() => {
-  return query.keyword || query.status !== '' || query.returned !== '' || query.need_return !== '' || (dateRange.value && dateRange.value.length > 0)
+  return query.keyword || query.handling_status !== '' || query.archive_box_no || query.status !== '' || query.returned !== '' || query.need_return !== '' || (dateRange.value && dateRange.value.length > 0)
 })
 
 const resetQuery = () => {
   query.keyword = ''
+  query.handling_status = ''
+  query.archive_box_no = ''
   query.status = ''
   query.returned = ''
   query.need_return = ''
@@ -496,8 +784,7 @@ const loadData = async () => {
     const res = await request.get('/incoming-docs', { params })
     list.value = res.list || []
     total.value = res.total || 0
-  } catch (e) {
-  } finally {
+  } catch (e) { console.error(e) } finally {
     loading.value = false
   }
 }
@@ -516,16 +803,18 @@ const loadAssignees = async () => {
   try {
     const res = await request.get('/assignees')
     assignees.value = res.list || []
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const openCreate = () => {
   editId.value = 0
+  const nowYear = new Date().getFullYear().toString()
   Object.assign(form, {
     receive_no: '', received_date: new Date().toISOString().slice(0, 10), from_unit: '',
     from_doc_no: '', doc_no: '', title: '',
     copies: 1, secret_level: '非密', urgency: '一般', suggest: '', leader_comment: '', processing: '',
-    return_date: '', returned: 0, need_return: 0, status: 1
+    return_date: '', returned: 0, need_return: 0, status: 1,
+    handling_status: 'pending', archive_box_no: '', archive_year: nowYear
   })
   drawerVisible.value = true
 }
@@ -538,7 +827,10 @@ const openEdit = (row) => {
     secret_level: row.secret_level, urgency: row.urgency, suggest: row.suggest,
     leader_comment: row.leader_comment, processing: row.processing,
     return_date: row.return_date, returned: row.returned, need_return: row.need_return,
-    status: row.status
+    status: row.status,
+    handling_status: row.handling_status || 'pending',
+    archive_box_no: row.archive_box_no || '',
+    archive_year: row.archive_year || (row.received_date ? row.received_date.slice(0, 4) : '')
   })
   drawerVisible.value = true
 }
@@ -557,7 +849,7 @@ const save = async () => {
     drawerVisible.value = false
     loadData()
     emitIncomingChanged()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const emitIncomingChanged = () => {
@@ -570,7 +862,7 @@ const openDetail = async (row) => {
     detail.value = res
     detailTab.value = 'info'
     detailVisible.value = true
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const openPrint = (row) => {
@@ -592,7 +884,8 @@ const openLabel = (row) => {
 }
 
 const handleRowCommand = (cmd, row) => {
-  if (cmd === 'print') openPrint(row)
+  if (cmd === 'status') openStatusDialog(row)
+  else if (cmd === 'print') openPrint(row)
   else if (cmd === 'label') openLabel(row)
   else if (cmd === 'card') openPrintCard(row)
   else if (cmd === 'edit') openEdit(row)
@@ -611,7 +904,7 @@ const remove = async (row) => {
     ElMessage.success('已删除')
     loadData()
     emitIncomingChanged()
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const addCirc = async () => {
@@ -620,20 +913,20 @@ const addCirc = async () => {
     await request.post('/incoming-circulations', { incoming_id: detail.value.id, user_id: circUser.value })
     circUser.value = null
     openDetail(detail.value)
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const updateCirc = async (row) => {
   try {
     await request.put('/incoming-circulations', { id: row.id, read_date: row.read_date, signature: row.signature })
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const removeCirc = async (row) => {
   try {
     await request.delete(`/incoming-circulations/${row.id}`)
     openDetail(detail.value)
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 
 const exportData = async () => {
@@ -643,13 +936,22 @@ const exportData = async () => {
       params.start_date = dateRange.value[0]
       params.end_date = dateRange.value[1]
     }
-    await exportFile('/export/incoming', params, '收文登记台账.xlsx')
-  } catch (e) {}
+    await exportFile('/export/incoming-docs', params, '收文登记台账.xlsx')
+  } catch (e) { console.error(e) }
 }
 
 onMounted(() => {
   loadData()
   loadAssignees()
+  if (route.query.id) {
+    openDetail({ id: route.query.id })
+  }
+})
+
+watch(() => route.query.id, (newId) => {
+  if (newId) {
+    openDetail({ id: newId })
+  }
 })
 </script>
 
@@ -737,5 +1039,61 @@ onMounted(() => {
 }
 .mt-20 {
   margin-top: 20px;
+}
+
+.status-tag {
+  font-weight: 500;
+  border-radius: 4px;
+}
+.status-tag.status-pending {
+  color: #d46b08;
+  background: #fff7e6;
+  border-color: #ffd591;
+}
+.status-tag.status-circulating {
+  color: #096dd9;
+  background: #e6f7ff;
+  border-color: #91d5ff;
+}
+.status-tag.status-processing {
+  color: #722ed1;
+  background: #f9f0ff;
+  border-color: #d3adf7;
+}
+.status-tag.status-completed {
+  color: #389e0d;
+  background: #f6ffed;
+  border-color: #b7eb8f;
+}
+.status-tag.status-archived {
+  color: #595959;
+  background: #f5f5f5;
+  border-color: #d9d9d9;
+}
+
+.box-no-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  background-color: var(--yx-ink-bg-light, #f0f4f9);
+  color: var(--yx-ink-2, #1d39c4);
+  border: 1px solid rgba(29, 57, 196, 0.15);
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: monospace;
+}
+
+.form-item-tip {
+  font-size: 12px;
+  color: var(--yx-text-4, #8c8c8c);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.status-dialog-doc-title {
+  font-weight: 500;
+  color: var(--yx-text-1);
+  line-height: 1.5;
+  word-break: break-all;
 }
 </style>

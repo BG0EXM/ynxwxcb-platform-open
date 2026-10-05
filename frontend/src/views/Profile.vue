@@ -66,7 +66,7 @@ const changePwd = async () => {
       ElMessage.success('密码已更新，现在可以使用全部功能')
     }
     Object.assign(pwdForm, { old_password: '', new_password: '', confirm: '' })
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 }
 </script>
 

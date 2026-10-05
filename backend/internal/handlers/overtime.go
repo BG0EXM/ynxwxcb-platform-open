@@ -245,6 +245,7 @@ func OvertimeStats(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
+	defer rows.Close()
 	type Row struct {
 		UserID        int64   `json:"user_id"`
 		UserName      string  `json:"user_name"`
@@ -272,7 +273,6 @@ func OvertimeStats(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
-	rows.Close()
 
 	// 2. 查询已用补休天数（leave_type='comp'，按日期范围实际覆盖天数计算）
 	rangeStart := datePrefix + "-01"
@@ -300,6 +300,7 @@ func OvertimeStats(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
+	defer crows.Close()
 	for crows.Next() {
 		var uid int64
 		var used float64
@@ -311,15 +312,14 @@ func OvertimeStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := crows.Err(); err != nil {
-		crows.Close()
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
-	crows.Close()
 
 	// 2b. 全时口径的剩余可补天数（与补休登记校验 getCompRemainDays 一致，避免按钮状态与后端校验不一致）
 	allHours := map[int64]float64{}
 	if hr, err := database.DB.Query("SELECT user_id, COALESCE(SUM(hours),0) FROM overtime_records GROUP BY user_id"); err == nil {
+		defer hr.Close()
 		for hr.Next() {
 			var uid int64
 			var h float64
@@ -327,7 +327,6 @@ func OvertimeStats(w http.ResponseWriter, r *http.Request) {
 				allHours[uid] = h
 			}
 		}
-		hr.Close()
 	}
 	allUsed := map[int64]float64{}
 	if ur, err := database.DB.Query(
@@ -342,7 +341,6 @@ func OvertimeStats(w http.ResponseWriter, r *http.Request) {
 				allUsed[uid] = d
 			}
 		}
-		ur.Close()
 	}
 
 	// 3. 组装

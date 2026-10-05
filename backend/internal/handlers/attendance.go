@@ -418,22 +418,21 @@ func CreateLeaveRecord(w http.ResponseWriter, r *http.Request) {
 	}
 	// 年休假校验：当年年休假剩余额度不足时不允许登记
 	if req.LeaveType == "annual" {
-		year := ""
-		if len(req.StartDate) >= 4 {
-			year = req.StartDate[:4]
+		if len(req.StartDate) < 4 {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "开始日期格式错误，无法提取年份"})
+			return
 		}
-		if year != "" {
-			remain, configDays := getAnnualLeaveRemainDays(req.UserID, year, 0)
-			if configDays <= 0 {
-				middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": year + "年度尚未配置年休假额度，请联系管理员配置"})
-				return
-			}
-			if remain < req.Days {
-				middleware.JSON(w, http.StatusBadRequest, map[string]string{
-					"error": fmt.Sprintf("%s年度年休假剩余天数不足（剩余 %s 天，申请 %.1f 天）", year, strconv.FormatFloat(remain, 'f', -1, 64), req.Days),
-				})
-				return
-			}
+		year := req.StartDate[:4]
+		remain, configDays := getAnnualLeaveRemainDays(req.UserID, year, 0)
+		if configDays <= 0 {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": year + "年度尚未配置年休假额度，请联系管理员配置"})
+			return
+		}
+		if remain < req.Days {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{
+				"error": fmt.Sprintf("%s年度年休假剩余天数不足（剩余 %s 天，申请 %.1f 天）", year, strconv.FormatFloat(remain, 'f', -1, 64), req.Days),
+			})
+			return
 		}
 	}
 	_, err := database.DB.Exec(
@@ -617,22 +616,21 @@ func UpdateLeaveRecord(w http.ResponseWriter, r *http.Request) {
 	}
 	// 年休假校验：修改为年休假或调整天数时校验当年额度（排除本记录自身已占用的天数）
 	if req.LeaveType == "annual" {
-		year := ""
-		if len(req.StartDate) >= 4 {
-			year = req.StartDate[:4]
+		if len(req.StartDate) < 4 {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "开始日期格式错误，无法提取年份"})
+			return
 		}
-		if year != "" {
-			remain, configDays := getAnnualLeaveRemainDays(req.UserID, year, req.ID)
-			if configDays <= 0 {
-				middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": year + "年度尚未配置年休假额度，请联系管理员配置"})
-				return
-			}
-			if remain < req.Days {
-				middleware.JSON(w, http.StatusBadRequest, map[string]string{
-					"error": fmt.Sprintf("%s年度年休假剩余天数不足（剩余 %s 天，申请 %.1f 天）", year, strconv.FormatFloat(remain, 'f', -1, 64), req.Days),
-				})
-				return
-			}
+		year := req.StartDate[:4]
+		remain, configDays := getAnnualLeaveRemainDays(req.UserID, year, req.ID)
+		if configDays <= 0 {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": year + "年度尚未配置年休假额度，请联系管理员配置"})
+			return
+		}
+		if remain < req.Days {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{
+				"error": fmt.Sprintf("%s年度年休假剩余天数不足（剩余 %s 天，申请 %.1f 天）", year, strconv.FormatFloat(remain, 'f', -1, 64), req.Days),
+			})
+			return
 		}
 	}
 	_, err := database.DB.Exec(
@@ -1031,4 +1029,224 @@ func GetAssignees(w http.ResponseWriter, r *http.Request) {
 	}
 
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{"list": list})
+}
+
+// GetUserAttendanceProfile 获取干部个人出勤与休假全息档案
+// 支持参数：year=YYYY（默认当前年）
+// 权限：attendance.view 权限点，若非 admin 且无 user.manage 权限则只能查看本人档案
+func GetUserAttendanceProfile(w http.ResponseWriter, r *http.Request) {
+	currentUserID, _ := r.Context().Value(middleware.ContextUserID).(int64)
+	roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
+
+	targetUserID := pathID(r)
+	if targetUserID == 0 {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少用户ID"})
+		return
+	}
+
+	// 权限控制：管理员或拥有 user.manage 权限者可查任意人，普通用户只能查本人
+	canViewAll := (roleCode == "admin") || middleware.HasPermission(roleCode, "user.manage")
+	if !canViewAll && targetUserID != currentUserID {
+		middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "无权查看该人员的出勤档案"})
+		return
+	}
+
+	year := r.URL.Query().Get("year")
+	if year == "" {
+		year = time.Now().Format("2006")
+	}
+
+	// 1. 用户基础信息
+	var userInfo struct {
+		ID         int64  `json:"id"`
+		Username   string `json:"username"`
+		RealName   string `json:"real_name"`
+		Department string `json:"department"`
+		RoleName   string `json:"role_name"`
+		Phone      string `json:"phone"`
+		Status     int    `json:"status"`
+	}
+	var dept, roleName, phone sql.NullString
+	err := database.DB.QueryRow(`
+		SELECT u.id, u.username, u.real_name, d.name, r.name, u.phone, u.status
+		FROM users u
+		LEFT JOIN departments d ON u.department_id = d.id
+		LEFT JOIN roles r ON u.role_id = r.id
+		WHERE u.id = ?`, targetUserID).Scan(
+		&userInfo.ID, &userInfo.Username, &userInfo.RealName, &dept, &roleName, &phone, &userInfo.Status,
+	)
+	if err == sql.ErrNoRows {
+		middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "用户不存在"})
+		return
+	} else if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询用户信息失败"})
+		return
+	}
+	userInfo.Department = dept.String
+	userInfo.RoleName = roleName.String
+	userInfo.Phone = phone.String
+
+	// 2. 年休假统计（当年）
+	remainAnnual, configAnnual := getAnnualLeaveRemainDays(targetUserID, year, 0)
+	usedAnnual := configAnnual - remainAnnual
+	if usedAnnual < 0 {
+		usedAnnual = 0
+	}
+
+	// 3. 加班与补休统计
+	// 当年加班工时
+	var yearOtHours float64
+	database.DB.QueryRow(`
+		SELECT COALESCE(SUM(hours), 0)
+		FROM overtime_records
+		WHERE user_id = ? AND overtime_date LIKE ?`, targetUserID, year+"%").Scan(&yearOtHours)
+
+	// 累计总加班工时与历史总补休
+	var totalOtHours float64
+	database.DB.QueryRow(`
+		SELECT COALESCE(SUM(hours), 0)
+		FROM overtime_records
+		WHERE user_id = ?`, targetUserID).Scan(&totalOtHours)
+
+	var totalCompUsed float64
+	database.DB.QueryRow(`
+		SELECT COALESCE(SUM(eff), 0) FROM (
+			SELECT MIN(days, CAST(julianday(end_date) - julianday(start_date) + 1 AS INTEGER)) as eff
+			FROM leave_records
+			WHERE status = 1 AND leave_type = 'comp' AND user_id = ?
+		) WHERE eff > 0`, targetUserID).Scan(&totalCompUsed)
+
+	// 当年已用补休
+	yearStart := year + "-01-01"
+	yearEnd := year + "-12-31"
+	var yearCompUsed float64
+	database.DB.QueryRow(`
+		SELECT COALESCE(SUM(eff), 0) FROM (
+			SELECT MIN(days, CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
+				- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER)) as eff
+			FROM leave_records
+			WHERE status = 1 AND leave_type = 'comp' AND user_id = ? AND start_date <= ? AND end_date >= ?
+		) WHERE eff > 0`, yearEnd, yearEnd, yearStart, yearStart, targetUserID, yearEnd, yearStart).Scan(&yearCompUsed)
+
+	totalCompDays := totalOtHours / OvertimeHoursPerDay
+	remainCompDays := totalCompDays - totalCompUsed
+	if remainCompDays < 0 {
+		remainCompDays = 0
+	}
+
+	// 4. 当年考勤点到状态统计 (1出勤 2请假 3出差 4未到 5迟到 6培训)
+	attendStats := map[string]int{
+		"present": 0, "leave": 0, "trip": 0, "absent": 0, "late": 0, "training": 0, "total": 0,
+	}
+	attRows, err := database.DB.Query(`
+		SELECT status, COUNT(*)
+		FROM attendances
+		WHERE user_id = ? AND attend_date LIKE ?
+		GROUP BY status`, targetUserID, year+"%")
+	if err == nil {
+		defer attRows.Close()
+		for attRows.Next() {
+			var st, cnt int
+			if err := attRows.Scan(&st, &cnt); err == nil {
+				attendStats["total"] += cnt
+				switch st {
+				case 1:
+					attendStats["present"] = cnt
+				case 2:
+					attendStats["leave"] = cnt
+				case 3:
+					attendStats["trip"] = cnt
+				case 4:
+					attendStats["absent"] = cnt
+				case 5:
+					attendStats["late"] = cnt
+				case 6:
+					attendStats["training"] = cnt
+				}
+			}
+		}
+	}
+
+	// 5. 当年各类请假统计明细
+	leaveSummary := make([]map[string]interface{}, 0, len(LeaveTypes))
+	leaveTypeMap := map[string]float64{}
+	for _, lt := range LeaveTypes {
+		leaveTypeMap[lt] = 0
+	}
+
+	ltRows, err := database.DB.Query(`
+		SELECT leave_type, SUM(eff) FROM (
+			SELECT leave_type,
+				MIN(days, CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
+					- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER)) as eff
+			FROM leave_records
+			WHERE status = 1 AND user_id = ? AND start_date <= ? AND end_date >= ?
+		) WHERE eff > 0 GROUP BY leave_type`,
+		yearEnd, yearEnd, yearStart, yearStart, targetUserID, yearEnd, yearStart)
+	if err == nil {
+		defer ltRows.Close()
+		for ltRows.Next() {
+			var lt string
+			var d float64
+			if err := ltRows.Scan(&lt, &d); err == nil {
+				leaveTypeMap[lt] = d
+			}
+		}
+	}
+
+	totalLeaveDays := 0.0
+	for _, lt := range LeaveTypes {
+		days := leaveTypeMap[lt]
+		totalLeaveDays += days
+		leaveSummary = append(leaveSummary, map[string]interface{}{
+			"type":  lt,
+			"label": leaveTypeLabel(lt),
+			"days":  days,
+		})
+	}
+
+	// 6. 当年全部请假流水记录 (时间倒序)
+	leaveList := make([]models.LeaveRecord, 0)
+	recRows, err := database.DB.Query(`
+		SELECT id, user_id, leave_type, start_date, end_date, days, leave_hours, reason, status, created_at
+		FROM leave_records
+		WHERE status = 1 AND user_id = ? AND start_date <= ? AND end_date >= ?
+		ORDER BY start_date DESC, id DESC`,
+		targetUserID, yearEnd, yearStart)
+	if err == nil {
+		defer recRows.Close()
+		for recRows.Next() {
+			var rRec models.LeaveRecord
+			var reason sql.NullString
+			if err := recRows.Scan(&rRec.ID, &rRec.UserID, &rRec.LeaveType, &rRec.StartDate, &rRec.EndDate,
+				&rRec.Days, &rRec.LeaveHours, &reason, &rRec.Status, &rRec.CreatedAt); err == nil {
+				rRec.Reason = reason.String
+				rRec.UserName = userInfo.RealName
+				rRec.Department = userInfo.Department
+				leaveList = append(leaveList, rRec)
+			}
+		}
+	}
+
+	middleware.JSON(w, http.StatusOK, map[string]interface{}{
+		"year": year,
+		"user": userInfo,
+		"annual_leave": map[string]interface{}{
+			"config_days": configAnnual,
+			"used_days":   usedAnnual,
+			"remain_days": remainAnnual,
+		},
+		"overtime": map[string]interface{}{
+			"year_hours":       yearOtHours,
+			"total_hours":      totalOtHours,
+			"total_comp_days":  totalCompDays,
+			"total_comp_used":  totalCompUsed,
+			"year_comp_used":   yearCompUsed,
+			"remain_comp_days": remainCompDays,
+		},
+		"attendance":       attendStats,
+		"leave_summary":    leaveSummary,
+		"total_leave_days": totalLeaveDays,
+		"leave_records":    leaveList,
+	})
 }

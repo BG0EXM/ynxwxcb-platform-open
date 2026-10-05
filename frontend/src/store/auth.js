@@ -26,7 +26,7 @@ export const useAuthStore = defineStore('auth', {
         const res = await request.get('/auth/profile')
         this.user = res
         localStorage.setItem('user', JSON.stringify(res))
-      } catch (e) {}
+      } catch (e) { console.error(e) }
     },
     async login(username, password) {
       const res = await request.post('/auth/login', { username, password })
@@ -56,7 +56,7 @@ export const useAuthStore = defineStore('auth', {
       if (oldToken) {
         request.post('/auth/logout', {}, {
           headers: { Authorization: `Bearer ${oldToken}` }
-        }).catch(() => {})
+        }).catch(e => console.error(e))
       }
     }
   }

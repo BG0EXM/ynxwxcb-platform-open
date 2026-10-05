@@ -66,7 +66,7 @@
         <span>打印日期：{{ today }}</span>
         <span class="footer-right">
           <div>中共伊宁县委宣传部办公室</div>
-          <div>伊宁县委宣传部部务工作平台V1.5.2</div>
+          <div>伊宁县委宣传部部务工作平台V1.6.0</div>
         </span>
       </div>
     </div>
@@ -102,11 +102,11 @@ onMounted(async () => {
         detail.value = parsed
         return
       }
-    } catch (e) {}
+    } catch (e) { console.error(e) }
   }
   try {
     detail.value = await request.get(`/vehicle-applies/${route.params.id}`)
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 })
 </script>
 

@@ -117,7 +117,7 @@
       <!-- 左侧：核心业务流 -->
       <el-col :xs="24" :md="16">
         <!-- 最新收文卡片 -->
-        <div class="panel-card">
+        <div class="panel-card gov-card">
           <div class="panel-header">
             <div class="panel-title-wrap">
               <span class="panel-title-bar"></span>
@@ -178,7 +178,7 @@
         </div>
 
         <!-- 本周排班 -->
-        <div class="panel-card mt-20">
+        <div class="panel-card gov-card mt-20">
           <div class="panel-header">
             <div class="panel-title-wrap">
               <span class="panel-title-bar"></span>
@@ -216,7 +216,7 @@
         </div>
 
         <!-- 近半年业务趋势 -->
-        <div class="panel-card mt-20" v-if="trendSeries.length">
+        <div class="panel-card gov-card mt-20" v-if="trendSeries.length">
           <div class="panel-header">
             <div class="panel-title-wrap">
               <span class="panel-title-bar"></span>
@@ -233,7 +233,7 @@
       <!-- 右侧：值班、考勤与快捷功能 -->
       <el-col :xs="24" :md="8">
         <!-- 今日值班信息卡片 -->
-        <div class="panel-card">
+        <div class="panel-card gov-card">
           <div class="panel-header">
             <div class="panel-title-wrap">
               <span class="panel-title-bar"></span>
@@ -260,7 +260,7 @@
         </div>
 
         <!-- 我的考勤概况 -->
-        <div class="panel-card mt-20">
+        <div class="panel-card gov-card mt-20">
           <div class="panel-header">
             <div class="panel-title-wrap">
               <span class="panel-title-bar"></span>
@@ -309,7 +309,7 @@
         </div>
 
         <!-- 快捷操作入口 -->
-        <div class="panel-card mt-20" v-if="quickActions.length">
+        <div class="panel-card gov-card mt-20" v-if="quickActions.length">
           <div class="panel-header">
             <div class="panel-title-wrap">
               <span class="panel-title-bar"></span>
@@ -482,7 +482,7 @@ onMounted(async () => {
     stats.value = res
     latestIncoming.value = res.latest_incoming || []
     weekDuty.value = res.week_duty || []
-  } catch (e) {}
+  } catch (e) { console.error(e) }
 })
 </script>
 
@@ -727,7 +727,7 @@ onMounted(async () => {
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.05);
 }
 
-/* ===== 3. 面板卡片统一样式 ===== */
+/* 面板卡片统一样式 */
 .panel-card {
   background: var(--yx-surface);
   border-radius: var(--yx-radius);
@@ -737,15 +737,42 @@ onMounted(async () => {
   position: relative;
 }
 
-.panel-card::before {
+/* 领导驾驶舱政务风格 */
+.gov-card {
+  background: #ffffff;
+  border-radius: 6px;
+  border: 1px solid #e4e7ed;
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.05);
+  margin-bottom: 24px;
+}
+
+.gov-card::before {
   content: '';
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  height: 3px;
-  background: var(--yx-crest-gradient);
+  height: 4px;
+  background: linear-gradient(90deg, #9e1b1e, #e53935);
   z-index: 2;
+}
+
+.gov-card .panel-header {
+  padding: 16px 24px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.gov-card .panel-title {
+  font-family: var(--yx-font-serif, "STZhongsong", "SimSun", serif);
+  font-size: 18px;
+  font-weight: bold;
+  color: #333333;
+  letter-spacing: 1px;
+}
+
+.gov-card .panel-body {
+  padding: 24px;
+  line-height: 1.6;
 }
 
 .panel-header {
@@ -763,9 +790,9 @@ onMounted(async () => {
 }
 
 .panel-title-bar {
-  width: 3.5px;
-  height: 16px;
-  background: linear-gradient(180deg, var(--yx-brand), var(--yx-gold));
+  width: 4px;
+  height: 18px;
+  background: linear-gradient(180deg, #e53935, #9e1b1e);
   border-radius: 2px;
 }
 
