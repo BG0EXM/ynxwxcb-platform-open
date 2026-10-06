@@ -12,7 +12,7 @@
     </page-header>
 
     <el-row :gutter="20">
-      <el-col :span="5">
+      <el-col :xs="24" :sm="7" :md="5" class="mb-16">
         <el-card shadow="never" class="gov-card" style="height: 100%; border: none;">
           <el-tree
             :data="treeData"
@@ -24,7 +24,7 @@
         </el-card>
       </el-col>
       
-      <el-col :span="19">
+      <el-col :xs="24" :sm="17" :md="19">
         <el-card shadow="never" class="gov-card">
           <div class="toolbar">
             <div>

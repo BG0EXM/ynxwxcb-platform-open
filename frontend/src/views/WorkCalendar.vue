@@ -437,6 +437,14 @@ onMounted(() => {
   background: var(--el-fill-color-lighter);
 }
 @media (max-width: 767px) {
+  .month-calendar {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .month-calendar .week-header,
+  .month-calendar .grid {
+    min-width: 600px;
+  }
   .year-calendar {
     grid-template-columns: repeat(1, 1fr);
   }

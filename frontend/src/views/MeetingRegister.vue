@@ -435,7 +435,7 @@
           <span class="footer-org font-serif">中共伊宁县委宣传部</span>
           <span class="crest-dot"></span>
         </div>
-        <div class="footer-system">部务工作平台 · 数字化会务服务终端 V1.6.1</div>
+        <div class="footer-system">部务工作平台 · 数字化会务服务终端 V1.6.2</div>
         <div class="footer-beian">
           <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">ICP备案号占位</a>
           <span class="sep">|</span>

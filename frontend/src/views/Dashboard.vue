@@ -90,8 +90,8 @@
     </div>
 
     <!-- 2. 核心指标卡片 -->
-    <el-row :gutter="16" class="mt-20">
-      <el-col :xs="24" :sm="12" :md="6" v-for="c in statCards" :key="c.label">
+    <el-row :gutter="12" class="mt-20">
+      <el-col :xs="12" :sm="12" :md="6" v-for="c in statCards" :key="c.label">
         <div 
           class="stat-box yx-card-crest" 
           :class="{ 'is-clickable': !!c.path }"
@@ -1075,13 +1075,63 @@ onMounted(async () => {
     display: none !important;
   }
   .welcome-banner {
-    padding: 18px 16px;
+    padding: 16px 14px;
+    border-radius: var(--yx-radius-sm);
   }
   .greeting-title {
-    font-size: 18px;
+    font-size: 17px;
+    line-height: 1.3;
+  }
+  .greeting-subtitle {
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .stat-box {
+    padding: 12px 10px;
+    margin-bottom: 10px;
+  }
+  .stat-box-label {
+    font-size: 11px;
+  }
+  .stat-box-val {
+    font-size: 20px;
+  }
+  .stat-box-unit {
+    font-size: 11px;
+  }
+  .stat-box-desc {
+    display: none;
+  }
+  .stat-box-icon {
+    width: 34px;
+    height: 34px;
   }
   .duty-week-grid {
     grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .duty-week-item {
+    padding: 10px 8px;
+  }
+  .panel-header {
+    padding: 12px 14px;
+  }
+  .panel-body {
+    padding: 12px 14px;
+  }
+  .quick-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .quick-item {
+    padding: 8px 10px;
+  }
+  .quick-icon-wrap {
+    width: 32px;
+    height: 32px;
+  }
+  .quick-label {
+    font-size: 12px;
   }
 }
 </style>

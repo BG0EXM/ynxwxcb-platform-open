@@ -193,12 +193,12 @@
 
           <template v-if="form.duration_type === 'day'">
             <el-row :gutter="16">
-              <el-col :span="12">
+              <el-col :xs="24" :sm="12">
                 <el-form-item label="起始日期" prop="start_date">
                   <el-date-picker v-model="form.start_date" type="date" value-format="YYYY-MM-DD" style="width:100%" @change="calcDays" />
                 </el-form-item>
               </el-col>
-              <el-col :span="12">
+              <el-col :xs="24" :sm="12">
                 <el-form-item label="结束日期" prop="end_date">
                   <el-date-picker v-model="form.end_date" type="date" value-format="YYYY-MM-DD" style="width:100%" @change="calcDays" />
                 </el-form-item>
@@ -212,12 +212,12 @@
 
           <template v-else>
             <el-row :gutter="16">
-              <el-col :span="12">
+              <el-col :xs="24" :sm="12">
                 <el-form-item label="休假日期" prop="start_date">
                   <el-date-picker v-model="form.start_date" type="date" value-format="YYYY-MM-DD" style="width:100%" @change="syncHourDate" />
                 </el-form-item>
               </el-col>
-              <el-col :span="12">
+              <el-col :xs="24" :sm="12">
                 <el-form-item label="请假小时">
                   <el-input-number v-model="form.leave_hours" :min="0.5" :max="8" :step="0.5" style="width:120px" @change="calcByHour" />
                   <span class="ml-8 text-secondary">小时</span>

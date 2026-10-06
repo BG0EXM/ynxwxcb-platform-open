@@ -184,22 +184,7 @@ const routes = [
 
 const router = createRouter({
   history: createWebHistory(),
-  routes: [
-    ...routes,
-    {
-      path: '/mobile',
-      component: () => import('../views/mobile/Layout.vue'),
-      redirect: '/mobile/home',
-      children: [
-        {
-          path: 'home',
-          name: 'mobile-home',
-          component: () => import('../views/mobile/Home.vue'),
-          meta: { title: '移动端首页' }
-        }
-      ]
-    }
-  ]
+  routes
 })
 
 // 公开路径（无需登录）
@@ -234,10 +219,6 @@ const routePerms = {
 }
 
 router.beforeEach((to, from, next) => {
-  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-  if (isMobile && to.path !== '/login' && !to.path.startsWith('/mobile')) {
-    return next('/mobile/home')
-  }
 
   const token = localStorage.getItem('token')
   const isPublic = publicPaths.some(p => to.path.startsWith(p))
@@ -267,7 +248,7 @@ router.beforeEach((to, from, next) => {
         return
       }
     }
-    document.title = to.meta.title ? `${to.meta.title} - 伊宁县委宣传部部务工作平台 V1.6.1` : '伊宁县委宣传部部务工作平台 V1.6.1'
+    document.title = to.meta.title ? `${to.meta.title} - 伊宁县委宣传部部务工作平台 V1.6.2` : '伊宁县委宣传部部务工作平台 V1.6.2'
     next()
   }
 })

@@ -10,7 +10,7 @@
           <div class="desc">{{ authStore.user?.role_name }} · {{ authStore.user?.department_name }}</div>
         </div>
       </div>
-      <el-descriptions :column="2" border class="mt-16">
+      <el-descriptions :column="isMobile ? 1 : 2" border class="mt-16">
         <el-descriptions-item label="用户名">{{ authStore.user?.username }}</el-descriptions-item>
         <el-descriptions-item label="电话">{{ authStore.user?.phone || '未填写' }}</el-descriptions-item>
         <el-descriptions-item label="部门">{{ authStore.user?.department_name }}</el-descriptions-item>
@@ -41,7 +41,9 @@ import { reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../store/auth'
 import request from '../utils/request'
+import { useMobile } from '../utils/useMobile'
 
+const { isMobile } = useMobile()
 const authStore = useAuthStore()
 const pwdForm = reactive({ old_password: '', new_password: '', confirm: '' })
 

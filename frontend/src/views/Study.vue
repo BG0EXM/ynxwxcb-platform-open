@@ -52,7 +52,7 @@
           v-model:current-page="page"
           v-model:page-size="pageSize"
           :page-sizes="[10, 20, 50, 100]"
-          layout="total, sizes, prev, pager, next, jumper"
+          :layout="isMobile ? 'total, prev, pager, next' : 'total, sizes, prev, pager, next, jumper'"
           :total="total"
           @size-change="handleSizeChange"
           @current-change="handlePageChange"
@@ -137,7 +137,9 @@ import request, { downloadFile } from '../utils/request'
 import dayjs from 'dayjs'
 import { useAuthStore } from '../store/auth'
 import PageHeader from '../components/PageHeader.vue'
+import { useMobile } from '../utils/useMobile'
 
+const { isMobile } = useMobile()
 const route = useRoute()
 const authStore = useAuthStore()
 

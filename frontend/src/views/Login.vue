@@ -66,7 +66,7 @@
         </el-form>
 
         <div class="form-footer-tip">
-          <span>伊宁县委宣传部部务工作平台 V1.6.1</span>
+          <span>伊宁县委宣传部部务工作平台 V1.6.2</span>
         </div>
       </div>
     </div>
@@ -376,7 +376,8 @@ const handleLogin = async () => {
 @media (max-width: 768px) {
   .login-container {
     flex-direction: column;
-    width: 440px;
+    width: 100%;
+    max-width: 440px;
   }
   .login-brand-panel {
     padding: 32px 20px;

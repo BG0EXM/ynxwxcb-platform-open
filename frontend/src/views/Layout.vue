@@ -2,7 +2,7 @@
   <el-container class="layout">
     <!-- 侧边栏 -->
     <el-aside 
-      :width="isMobile ? '230px' : (collapsed ? '68px' : '230px')" 
+      :width="isMobile ? '260px' : (collapsed ? '68px' : '230px')"
       class="sidebar" 
       :class="{ 'sidebar-collapsed': collapsed && !isMobile, 'sidebar-mobile-open': mobileOpen }"
     >
@@ -14,6 +14,9 @@
         <div v-show="!collapsed || isMobile" class="logo-text">
           <h2 class="logo-title font-serif">伊宁县委宣传部</h2>
           <p class="logo-sub font-serif">部务工作平台</p>
+        </div>
+        <div v-if="isMobile" class="mobile-sidebar-close" @click="closeMobile">
+          <el-icon><Close /></el-icon>
         </div>
       </div>
 
@@ -93,8 +96,11 @@
             </el-icon>
           </button>
 
-          <!-- 面包屑 -->
-          <el-breadcrumb separator="/" class="header-breadcrumb">
+          <!-- 移动端当前页面标题 -->
+          <span v-if="isMobile" class="mobile-page-title font-serif">{{ currentTitle || '工作台' }}</span>
+
+          <!-- 桌面端面包屑 -->
+          <el-breadcrumb v-else separator="/" class="header-breadcrumb">
             <el-breadcrumb-item :to="{ path: '/dashboard' }">首页</el-breadcrumb-item>
             <el-breadcrumb-item v-if="currentGroupTitle">{{ currentGroupTitle }}</el-breadcrumb-item>
             <el-breadcrumb-item v-if="currentTitle && currentTitle !== '工作台'">
@@ -806,29 +812,99 @@ const handleCommand = (cmd) => {
     display: none !important;
   }
   .header {
-    padding: 0 12px;
+    padding: 0 10px;
+    height: 56px;
+  }
+  .header-left {
+    gap: 8px;
+    overflow: hidden;
+    flex: 1;
+  }
+  .mobile-toggle-btn {
+    flex-shrink: 0;
+  }
+  .mobile-page-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--yx-text-1);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.2;
+  }
+  .header-right {
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .header-search-btn {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    justify-content: center;
+    border-radius: 50%;
+    border-color: rgba(220, 223, 229, 0.7);
+  }
+  .header-search-btn .search-btn-icon {
+    font-size: 16px;
+  }
+  .header-badge-wrap {
+    padding: 2px;
+  }
+  .header-icon {
+    font-size: 18px;
+  }
+  .user-info {
+    padding: 2px;
+    gap: 2px;
+  }
+  .user-avatar {
+    width: 28px !important;
+    height: 28px !important;
+    line-height: 28px !important;
+    font-size: 12px !important;
   }
   .sidebar {
+    width: 260px !important;
     position: fixed;
     left: 0;
     top: 0;
     bottom: 0;
-    z-index: 1001;
+    z-index: 2001;
     transform: translateX(-100%);
-    transition: transform 0.25s ease;
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 4px 0 24px rgba(19, 26, 38, 0.4);
+    -webkit-overflow-scrolling: touch;
   }
   .sidebar-mobile-open {
     transform: translateX(0);
   }
+  .mobile-sidebar-close {
+    margin-left: auto;
+    font-size: 18px;
+    color: rgba(255, 255, 255, 0.75);
+    cursor: pointer;
+    padding: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+  }
+  .mobile-sidebar-close:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.12);
+  }
   .sidebar-mask {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.45);
+    background: rgba(0, 0, 0, 0.5);
     backdrop-filter: blur(2px);
-    z-index: 1000;
+    z-index: 2000;
   }
   .main {
-    padding: 12px;
+    padding: 10px 8px;
+    min-height: calc(100vh - 56px);
+    overflow-x: hidden;
   }
 }
 </style>

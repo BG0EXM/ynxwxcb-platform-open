@@ -988,4 +988,12 @@ defineExpose({
 .global-search-dialog .el-dialog__body {
   padding: 0 !important;
 }
+
+@media (max-width: 768px) {
+  .global-search-dialog.el-dialog {
+    width: 94vw !important;
+    max-width: 94vw !important;
+    margin: 5vh auto !important;
+  }
+}
 </style>

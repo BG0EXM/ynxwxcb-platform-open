@@ -135,7 +135,7 @@ defineProps({
   border-top: 1px dashed var(--el-border-color-lighter);
 }
 
-@media (max-width: 600px) {
+@media (max-width: 768px) {
   .page-header {
     padding: 12px 14px;
     margin-bottom: 14px;

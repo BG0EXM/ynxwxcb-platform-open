@@ -403,7 +403,7 @@
 
         <div class="print-footer-info">
           <span>单位：中共伊宁县委宣传部办公室</span>
-          <span>系统依据：伊宁县委宣传部部务工作平台V1.6.1</span>
+          <span>系统依据：伊宁县委宣传部部务工作平台V1.6.2</span>
           <span>打印存档专用</span>
         </div>
       </div>
@@ -1032,6 +1032,46 @@ const handlePrint = () => {
 .text-sm { font-size: 13px; }
 .text-secondary { color: #8a94a0; }
 .text-muted { color: #909399; }
+
+/* 移动端响应式适配 */
+@media (max-width: 768px) {
+  .drawer-header-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .drawer-header-bar .header-right {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .cadre-card {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .cadre-details-grid {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .core-metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .leave-types-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .core-metrics-grid {
+    grid-template-columns: 1fr;
+  }
+  .leave-types-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
 
 /* 打印样式适配 */
 @media print {

@@ -242,12 +242,12 @@
         <div class="form-section">
           <div class="form-section-title">公文基本信息</div>
           <el-row :gutter="16">
-            <el-col :span="12">
+            <el-col :xs="24" :sm="12">
               <el-form-item label="收文编号">
                 <el-input v-model="form.receive_no" placeholder="留空自动生成" />
               </el-form-item>
             </el-col>
-            <el-col :span="12">
+            <el-col :xs="24" :sm="12">
               <el-form-item label="收文日期">
                 <el-date-picker 
                   v-model="form.received_date" 
@@ -265,12 +265,12 @@
           </el-form-item>
 
           <el-row :gutter="16">
-            <el-col :span="12">
+            <el-col :xs="24" :sm="12">
               <el-form-item label="来文单位" required>
                 <el-input v-model="form.from_unit" placeholder="如：伊犁州党委宣传部" />
               </el-form-item>
             </el-col>
-            <el-col :span="12">
+            <el-col :xs="24" :sm="12">
               <el-form-item label="来文字号">
                 <el-input v-model="form.from_doc_no" placeholder="如：州宣发〔2026〕5号" />
               </el-form-item>
@@ -278,12 +278,12 @@
           </el-row>
 
           <el-row :gutter="16">
-            <el-col :span="12">
+            <el-col :xs="24" :sm="12">
               <el-form-item label="内部编号">
                 <el-input v-model="form.doc_no" placeholder="如：XCB-2026-001" />
               </el-form-item>
             </el-col>
-            <el-col :span="12">
+            <el-col :xs="24" :sm="12">
               <el-form-item label="印制份数">
                 <el-input-number v-model="form.copies" :min="1" :max="999" style="width: 100%" />
               </el-form-item>
@@ -295,14 +295,14 @@
         <div class="form-section">
           <div class="form-section-title">密级与清退要求</div>
           <el-row :gutter="16">
-            <el-col :span="12">
+            <el-col :xs="24" :sm="12">
               <el-form-item label="公文密级">
                 <el-select v-model="form.secret_level" placeholder="请选择密级" style="width: 100%">
                   <el-option v-for="s in secretLevels" :key="s" :label="s" :value="s" />
                 </el-select>
               </el-form-item>
             </el-col>
-            <el-col :span="12">
+            <el-col :xs="24" :sm="12">
               <el-form-item label="紧急程度">
                 <el-select v-model="form.urgency" style="width: 100%">
                   <el-option label="一般" value="一般" />
@@ -315,7 +315,7 @@
           </el-row>
 
           <el-row :gutter="16">
-            <el-col :span="12">
+            <el-col :xs="24" :sm="12">
               <el-form-item label="是否需退回">
                 <el-radio-group v-model="form.need_return">
                   <el-radio :label="1">需要退回</el-radio>
@@ -323,7 +323,7 @@
                 </el-radio-group>
               </el-form-item>
             </el-col>
-            <el-col :span="12">
+            <el-col :xs="24" :sm="12">
               <el-form-item label="清退状态">
                 <el-radio-group v-model="form.returned" :disabled="form.need_return !== 1">
                   <el-radio :label="1">已清退</el-radio>
@@ -348,14 +348,14 @@
         <div class="form-section">
           <div class="form-section-title">批示、承办与归档</div>
           <el-row :gutter="16">
-            <el-col :span="12">
+            <el-col :xs="24" :sm="12">
               <el-form-item label="办理状态">
                 <el-select v-model="form.status" style="width: 100%">
                   <el-option v-for="(name, val) in statusNames" :key="val" :label="name" :value="Number(val)" />
                 </el-select>
               </el-form-item>
             </el-col>
-            <el-col :span="12">
+            <el-col :xs="24" :sm="12">
               <el-form-item label="承办科室">
                 <el-select
                   v-model="form.assigned_department"
@@ -377,12 +377,12 @@
           </el-row>
 
           <el-row :gutter="16">
-            <el-col :span="14">
+            <el-col :xs="24" :sm="14">
               <el-form-item label="归档盒号">
                 <el-input v-model="form.archive_box_no" placeholder="如：2026-宣-01盒" />
               </el-form-item>
             </el-col>
-            <el-col :span="10">
+            <el-col :xs="24" :sm="10">
               <el-form-item label="归档年度">
                 <el-input v-model="form.archive_year" placeholder="如：2026" />
               </el-form-item>
@@ -440,7 +440,7 @@
       <div class="detail-drawer-body">
         <el-tabs v-model="detailTab">
           <el-tab-pane label="基础信息" name="info">
-            <el-descriptions :column="2" border>
+            <el-descriptions :column="isMobile ? 1 : 2" border>
               <el-descriptions-item label="收文编号">{{ detail.receive_no || '—' }}</el-descriptions-item>
               <el-descriptions-item label="收文日期">{{ detail.received_date || '—' }}</el-descriptions-item>
               <el-descriptions-item label="来文单位">{{ detail.from_unit || '—' }}</el-descriptions-item>
@@ -531,7 +531,7 @@
     <el-dialog 
       v-model="statusDialogVisible" 
       title="公文办理与归档" 
-      width="480px" 
+      :width="isMobile ? '92%' : '480px'"
       destroy-on-close
     >
       <el-form :model="statusForm" label-width="95px" size="default">
@@ -615,7 +615,9 @@ import { useAuthStore } from '../store/auth'
 import PageHeader from '../components/PageHeader.vue'
 import StatusDot from '../components/StatusDot.vue'
 import EmptyState from '../components/EmptyState.vue'
+import { useMobile } from '../utils/useMobile'
 
+const { isMobile } = useMobile()
 const route = useRoute()
 const authStore = useAuthStore()
 

@@ -189,12 +189,12 @@
           </el-form-item>
 
           <el-row :gutter="16">
-            <el-col :span="12">
+            <el-col :xs="24" :sm="12">
               <el-form-item label="用车人" prop="user_name">
                 <el-input v-model="applyForm.user_name" placeholder="用车人姓名" />
               </el-form-item>
             </el-col>
-            <el-col :span="12">
+            <el-col :xs="24" :sm="12">
               <el-form-item label="开车人">
                 <el-input v-model="applyForm.driver_name" placeholder="默认专职司机" />
               </el-form-item>
@@ -213,7 +213,7 @@
           </el-form-item>
 
           <el-row :gutter="16">
-            <el-col :span="12">
+            <el-col :xs="24" :sm="12">
               <el-form-item label="用车日期" prop="use_date">
                 <el-date-picker 
                   v-model="applyForm.use_date" 
@@ -223,7 +223,7 @@
                 />
               </el-form-item>
             </el-col>
-            <el-col :span="12">
+            <el-col :xs="24" :sm="12">
               <el-form-item label="乘车人数">
                 <el-input-number v-model="applyForm.passengers" :min="1" :max="50" style="width:100%" />
               </el-form-item>

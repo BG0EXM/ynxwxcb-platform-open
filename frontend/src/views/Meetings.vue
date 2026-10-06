@@ -71,7 +71,7 @@
           v-model:current-page="page"
           v-model:page-size="pageSize"
           :page-sizes="[10, 20, 50, 100]"
-          layout="total, sizes, prev, pager, next, jumper"
+          :layout="isMobile ? 'total, prev, pager, next' : 'total, sizes, prev, pager, next, jumper'"
           :total="total"
           @size-change="handleSizeChange"
           @current-change="handlePageChange"
@@ -94,12 +94,12 @@
           </el-form-item>
 
           <el-row :gutter="16">
-            <el-col :span="12">
+            <el-col :xs="24" :sm="12">
               <el-form-item label="会议日期" required>
                 <el-date-picker v-model="form.meeting_date" type="date" value-format="YYYY-MM-DD" style="width:100%" />
               </el-form-item>
             </el-col>
-            <el-col :span="12">
+            <el-col :xs="24" :sm="12">
               <el-form-item label="开会时间">
                 <el-time-picker v-model="form.meeting_time" value-format="HH:mm" format="HH:mm" placeholder="如 10:30" style="width:100%" />
               </el-form-item>
@@ -226,7 +226,9 @@ import dayjs from 'dayjs'
 import PageHeader from '../components/PageHeader.vue'
 import StatusDot from '../components/StatusDot.vue'
 import EmptyState from '../components/EmptyState.vue'
+import { useMobile } from '../utils/useMobile'
 
+const { isMobile } = useMobile()
 const route = useRoute()
 
 const list = ref([])

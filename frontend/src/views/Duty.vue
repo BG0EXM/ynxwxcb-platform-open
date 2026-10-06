@@ -404,4 +404,15 @@ const exportData = () => {
   color: var(--el-color-warning);
   font-size: 12px;
 }
+
+@media (max-width: 768px) {
+  .duty-calendar {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .week-header,
+  .duty-grid {
+    min-width: 580px;
+  }
+}
 </style>
