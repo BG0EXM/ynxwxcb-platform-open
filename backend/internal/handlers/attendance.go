@@ -280,14 +280,16 @@ func MarkUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 	type UserItem struct {
-		ID         int64  `json:"id"`
-		RealName   string `json:"real_name"`
-		Department string `json:"department"`
-		Status     int    `json:"status"`
-		LeaveType  string `json:"leave_type"`
-		Remark     string `json:"remark"`
-		AutoLeave  int    `json:"auto_leave"`
-		AutoComp   int    `json:"auto_comp"`
+		ID              int64  `json:"id"`
+		RealName        string `json:"real_name"`
+		Department      string `json:"department"`
+		Status          int    `json:"status"`
+		LeaveType       string `json:"leave_type"`
+		Remark          string `json:"remark"`
+		AutoLeave       int    `json:"auto_leave"`
+		AutoComp        int    `json:"auto_comp"`
+		HasLeave        bool   `json:"has_leave"`
+		LeaveRecordType string `json:"leave_record_type"`
 	}
 	list := []UserItem{}
 	for rows.Next() {
@@ -301,10 +303,19 @@ func MarkUsers(w http.ResponseWriter, r *http.Request) {
 		if dept.Valid {
 			u.Department = dept.String
 		}
+		if autoLeave == 2 {
+			u.HasLeave = true
+			if autoLeaveType.Valid {
+				u.LeaveRecordType = autoLeaveType.String
+			}
+			u.AutoLeave = 1
+		}
+		if autoComp == 1 {
+			u.AutoComp = 1
+		}
 		// 若当天无考勤记录（status=0）但有请假记录，自动标记为请假，并记录 auto_leave=1
 		if u.Status == 0 && autoLeave == 2 {
 			u.Status = 2
-			u.AutoLeave = 1
 			if autoLeaveType.Valid {
 				u.LeaveType = autoLeaveType.String
 			}
@@ -312,7 +323,6 @@ func MarkUsers(w http.ResponseWriter, r *http.Request) {
 		// 补休（comp）：无考勤记录时按出勤处理，标记 auto_comp=1（补休视为正常出勤）
 		if u.Status == 0 && autoComp == 1 {
 			u.Status = 1
-			u.AutoComp = 1
 		}
 		list = append(list, u)
 	}

@@ -549,7 +549,7 @@ func DeleteUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// 单位公共档案与历史业务资产（公文、常委大事记、大事记、周总结、公共资料、日程备忘、用车台账）
+	// 单位公共档案与历史业务资产（公文、常委大事记、大事记、周总结、公共资料、日程备忘、用车台账、会务、征求意见、材料下发）
 	// 严禁级联物理删除，统一将其录入人转移给当前操作管理员
 	archiveTransfers := []struct {
 		table string
@@ -562,6 +562,9 @@ func DeleteUser(w http.ResponseWriter, r *http.Request) {
 		{"study_materials", "publisher_id"},
 		{"calendar_tasks", "created_by"},
 		{"vehicle_applies", "reporter_id"},
+		{"meetings", "created_by"},
+		{"solicits", "created_by"},
+		{"dispatches", "created_by"},
 	}
 	for _, at := range archiveTransfers {
 		if _, err := tx.Exec("UPDATE "+at.table+" SET "+at.col+"=? WHERE "+at.col+"=?", operatorID, id); err != nil {
@@ -596,7 +599,7 @@ func resetAutoIncrement() {
 		"contacts", "duty_schedules", "incoming_docs", "circulation_records",
 		"study_materials", "attachments", "calendar_tasks", "standing_committee_events",
 		"major_events", "weekly_summaries", "overtime_records", "annual_leave_configs",
-		"meetings", "meeting_registrations"}
+		"meetings", "meeting_registrations", "solicits", "solicit_feedbacks", "dispatches", "dispatch_receipts"}
 	tx, err := database.DB.Begin()
 	if err != nil {
 		return

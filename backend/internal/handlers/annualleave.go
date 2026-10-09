@@ -127,10 +127,10 @@ func ExportAnnualLeaveConfigs(w http.ResponseWriter, r *http.Request) {
 		FROM users u
 		LEFT JOIN departments d ON u.department_id = d.id
 		LEFT JOIN annual_leave_configs c ON c.user_id = u.id AND c.year = ?
-		WHERE u.status = 1 ORDER BY u.id`
+		WHERE u.status = 1 ORDER BY u.id LIMIT 10000`
 	rows, err := database.DB.Query(query, year)
 	if err != nil {
-		http.Error(w, "查询失败", http.StatusInternalServerError)
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
 	defer rows.Close()
@@ -152,7 +152,7 @@ func ExportAnnualLeaveConfigs(w http.ResponseWriter, r *http.Request) {
 		users = append(users, u)
 	}
 	if err := rows.Err(); err != nil {
-		http.Error(w, "查询失败", http.StatusInternalServerError)
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
 
@@ -167,10 +167,10 @@ func ExportAnnualLeaveConfigs(w http.ResponseWriter, r *http.Request) {
 			FROM leave_records
 			WHERE status = 1 AND leave_type = 'annual' AND start_date <= ? AND end_date >= ?
 			GROUP BY id
-		) WHERE eff > 0 GROUP BY user_id`
+		) WHERE eff > 0 GROUP BY user_id LIMIT 10000`
 	urows, err := database.DB.Query(usedQuery, yearEnd, yearEnd, yearStart, yearStart, yearEnd, yearStart)
 	if err != nil {
-		http.Error(w, "查询失败", http.StatusInternalServerError)
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
 	defer urows.Close()
@@ -183,7 +183,7 @@ func ExportAnnualLeaveConfigs(w http.ResponseWriter, r *http.Request) {
 		usedMap[uid] = used
 	}
 	if err := urows.Err(); err != nil {
-		http.Error(w, "查询失败", http.StatusInternalServerError)
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
 

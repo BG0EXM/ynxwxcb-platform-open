@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -123,6 +124,6 @@ func writeDocx(w http.ResponseWriter, fileName string, data []byte) {
 	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q; filename*=UTF-8''%s", fileName, url.PathEscape(fileName)))
 	if _, err := w.Write(data); err != nil {
-		http.Error(w, "导出失败", http.StatusInternalServerError)
+		log.Printf("[DOCX] write error: %v", err)
 	}
 }

@@ -16,6 +16,20 @@ const routes = [
     meta: { title: '会议报名' }
   },
   {
+    path: '/solicit/:id',
+    alias: '/solicit-feedback/:id',
+    name: 'solicit-feedback',
+    component: () => import('../views/SolicitFeedback.vue'),
+    meta: { title: '征求意见填报' }
+  },
+  {
+    path: '/dispatch/:id',
+    alias: '/dispatch-receipt/:id',
+    name: 'dispatch-receipt',
+    component: () => import('../views/DispatchReceipt.vue'),
+    meta: { title: '公文材料查收' }
+  },
+  {
     path: '/incoming/print/:id',
     name: 'incoming-print',
     component: () => import('../views/IncomingPrint.vue'),
@@ -149,6 +163,18 @@ const routes = [
         meta: { title: '会务管理', icon: 'OfficeBuilding', admin: true }
       },
       {
+        path: 'solicits',
+        name: 'solicits',
+        component: () => import('../views/Solicits.vue'),
+        meta: { title: '征求意见', icon: 'EditPen' }
+      },
+      {
+        path: 'dispatches',
+        name: 'dispatches',
+        component: () => import('../views/Dispatches.vue'),
+        meta: { title: '材料下发', icon: 'Promotion' }
+      },
+      {
         path: 'users',
         name: 'users',
         component: () => import('../views/Users.vue'),
@@ -188,7 +214,7 @@ const router = createRouter({
 })
 
 // 公开路径（无需登录）
-const publicPaths = ['/login', '/meeting/', '/meeting-register/']
+const publicPaths = ['/login', '/meeting/', '/meeting-register/', '/solicit/', '/solicit-feedback/', '/dispatch/', '/dispatch-receipt/']
 
 // 路由 → 所需权限点（无权限则隐藏菜单并友好提示）
 const routePerms = {
@@ -212,6 +238,8 @@ const routePerms = {
   vehicles: 'vehicle.view',
   'vehicle-print': 'vehicle.view',
   meetings: 'meeting.manage',
+  solicits: 'solicit.manage',
+  dispatches: 'dispatch.manage',
   users: 'user.manage',
   permissions: 'user.manage',
   'operation-logs': 'oplog.view',
@@ -248,7 +276,7 @@ router.beforeEach((to, from, next) => {
         return
       }
     }
-    document.title = to.meta.title ? `${to.meta.title} - 伊宁县委宣传部部务工作平台 V1.6.2` : '伊宁县委宣传部部务工作平台 V1.6.2'
+    document.title = to.meta.title ? `${to.meta.title} - 伊宁县委宣传部部务工作平台 V1.7.0` : '伊宁县委宣传部部务工作平台 V1.7.0'
     next()
   }
 })

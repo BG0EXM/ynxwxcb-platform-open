@@ -29,10 +29,10 @@
         </el-table-column>
         <el-table-column label="模块" width="120">
           <template #default="{ row }">
-            <el-tag size="small" type="info">{{ row.module }}</el-tag>
+            <el-tag size="small" :type="row.module === '系统安全' || row.module === '保密防线' ? 'danger' : 'info'">{{ row.module }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="动作" width="90">
+        <el-table-column label="动作" width="120">
           <template #default="{ row }">
             <el-tag size="small" :type="actionType(row.action)">{{ row.action }}</el-tag>
           </template>
@@ -53,9 +53,13 @@
 import { ref, reactive, onMounted } from 'vue'
 import request from '../utils/request'
 
-const modules = ['登录', '认证', '收文管理', '用车管理', '请假管理', '考勤管理', '加班管理',
-  '年休假管理', '大事记', '每周工作总结', '工作日历', '公共资料', '会务管理', '通讯录', '值守排班', '用户管理', '常委管理']
-const actions = ['新增', '修改', '删除', '导出', '登录']
+const modules = [
+  '系统安全', '保密防线', '征求意见', '材料下发', '会务管理', '登录', '认证',
+  '收文管理', '用车管理', '请假管理', '考勤管理', '加班管理',
+  '年休假管理', '大事记', '每周工作总结', '工作日历', '公共资料',
+  '通讯录', '值守排班', '用户管理', '常委管理'
+]
+const actions = ['新增', '修改', '删除', '导出', '登录', 'WAF拦截', '涉密阻断', '公开端涉密阻断']
 
 const list = ref([])
 const loading = ref(false)
@@ -65,7 +69,16 @@ const total = ref(0)
 const filters = reactive({ module: '', action: '', keyword: '' })
 const dateRange = ref([])
 
-const actionType = (a) => ({ 新增: 'success', 修改: 'warning', 删除: 'danger', 导出: 'primary', 登录: 'info' }[a] || 'info')
+const actionType = (a) => ({
+  新增: 'success',
+  修改: 'warning',
+  删除: 'danger',
+  导出: 'primary',
+  登录: 'info',
+  WAF拦截: 'danger',
+  涉密阻断: 'danger',
+  公开端涉密阻断: 'danger'
+}[a] || 'info')
 
 const loadData = async () => {
   loading.value = true

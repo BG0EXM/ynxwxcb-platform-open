@@ -50,6 +50,10 @@ var PermissionCatalog = []Permission{
 	{"annualleave.export", "导出年休假", "年休假管理", 92},
 	// 会务管理
 	{"meeting.manage", "会务管理（含导出签到单）", "会务管理", 100},
+	// 征求意见管理
+	{"solicit.manage", "征求意见管理（发布/查看/导出汇总）", "征求意见", 105},
+	// 材料下发管理
+	{"dispatch.manage", "材料下发管理（发布/查看/导出台账）", "材料下发", 106},
 	// 考勤管理
 	{"attendance.mark", "考勤点到", "考勤管理", 110},
 	{"attendance.view", "查看考勤记录", "考勤管理", 111},
@@ -89,6 +93,8 @@ var businessDefault = []string{
 	"vehicle.view", "vehicle.apply", "vehicle.export",
 	"study.view", "study.publish",
 	"dashboard.view",
+	"solicit.manage",
+	"dispatch.manage",
 }
 
 // DefaultRolePermissions 各角色默认权限（admin 由代码旁路，始终全权限）

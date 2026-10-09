@@ -220,10 +220,10 @@ func ExportWeeklySummaries(w http.ResponseWriter, r *http.Request) {
 		query += ` AND s.week_start <= ?`
 		args = append(args, weekEnd)
 	}
-	query += ` ORDER BY s.department_id`
+	query += ` ORDER BY s.department_id LIMIT 10000`
 	rows, err := database.DB.Query(query, args...)
 	if err != nil {
-		http.Error(w, "查询失败", http.StatusInternalServerError)
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
 	defer rows.Close()
@@ -279,7 +279,7 @@ func ExportWeeklySummaries(w http.ResponseWriter, r *http.Request) {
 
 	data, err := builder.build()
 	if err != nil {
-		http.Error(w, "导出失败", http.StatusInternalServerError)
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "导出失败"})
 		return
 	}
 	logOperation(r, "每周工作总结", "导出", "导出每周工作总结（"+weekLabel+"）")

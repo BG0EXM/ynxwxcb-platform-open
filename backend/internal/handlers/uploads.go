@@ -16,6 +16,7 @@ import (
 	"ynxwxcb-platform/internal/database"
 	"ynxwxcb-platform/internal/middleware"
 	"ynxwxcb-platform/internal/models"
+	"ynxwxcb-platform/internal/secrecy"
 )
 
 // UploadFile 文件上传
@@ -48,6 +49,23 @@ func UploadFile(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
+		// 保密安全校验：严禁上传国家秘密（秘密/机密/绝密）、工作秘密及内部级文件（支持正文/页眉内容深度解构）
+		var fileReader io.Reader = file
+		if res, restoredReader := secrecy.CheckFileSecrecy(header.Filename, file); res.Violated {
+			logOperation(r, "保密防线", "涉密阻断", fmt.Sprintf("拦截涉密文件上传: %s (密级: %s, 规则: %s, 详情: %s)", header.Filename, res.Category, res.Rule, res.Detail))
+			middleware.JSON(w, http.StatusForbidden, map[string]interface{}{
+				"error":              "【国家保密安全警报】检测到文件带有国家秘密或内部保密标识，严禁在非涉密系统上传传输！",
+				"security_violation": "SECRECY_LEAK_PREVENTED",
+				"filename":           header.Filename,
+				"matched_rule":       res.Rule,
+				"category":           res.Category,
+				"detail":             res.Detail,
+			})
+			return
+		} else {
+			fileReader = restoredReader
+		}
+
 		// 校验大小
 		if header.Size > cfg.Upload.MaxMB<<20 {
 			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "文件超过大小限制"})
@@ -70,7 +88,7 @@ func UploadFile(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 		defer dst.Close()
-		if _, err := io.Copy(dst, file); err != nil {
+		if _, err := io.Copy(dst, fileReader); err != nil {
 			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "写入失败"})
 			return
 		}

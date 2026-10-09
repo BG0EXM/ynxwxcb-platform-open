@@ -148,15 +148,24 @@ func DeleteContact(w http.ResponseWriter, r *http.Request) {
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "删除成功"})
 }
 
-// ListDutySchedules 排班列表
+// ListDutySchedules 排班列表（支持按月或按起止日期范围查询）
 func ListDutySchedules(w http.ResponseWriter, r *http.Request) {
 	month := r.URL.Query().Get("month") // YYYY-MM
+	startDate := r.URL.Query().Get("start_date") // YYYY-MM-DD
+	endDate := r.URL.Query().Get("end_date")     // YYYY-MM-DD
 	userID := r.URL.Query().Get("user_id")
 
-	query := `SELECT s.id, s.duty_date, s.user_id, u.real_name, s.is_dawangyuan, s.note, s.status
-		FROM duty_schedules s LEFT JOIN users u ON s.user_id = u.id WHERE 1=1`
+	query := `SELECT s.id, s.duty_date, s.user_id, u.real_name, s.is_dawangyuan, s.note, s.status,
+			COALESCE(d.name, '') as dept_name, COALESCE(u.phone, '') as phone
+		FROM duty_schedules s 
+		LEFT JOIN users u ON s.user_id = u.id 
+		LEFT JOIN departments d ON u.department_id = d.id
+		WHERE 1=1`
 	args := []interface{}{}
-	if month != "" {
+	if startDate != "" && endDate != "" {
+		query += ` AND s.duty_date >= ? AND s.duty_date <= ?`
+		args = append(args, startDate, endDate)
+	} else if month != "" {
 		query += ` AND s.duty_date LIKE ?`
 		args = append(args, month+"%")
 	}
@@ -164,7 +173,7 @@ func ListDutySchedules(w http.ResponseWriter, r *http.Request) {
 		query += ` AND s.user_id = ?`
 		args = append(args, userID)
 	}
-	query += ` ORDER BY s.duty_date`
+	query += ` ORDER BY s.duty_date, s.id`
 
 	rows, err := database.DB.Query(query, args...)
 	if err != nil {
@@ -176,14 +185,16 @@ func ListDutySchedules(w http.ResponseWriter, r *http.Request) {
 	schedules := []models.DutySchedule{}
 	for rows.Next() {
 		var s models.DutySchedule
-		var userName, note sql.NullString
+		var userName, note, deptName, phone sql.NullString
 		var uid sql.NullInt64
-		if err := rows.Scan(&s.ID, &s.DutyDate, &uid, &userName, &s.IsDaWangYuan, &note, &s.Status); err != nil {
+		if err := rows.Scan(&s.ID, &s.DutyDate, &uid, &userName, &s.IsDaWangYuan, &note, &s.Status, &deptName, &phone); err != nil {
 			continue
 		}
 		s.UserID = uid.Int64
 		s.UserName = userName.String
 		s.Note = note.String
+		s.DepartmentName = deptName.String
+		s.Phone = phone.String
 		schedules = append(schedules, s)
 	}
 	if err := rows.Err(); err != nil {

@@ -1,7 +1,9 @@
 package router
 
 import (
+	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,6 +35,17 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("POST /api/public/meetings/{id}/register", middleware.RateLimit(30, time.Minute)(http.HandlerFunc(handlers.PublicRegisterMeeting)))
 	mux.Handle("POST /api/public/meetings/{id}/remove", middleware.RateLimit(30, time.Minute)(http.HandlerFunc(handlers.PublicRemoveAttendee)))
 	mux.Handle("POST /api/public/meetings/{id}/cancel", middleware.RateLimit(30, time.Minute)(http.HandlerFunc(handlers.PublicCancelMeetingRegister)))
+	// 征求意见公开填报与文件下载（匿名，无需登录）——按 IP 限流（防刷）
+	mux.Handle("GET /api/public/solicits/{id}", middleware.RateLimit(120, time.Minute)(http.HandlerFunc(handlers.PublicSolicit)))
+	mux.Handle("GET /api/public/solicits/{id}/file", middleware.RateLimit(120, time.Minute)(handlers.PublicServeSolicitFile(cfg)))
+	mux.Handle("POST /api/public/solicits/{id}/upload", middleware.RateLimit(30, time.Minute)(handlers.PublicSolicitUpload(cfg)))
+	mux.Handle("POST /api/public/solicits/{id}/feedback", middleware.RateLimit(30, time.Minute)(http.HandlerFunc(handlers.PublicSubmitFeedback)))
+
+	// 材料下发公开查收与文件下载（匿名，无需登录）——按 IP 限流（防刷）
+	mux.Handle("GET /api/public/dispatches/{id}", middleware.RateLimit(120, time.Minute)(http.HandlerFunc(handlers.PublicDispatch)))
+	mux.Handle("GET /api/public/dispatches/{id}/file", middleware.RateLimit(120, time.Minute)(handlers.PublicServeDispatchFile(cfg)))
+	mux.Handle("POST /api/public/dispatches/{id}/receipt", middleware.RateLimit(30, time.Minute)(http.HandlerFunc(handlers.PublicConfirmDispatchReceipt)))
+
 
 	// ---- 认证 ----
 
@@ -132,6 +145,26 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("GET /api/export/meetings/{id}/registration", perm("meeting.manage", handlers.ExportMeetingRegistration))
 	mux.Handle("GET /api/export/meeting-registrations", perm("meeting.manage", handlers.ExportMeetingRegistration))
 
+	// ---- 征求意见管理 ----
+	mux.Handle("GET /api/solicits", perm("solicit.manage", handlers.ListSolicits))
+	mux.Handle("POST /api/solicits", perm("solicit.manage", handlers.CreateSolicit(cfg)))
+	mux.Handle("PUT /api/solicits", perm("solicit.manage", handlers.UpdateSolicit(cfg)))
+	mux.Handle("DELETE /api/solicits/{id}", perm("solicit.manage", handlers.DeleteSolicit(cfg)))
+	mux.Handle("GET /api/solicits/{id}", perm("solicit.manage", handlers.GetSolicit))
+	mux.Handle("POST /api/solicits/{id}/feedbacks/reset-unit", perm("solicit.manage", handlers.ResetUnitFeedback))
+	mux.Handle("GET /api/export/solicits/{id}/feedbacks", perm("solicit.manage", handlers.ExportSolicitFeedbacks))
+	mux.Handle("GET /api/solicits/{id}/download-replies", perm("solicit.manage", handlers.DownloadSolicitRepliesZip(cfg)))
+
+	// ---- 材料下发管理 ----
+	mux.Handle("GET /api/dispatches", perm("dispatch.manage", handlers.ListDispatches))
+	mux.Handle("POST /api/dispatches", perm("dispatch.manage", handlers.CreateDispatch(cfg)))
+	mux.Handle("PUT /api/dispatches", perm("dispatch.manage", handlers.UpdateDispatch(cfg)))
+	mux.Handle("DELETE /api/dispatches/{id}", perm("dispatch.manage", handlers.DeleteDispatch(cfg)))
+	mux.Handle("GET /api/dispatches/{id}", perm("dispatch.manage", handlers.GetDispatch))
+	mux.Handle("POST /api/dispatches/{id}/reset-unit", perm("dispatch.manage", handlers.ResetUnitDispatchReceipt))
+	mux.Handle("GET /api/export/dispatches/{id}/receipts", perm("dispatch.manage", handlers.ExportDispatchReceipts))
+
+
 	// ---- 考勤 ----
 	mux.Handle("POST /api/attendance/mark", perm("attendance.mark", handlers.MarkAttendance))
 	mux.Handle("GET /api/attendance/list", perm("attendance.view", handlers.ListAttendances))
@@ -210,11 +243,74 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("GET /api/export/major-events", perm("event.export", handlers.ExportMajorEvents))
 	mux.Handle("GET /api/export/weekly-summaries", perm("weekly.export", handlers.ExportWeeklySummaries))
 
+	// 上传文件安全直读服务（支持回函 PDF、公函照片、各模块附件在新窗口无损预览或下载）
+	mux.Handle("GET /uploads/", uploadFileHandler{uploadDir: cfg.Upload.Dir})
+
 	// 静态文件服务（前端构建产物）+ SPA 回退
 	staticDir := "static"
 	mux.Handle("GET /", spaHandler{staticDir: staticDir})
 
 	return mux
+}
+
+// uploadFileHandler 提供 /uploads/ 目录下的文件安全访问与流式展示
+type uploadFileHandler struct {
+	uploadDir string
+}
+
+func (h uploadFileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// 路径清理与防穿越
+	rel := strings.TrimPrefix(r.URL.Path, "/uploads/")
+	cleanRel := filepath.Clean(rel)
+	if strings.HasPrefix(cleanRel, "..") || strings.HasPrefix(cleanRel, "/") {
+		http.NotFound(w, r)
+		return
+	}
+
+	fullPath := filepath.Join(h.uploadDir, cleanRel)
+	absUpload, _ := filepath.Abs(h.uploadDir)
+	absFull, _ := filepath.Abs(fullPath)
+	if absFull != absUpload && !strings.HasPrefix(absFull, absUpload+string(os.PathSeparator)) {
+		http.NotFound(w, r)
+		return
+	}
+
+	info, err := os.Stat(fullPath)
+	if err != nil || info.IsDir() {
+		http.NotFound(w, r)
+		return
+	}
+
+	ext := strings.ToLower(filepath.Ext(fullPath))
+	fileName := filepath.Base(fullPath)
+	if idx := strings.Index(fileName, "_"); idx > 0 && idx < len(fileName)-1 {
+		fileName = fileName[idx+1:]
+	}
+
+	w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+
+	switch ext {
+	case ".pdf":
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q; filename*=UTF-8''%s", fileName, url.PathEscape(fileName)))
+	case ".jpg", ".jpeg":
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q; filename*=UTF-8''%s", fileName, url.PathEscape(fileName)))
+	case ".png":
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q; filename*=UTF-8''%s", fileName, url.PathEscape(fileName)))
+	case ".docx":
+		w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q; filename*=UTF-8''%s", fileName, url.PathEscape(fileName)))
+	case ".doc":
+		w.Header().Set("Content-Type", "application/msword")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q; filename*=UTF-8''%s", fileName, url.PathEscape(fileName)))
+	default:
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q; filename*=UTF-8''%s", fileName, url.PathEscape(fileName)))
+	}
+
+	http.ServeFile(w, r, fullPath)
 }
 
 // spaHandler 支持 history 路由的静态文件服务

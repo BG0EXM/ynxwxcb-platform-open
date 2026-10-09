@@ -217,7 +217,7 @@ func ExportMajorEvents(w http.ResponseWriter, r *http.Request) {
 
 	query := `SELECT e.period, e.title
 		FROM major_events e
-		WHERE e.period LIKE ? ORDER BY e.period`
+		WHERE e.period LIKE ? ORDER BY e.period LIMIT 10000`
 	rows, err := database.DB.Query(query, year+"%")
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})

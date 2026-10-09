@@ -28,14 +28,14 @@ func SecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
 		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("X-Frame-Options", "DENY")
+		h.Set("X-Frame-Options", "SAMEORIGIN")
 		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		h.Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
-		// 同源 SPA：脚本/连接限本站，样式允许内联（Element Plus 动态样式）
+		// 同源 SPA：脚本/连接限本站，样式允许内联（Element Plus 动态样式），允许同源 iframe 预览
 		h.Set("Content-Security-Policy",
 			"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "+
 				"script-src 'self'; connect-src 'self'; font-src 'self' data:; "+
-				"frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+				"frame-src 'self' blob: data:; frame-ancestors 'self'; base-uri 'self'; form-action 'self'")
 		h.Set("Access-Control-Expose-Headers", "Content-Disposition")
 		next.ServeHTTP(w, r)
 	})

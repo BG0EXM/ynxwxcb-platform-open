@@ -222,11 +222,11 @@ func ExportCalendarTasks(w http.ResponseWriter, r *http.Request) {
 		query += ` AND t.start_date <= ?`
 		args = append(args, end)
 	}
-	query += ` ORDER BY t.start_date, t.id`
+	query += ` ORDER BY t.start_date, t.id LIMIT 10000`
 
 	rows, err := database.DB.Query(query, args...)
 	if err != nil {
-		http.Error(w, "查询失败", http.StatusInternalServerError)
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
 	defer rows.Close()

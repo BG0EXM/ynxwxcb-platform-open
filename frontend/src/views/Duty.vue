@@ -6,6 +6,7 @@
     >
       <template #actions>
         <el-tag type="warning" effect="plain" class="mr-8">值守至21:00收文</el-tag>
+        <el-button type="primary" :icon="'Picture'" @click="openExportImageDialog">一键导出排班图片</el-button>
         <el-button type="success" :icon="'Download'" @click="exportData">导出Excel</el-button>
       </template>
     </page-header>
@@ -100,6 +101,73 @@
         <el-button @click="dialogVisible = false">关闭</el-button>
       </template>
     </el-drawer>
+
+    <!-- 一键导出选定周排班图片对话框 -->
+    <el-dialog
+      v-model="imageDialogVisible"
+      title="导出周值守排班表图片"
+      width="860px"
+      destroy-on-close
+      class="duty-image-dialog"
+    >
+      <div class="image-dialog-header">
+        <div class="week-switch-bar">
+          <el-button-group>
+            <el-button size="small" @click="shiftWeek(-1)">上一周</el-button>
+            <el-button size="small" @click="resetToCurrentWeek">本周</el-button>
+            <el-button size="small" @click="shiftWeek(1)">下一周</el-button>
+          </el-button-group>
+
+          <el-date-picker
+            v-model="targetWeekDate"
+            type="date"
+            value-format="YYYY-MM-DD"
+            placeholder="定位基准日期"
+            style="width: 140px; margin-left: 10px"
+            size="small"
+            @change="onTargetDateChange"
+          />
+
+          <div class="selected-week-info" v-if="weekInfo">
+            <span class="week-range-text font-serif">{{ weekInfo.rangeTitle }}</span>
+            <el-tag size="small" type="primary" effect="plain" class="ml-8">{{ weekInfo.weekNumberText }}</el-tag>
+          </div>
+        </div>
+
+        <div class="style-config-bar">
+          <el-radio-group v-model="posterTheme" size="small" @change="renderPoster">
+            <el-radio-button value="red">经典政务红</el-radio-button>
+            <el-radio-button value="blue">庄重藏青蓝</el-radio-button>
+          </el-radio-group>
+          <el-checkbox v-model="showNoticeCard" size="small" class="ml-12" @change="renderPoster">包含值守纪律要求</el-checkbox>
+        </div>
+      </div>
+
+      <!-- 图片预览展示容器 -->
+      <div class="poster-preview-container" v-loading="renderingPoster">
+        <div v-if="previewImageUrl" class="poster-preview-box">
+          <img :src="previewImageUrl" alt="值守排班表" class="poster-preview-img" />
+        </div>
+        <el-empty v-else description="正在生成高清排班图片..." />
+      </div>
+
+      <template #footer>
+        <div class="dialog-footer-actions">
+          <span class="footer-tip text-secondary">
+            提示：图片已渲染为 2000px 视网膜高清分辨率，可一键复制或下载分享至工作群
+          </span>
+          <div class="footer-btns">
+            <el-button @click="imageDialogVisible = false">关闭</el-button>
+            <el-button :icon="'CopyDocument'" @click="copyPosterImage" :loading="copying">
+              复制图片到剪贴板
+            </el-button>
+            <el-button type="primary" :icon="'Download'" @click="downloadPosterImage">
+              一键下载高清图片
+            </el-button>
+          </div>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -110,6 +178,7 @@ import request, { exportFile } from '../utils/request'
 import dayjs from 'dayjs'
 import { useAuthStore } from '../store/auth'
 import PageHeader from '../components/PageHeader.vue'
+import { getWeekRangeInfo, generateDutyPosterCanvas } from '../utils/dutyPoster'
 
 const authStore = useAuthStore()
 const currentMonth = ref(dayjs().format('YYYY-MM'))
@@ -119,6 +188,17 @@ const dialogVisible = ref(false)
 const editDate = ref('')
 const daySchedules = ref([])
 const addUser = ref(null)
+
+// 导出周值班图片相关状态
+const imageDialogVisible = ref(false)
+const targetWeekDate = ref(dayjs().format('YYYY-MM-DD'))
+const weekInfo = ref(getWeekRangeInfo())
+const posterTheme = ref('red')
+const showNoticeCard = ref(true)
+const previewImageUrl = ref('')
+const renderingPoster = ref(false)
+const copying = ref(false)
+const currentPosterCanvas = ref(null)
 
 const weekNames = ['一', '二', '三', '四', '五', '六', '日']
 
@@ -241,6 +321,110 @@ onMounted(() => {
   loadAssignees()
 })
 
+// ===================== 周排班海报图片导出逻辑 =====================
+const openExportImageDialog = () => {
+  targetWeekDate.value = dayjs().format('YYYY-MM-DD')
+  weekInfo.value = getWeekRangeInfo(targetWeekDate.value)
+  imageDialogVisible.value = true
+  renderPoster()
+}
+
+const shiftWeek = (delta) => {
+  targetWeekDate.value = dayjs(targetWeekDate.value).add(delta * 7, 'day').format('YYYY-MM-DD')
+  weekInfo.value = getWeekRangeInfo(targetWeekDate.value)
+  renderPoster()
+}
+
+const resetToCurrentWeek = () => {
+  targetWeekDate.value = dayjs().format('YYYY-MM-DD')
+  weekInfo.value = getWeekRangeInfo(targetWeekDate.value)
+  renderPoster()
+}
+
+const onTargetDateChange = (val) => {
+  if (!val) targetWeekDate.value = dayjs().format('YYYY-MM-DD')
+  weekInfo.value = getWeekRangeInfo(targetWeekDate.value)
+  renderPoster()
+}
+
+const renderPoster = async () => {
+  renderingPoster.value = true
+  try {
+    const info = getWeekRangeInfo(targetWeekDate.value)
+    weekInfo.value = info
+
+    // 请求选定周对应的排班（支持跨月）
+    const res = await request.get('/duty-schedules', {
+      params: { start_date: info.mondayDate, end_date: info.sundayDate }
+    })
+    const list = res.list || []
+    const scheduleMap = {}
+    list.forEach(s => {
+      if (!scheduleMap[s.duty_date]) scheduleMap[s.duty_date] = []
+      scheduleMap[s.duty_date].push(s)
+    })
+
+    const weekDaysWithData = info.weekDays.map(d => ({
+      ...d,
+      schedules: scheduleMap[d.dateStr] || []
+    }))
+
+    const canvas = generateDutyPosterCanvas(weekDaysWithData, {
+      theme: posterTheme.value,
+      showNotice: showNoticeCard.value,
+      weekRangeText: `${info.weekDays[0].dateStr.replace(/-/g, '.')} ~ ${info.weekDays[6].dateStr.replace(/-/g, '.')}`,
+      weekNumberText: info.weekNumberText
+    })
+
+    currentPosterCanvas.value = canvas
+    previewImageUrl.value = canvas.toDataURL('image/png')
+  } catch (e) {
+    console.error('渲染排班海报失败', e)
+    ElMessage.error('渲染排班图片失败')
+  } finally {
+    renderingPoster.value = false
+  }
+}
+
+const copyPosterImage = async () => {
+  if (!currentPosterCanvas.value) return
+  copying.value = true
+  try {
+    currentPosterCanvas.value.toBlob(async (blob) => {
+      if (!blob) {
+        ElMessage.warning('生成图片数据失败')
+        copying.value = false
+        return
+      }
+      if (navigator.clipboard && window.ClipboardItem) {
+        try {
+          await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+          ElMessage.success('图片已成功复制到剪贴板，可直接在微信/钉钉中粘贴（Ctrl+V）发送！')
+          copying.value = false
+          return
+        } catch (err) {
+          console.warn('ClipboardItem write failed, trying fallback download', err)
+        }
+      }
+      downloadPosterImage()
+      ElMessage.info('当前浏览器限制直接写入图片剪贴板，已自动为您下载高清图片')
+      copying.value = false
+    }, 'image/png')
+  } catch (e) {
+    copying.value = false
+    ElMessage.error('复制失败，请直接点击“下载图片”')
+  }
+}
+
+const downloadPosterImage = () => {
+  if (!currentPosterCanvas.value) return
+  const link = document.createElement('a')
+  const fileName = `中共伊宁县委宣传部值守排班表_${weekInfo.value.year}年第${weekInfo.value.weekNumber}周(${weekInfo.value.mondayDate.slice(5).replace('-', '.')}-${weekInfo.value.sundayDate.slice(5).replace('-', '.')}).png`
+  link.download = fileName
+  link.href = currentPosterCanvas.value.toDataURL('image/png')
+  link.click()
+  ElMessage.success('已开始下载高清排班表图片')
+}
 const exportData = () => {
   const params = {}
   if (currentMonth.value) params.month = currentMonth.value
@@ -413,6 +597,90 @@ const exportData = () => {
   .week-header,
   .duty-grid {
     min-width: 580px;
+  }
+}
+
+/* 海报导出弹窗样式 */
+.image-dialog-header {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+.week-switch-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.selected-week-info {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 12px;
+}
+.week-range-text {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+.style-config-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.ml-12 {
+  margin-left: 12px;
+}
+.poster-preview-container {
+  min-height: 280px;
+  max-height: 520px;
+  overflow-y: auto;
+  padding: 16px;
+  background: var(--el-fill-color-light);
+  border-radius: 6px;
+  margin-top: 14px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+.poster-preview-box {
+  width: 100%;
+  max-width: 720px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #ffffff;
+}
+.poster-preview-img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.dialog-footer-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.footer-tip {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.footer-btns {
+  display: flex;
+  gap: 8px;
+}
+@media (max-width: 640px) {
+  .dialog-footer-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .footer-btns {
+    justify-content: flex-end;
   }
 }
 </style>

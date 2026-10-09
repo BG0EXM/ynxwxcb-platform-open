@@ -66,7 +66,7 @@
         </el-form>
 
         <div class="form-footer-tip">
-          <span>伊宁县委宣传部部务工作平台 V1.6.2</span>
+          <span>伊宁县委宣传部部务工作平台 V1.7.0</span>
         </div>
       </div>
     </div>

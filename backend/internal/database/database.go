@@ -107,6 +107,8 @@ var migrations = []migration{
 	{14, "用户令牌版本（token_version，支持改密/禁用后旧令牌失效）", migrateV14},
 	{15, "公文在办流转状态与归档卷盒管理（handling_status, archive_box_no, archive_year）", migrateV15},
 	{16, "新增公文承办科室与备注", migrateV16},
+	{17, "新增征求意见模块表（征求任务与单位反馈）", migrateV17},
+	{18, "新增材料下发模块表（下发通知与单位查收记录）", migrateV18},
 }
 
 // migrateV2 版本2：用车报备支持科室人开车（增加 driver_name 字段）
@@ -906,14 +908,28 @@ func seed() error {
 		{"乡镇/通讯员", "reporter", "投稿、接收通知、上报材料"},
 	}
 
-	// 检查 roles 是否为空
-	var count int
-	DB.QueryRow("SELECT COUNT(*) FROM roles").Scan(&count)
-	if count == 0 {
-		for _, r := range roles {
+	// 确保基础角色齐全（幂等写入，避免因历史迁移先插入leader而漏建其他核心角色）
+	for _, r := range roles {
+		var cnt int
+		DB.QueryRow("SELECT COUNT(*) FROM roles WHERE code = ?", r.code).Scan(&cnt)
+		if cnt == 0 {
 			_, err := DB.Exec("INSERT INTO roles (name, code, description) VALUES (?, ?, ?)", r.name, r.code, r.desc)
 			if err != nil {
 				return fmt.Errorf("初始化角色失败: %v", err)
+			}
+		}
+	}
+
+	// 确保各角色具备默认权限点（若该角色尚未配置任何权限，写入默认权限）
+	for roleCode, codes := range DefaultRolePermissions {
+		var rID int64
+		if err := DB.QueryRow("SELECT id FROM roles WHERE code = ?", roleCode).Scan(&rID); err == nil && rID > 0 {
+			var permCnt int
+			DB.QueryRow("SELECT COUNT(*) FROM role_permissions WHERE role_id = ?", rID).Scan(&permCnt)
+			if permCnt == 0 {
+				for _, c := range codes {
+					DB.Exec("INSERT OR IGNORE INTO role_permissions (role_id, permission_code) VALUES (?, ?)", rID, c)
+				}
 			}
 		}
 	}
@@ -964,5 +980,109 @@ func migrateV16() error {
 			return err
 		}
 	}
+	return nil
+}
+
+// migrateV17 版本17：新增征求意见模块表（征求任务与单位反馈）
+func migrateV17() error {
+	// 征求意见主表
+	if _, err := DB.Exec(`CREATE TABLE IF NOT EXISTS solicits (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		title TEXT NOT NULL,
+		doc_no TEXT DEFAULT '',
+		deadline TEXT NOT NULL,
+		units TEXT NOT NULL,
+		content TEXT DEFAULT '',
+		pdf_path TEXT NOT NULL,
+		pdf_name TEXT NOT NULL,
+		word_path TEXT DEFAULT '',
+		word_name TEXT DEFAULT '',
+		created_by INTEGER,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		return err
+	}
+	DB.Exec("CREATE INDEX IF NOT EXISTS idx_solicits_deadline ON solicits(deadline)")
+
+	// 单位反馈明细表
+	if _, err := DB.Exec(`CREATE TABLE IF NOT EXISTS solicit_feedbacks (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		solicit_id INTEGER NOT NULL,
+		unit TEXT NOT NULL,
+		has_opinion INTEGER DEFAULT 0,
+		opinion_detail TEXT DEFAULT '',
+		reply_doc_path TEXT NOT NULL,
+		reply_doc_name TEXT NOT NULL,
+		attachment_path TEXT DEFAULT '',
+		attachment_name TEXT DEFAULT '',
+		contact_name TEXT NOT NULL,
+		contact_phone TEXT NOT NULL,
+		ip TEXT DEFAULT '',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(solicit_id, unit)
+	)`); err != nil {
+		return err
+	}
+	DB.Exec("CREATE INDEX IF NOT EXISTS idx_feedbacks_solicit_unit ON solicit_feedbacks(solicit_id, unit)")
+
+	// 插入新权限点
+	DB.Exec(`INSERT INTO permissions (code, name, module, sort) VALUES ('solicit.manage', '征求意见管理（发布/查看/导出汇总）', '业务办理', 105)
+		ON CONFLICT(code) DO UPDATE SET name=excluded.name, module=excluded.module, sort=excluded.sort`)
+
+	// 为全部已有角色授权该权限（保证升级后各角色均可协同）
+	DB.Exec(`INSERT OR IGNORE INTO role_permissions (role_id, permission_code)
+		SELECT id, 'solicit.manage' FROM roles`)
+
+	return nil
+}
+
+// migrateV18 版本18：新增材料下发模块表（下发通知与单位查收记录）
+func migrateV18() error {
+	// 材料下发主表
+	if _, err := DB.Exec(`CREATE TABLE IF NOT EXISTS dispatches (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		title TEXT NOT NULL,
+		doc_no TEXT DEFAULT '',
+		units TEXT NOT NULL,
+		content TEXT DEFAULT '',
+		pdf_path TEXT NOT NULL,
+		pdf_name TEXT NOT NULL,
+		attachment_path TEXT DEFAULT '',
+		attachment_name TEXT DEFAULT '',
+		deadline TEXT DEFAULT '',
+		created_by INTEGER,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		return err
+	}
+	DB.Exec("CREATE INDEX IF NOT EXISTS idx_dispatches_created_at ON dispatches(created_at)")
+
+	// 单位查收记录表（记录谁查收、电话、IP、时间戳）
+	if _, err := DB.Exec(`CREATE TABLE IF NOT EXISTS dispatch_receipts (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		dispatch_id INTEGER NOT NULL,
+		unit TEXT NOT NULL,
+		receiver_name TEXT NOT NULL,
+		receiver_phone TEXT NOT NULL,
+		read_count INTEGER DEFAULT 1,
+		ip TEXT DEFAULT '',
+		received_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(dispatch_id, unit)
+	)`); err != nil {
+		return err
+	}
+	DB.Exec("CREATE INDEX IF NOT EXISTS idx_dispatch_receipts_did ON dispatch_receipts(dispatch_id)")
+
+	// 插入新权限点
+	DB.Exec(`INSERT INTO permissions (code, name, module, sort) VALUES ('dispatch.manage', '材料下发管理（发布/查看/导出台账）', '业务办理', 106)
+		ON CONFLICT(code) DO UPDATE SET name=excluded.name, module=excluded.module, sort=excluded.sort`)
+
+	// 为全部已有角色授权该权限（保证升级后各角色均可操作材料下发）
+	DB.Exec(`INSERT OR IGNORE INTO role_permissions (role_id, permission_code)
+		SELECT id, 'dispatch.manage' FROM roles`)
+
 	return nil
 }

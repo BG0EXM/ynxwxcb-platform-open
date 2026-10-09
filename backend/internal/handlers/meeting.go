@@ -716,7 +716,7 @@ func ExportMeetingRegistration(w http.ResponseWriter, r *http.Request) {
 		`SELECT id, title, meeting_date, meeting_time, location, units FROM meetings WHERE id=?`, id).
 		Scan(&m.ID, &m.Title, &meetingDate, &meetingTime, &location, &unitsRaw)
 	if err != nil {
-		http.Error(w, "会议不存在", http.StatusNotFound)
+		middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "会议不存在"})
 		return
 	}
 	m.MeetingDate = meetingDate.String

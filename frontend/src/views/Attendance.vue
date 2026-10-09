@@ -30,27 +30,37 @@
           <el-empty description="暂无人员" :image-size="60" />
         </div>
         <el-table v-else :data="markUsers" size="small" :row-class-name="rowClass">
-          <el-table-column prop="real_name" label="姓名" width="100">
+          <el-table-column prop="real_name" label="姓名" width="140">
             <template #default="{ row }">
-              {{ row.real_name }}
-              <el-tag v-if="row.auto_leave === 1" type="warning" size="small" class="auto-leave-tag">请假</el-tag>
-              <el-tag v-if="row.auto_comp === 1" type="success" size="small" class="auto-leave-tag">补休</el-tag>
+              <span class="user-name-text">{{ row.real_name }}</span>
+              <el-tag v-if="row.has_leave" type="warning" size="small" class="auto-leave-tag" effect="light">
+                已请假{{ row.leave_record_type ? '·' + (leaveTypeNames[row.leave_record_type] || row.leave_record_type) : '' }}
+              </el-tag>
+              <el-tag v-else-if="row.auto_comp === 1" type="success" size="small" class="auto-leave-tag" effect="light">补休</el-tag>
+              <el-tag v-else-if="row.status === 2 && !row.has_leave" type="danger" size="small" effect="plain" class="auto-leave-tag">未登记假条</el-tag>
             </template>
           </el-table-column>
           <el-table-column prop="department" label="部门" width="130" />
-          <el-table-column label="状态" width="260">
+          <el-table-column label="状态" min-width="320">
             <template #default="{ row }">
-              <el-radio-group v-model="row.status">
-                <el-radio :label="1">出勤</el-radio>
-                <el-radio :label="2">请假</el-radio>
-                <el-radio :label="3">出差</el-radio>
-                <el-radio :label="4">未到</el-radio>
-                <el-radio :label="5">迟到</el-radio>
-                <el-radio :label="6">培训</el-radio>
-              </el-radio-group>
-              <el-select v-if="row.status === 2" v-model="row.leave_type" size="small" placeholder="请假类型" style="width:120px;margin-left:8px">
-                <el-option v-for="(name, val) in leaveTypeNames" :key="val" :label="name" :value="val" />
-              </el-select>
+              <div class="status-cell-wrap">
+                <el-radio-group v-model="row.status" @change="(val) => handleStatusChange(row, val)">
+                  <el-radio :label="1">出勤</el-radio>
+                  <el-radio :label="2">请假</el-radio>
+                  <el-radio :label="3">出差</el-radio>
+                  <el-radio :label="4">未到</el-radio>
+                  <el-radio :label="5">迟到</el-radio>
+                  <el-radio :label="6">培训</el-radio>
+                </el-radio-group>
+                <div v-if="row.status === 2" class="leave-type-inline">
+                  <el-select v-model="row.leave_type" size="small" placeholder="请假类型" style="width:110px">
+                    <el-option v-for="(name, val) in leaveTypeNames" :key="val" :label="name" :value="val" />
+                  </el-select>
+                  <el-button v-if="!row.has_leave" link type="primary" size="small" @click="guideToLeave(row)">
+                    去请假模块填写
+                  </el-button>
+                </div>
+              </div>
             </template>
           </el-table-column>
           <el-table-column label="备注" width="180">
@@ -64,6 +74,45 @@
         </div>
       </div>
     </el-card>
+
+    <!-- 请假未配置引导对话框 -->
+    <el-dialog 
+      v-model="leaveGuideVisible" 
+      title="请假模块未配置提示" 
+      width="520px" 
+      destroy-on-close
+      :close-on-click-modal="false"
+      class="leave-guide-dialog"
+    >
+      <div class="leave-guide-body">
+        <div class="guide-header-tip">
+          <el-icon class="guide-warn-icon" size="28" color="#e6a23c"><WarningFilled /></el-icon>
+          <div class="guide-title">
+            检测到【<b>{{ currentGuideRow?.real_name }}</b>】尚未在请假模块登记请假单
+          </div>
+        </div>
+        <div class="guide-desc">
+          <p>考勤点到与请假管理深度联动，点到中的请假数据应以<b>【请假管理】</b>模块的审批台账为基准。</p>
+          <div class="guide-warn-box">
+            <div class="guide-warn-title">⚠️ 若未在请假模块登记直接在点到中标记：</div>
+            <ul class="guide-warn-list">
+              <li>请假台账无对应记录，无法打印规范请假审批条；</li>
+              <li>干部年休假/补休天数无法自动扣减核算；</li>
+              <li>导致考勤统计与休假报表数据脱节、产生冲突。</li>
+            </ul>
+          </div>
+          <p class="guide-action-tip">系统引导您先前往<b>【请假管理】</b>模块填写请假申请，保存后考勤点到将自动联动为请假状态。</p>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="guide-dialog-footer">
+          <el-button @click="cancelGuide">取消</el-button>
+          <el-button type="warning" plain @click="allowTempLeave">仍临时标记考勤</el-button>
+          <el-button type="primary" @click="confirmGuideToLeave">前往请假模块填写</el-button>
+        </div>
+      </template>
+    </el-dialog>
 
     <!-- 考勤记录与统计 -->
     <el-row :gutter="16" class="mt-12">
@@ -151,9 +200,12 @@ const leaveTypeNames = {
   training: '培训', other: '其他'
 }
 
+const leaveGuideVisible = ref(false)
+const currentGuideRow = ref(null)
+
 // 自动请假的用户行高亮
 const rowClass = ({ row }) => {
-  if (row.auto_leave === 1) return 'auto-leave-row'
+  if (row.has_leave || row.auto_leave === 1) return 'auto-leave-row'
   return ''
 }
 
@@ -161,9 +213,72 @@ const loadMarkUsers = async () => {
   if (!authStore.hasPerm('attendance.mark')) return
   try {
     const res = await request.get('/attendance/mark-users', { params: { date: markDate.value } })
-    markUsers.value = res.list || []
+    const userList = res.list || []
+    userList.forEach(u => {
+      u._lastStatus = u.status || 1
+      if (!u.leave_type && u.leave_record_type) {
+        u.leave_type = u.leave_record_type
+      }
+    })
+    markUsers.value = userList
     saved.value = !!res.saved
   } catch (e) { console.error(e) }
+}
+
+const handleStatusChange = (row, val) => {
+  if (val === 2) {
+    // 切换到请假状态
+    if (!row.has_leave) {
+      // 未在请假模块配置：弹出引导对话框
+      currentGuideRow.value = row
+      leaveGuideVisible.value = true
+      return
+    }
+    // 已在请假模块配置：自动带出请假类型
+    if (row.leave_record_type && !row.leave_type) {
+      row.leave_type = row.leave_record_type
+    }
+    row._lastStatus = 2
+  } else {
+    row._lastStatus = val
+  }
+}
+
+const guideToLeave = (row) => {
+  currentGuideRow.value = row
+  confirmGuideToLeave()
+}
+
+const confirmGuideToLeave = () => {
+  if (!currentGuideRow.value) return
+  const row = currentGuideRow.value
+  const draft = {
+    user_id: row.id,
+    real_name: row.real_name,
+    date: markDate.value
+  }
+  localStorage.setItem('leaveApplyDraft', JSON.stringify(draft))
+  leaveGuideVisible.value = false
+  // 将状态还原为原状态，避免未填写前保存错误
+  row.status = row._lastStatus || 1
+  router.push('/leave')
+}
+
+const allowTempLeave = () => {
+  if (!currentGuideRow.value) return
+  const row = currentGuideRow.value
+  row.status = 2
+  row._lastStatus = 2
+  if (!row.leave_type) row.leave_type = 'personal'
+  leaveGuideVisible.value = false
+  ElMessage.warning(`已临时标记【${row.real_name}】为请假，请后续务必前往请假管理模块补录请假条`)
+}
+
+const cancelGuide = () => {
+  if (currentGuideRow.value) {
+    currentGuideRow.value.status = currentGuideRow.value._lastStatus || 1
+  }
+  leaveGuideVisible.value = false
 }
 
 const markAllPresent = () => {
@@ -174,15 +289,31 @@ const markAllPresent = () => {
       return
     }
     u.status = 1
+    u._lastStatus = 1
   })
   if (skipped > 0) ElMessage.info(`${skipped} 人已请假，保持请假状态不变`)
 }
 
 const saveMark = async () => {
   if (!markUsers.value.length) return ElMessage.warning('没有人员')
+
+  // 检查是否有未在请假模块登记却选择了请假的人员
+  const unconfiguredLeaves = markUsers.value.filter(u => u.status === 2 && !u.has_leave)
+  let confirmMsg = `确认保存 ${markDate.value} 的考勤点到？保存后仍可再次修改。`
+  if (unconfiguredLeaves.length > 0) {
+    const names = unconfiguredLeaves.map(u => u.real_name).join('、')
+    confirmMsg += `<br><br><span style="color:var(--el-color-warning);font-size:13px;line-height:1.6;">⚠️ <b>注意</b>：【${names}】选择了请假，但尚未在请假模块登记请假单。建议前往请假管理补填假条，以确保考勤与休假台账数据一致。</span>`
+  }
+
   try {
-    await ElMessageBox.confirm(`确认保存 ${markDate.value} 的考勤点到？保存后仍可再次修改。`, '点到确认', { type: 'warning' })
-  } catch (e) { console.error(e); return }
+    await ElMessageBox.confirm(confirmMsg, '点到确认', {
+      type: unconfiguredLeaves.length > 0 ? 'warning' : 'info',
+      dangerouslyUseHTMLString: true,
+      confirmButtonText: '确定保存',
+      cancelButtonText: '取消'
+    })
+  } catch (e) { return }
+
   saving.value = true
   try {
     const records = markUsers.value.map(u => ({
@@ -331,6 +462,69 @@ onMounted(() => {
   margin-top: 14px;
   display: flex;
   justify-content: flex-end;
+}
+.user-name-text {
+  font-weight: 500;
+}
+.status-cell-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.leave-type-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 4px;
+}
+.leave-guide-body {
+  padding: 4px 8px;
+}
+.guide-header-tip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.guide-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  line-height: 1.4;
+}
+.guide-desc {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--el-text-color-regular);
+}
+.guide-warn-box {
+  background: var(--el-color-warning-light-9);
+  border: 1px solid var(--el-color-warning-light-7);
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin: 12px 0;
+}
+.guide-warn-title {
+  font-weight: 600;
+  color: var(--el-color-warning-dark-2);
+  margin-bottom: 6px;
+}
+.guide-warn-list {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--el-color-warning-dark-2);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.guide-action-tip {
+  margin-top: 10px;
+  color: var(--el-text-color-primary);
+}
+.guide-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 </style>
 

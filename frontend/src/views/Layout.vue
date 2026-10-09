@@ -219,6 +219,8 @@ const menuGroups = computed(() => {
     hp('duty.view') && { path: '/duty', title: '值守排班', icon: 'AlarmClock' },
     hp('calendar.view') && { path: '/calendar', title: '工作日历', icon: 'Calendar' },
     hp('meeting.manage') && { path: '/meetings', title: '会务管理', icon: 'OfficeBuilding' },
+    hp('solicit.manage') && { path: '/solicits', title: '征求意见', icon: 'EditPen' },
+    hp('dispatch.manage') && { path: '/dispatches', title: '材料下发', icon: 'Promotion' },
     hp('contact.view') && { path: '/contacts', title: '通讯录', icon: 'Phone' }
   ].filter(Boolean)
   const attendance = [
@@ -294,7 +296,9 @@ const initWatermark = () => {
       const user = JSON.parse(userStr)
       if (user.real_name) real_name = user.real_name
       if (user.phone) phone = String(user.phone).slice(-4)
-    } catch (e) {}
+    } catch (e) {
+      console.error('解析水印用户信息失败:', e)
+    }
   }
   
   const text1 = '内部系统 严禁外传'

@@ -150,11 +150,11 @@ func ExportOvertimeRecords(w http.ResponseWriter, r *http.Request) {
 		query += ` AND o.overtime_date LIKE ?`
 		args = append(args, year+"%")
 	}
-	query += ` ORDER BY o.overtime_date DESC, o.id DESC`
+	query += ` ORDER BY o.overtime_date DESC, o.id DESC LIMIT 10000`
 
 	rows, err := database.DB.Query(query, args...)
 	if err != nil {
-		http.Error(w, "查询失败", http.StatusInternalServerError)
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
 	defer rows.Close()
@@ -176,7 +176,7 @@ func ExportOvertimeRecords(w http.ResponseWriter, r *http.Request) {
 		idx++
 	}
 	if err := rows.Err(); err != nil {
-		http.Error(w, "查询失败", http.StatusInternalServerError)
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
 	logOperation(r, "加班管理", "导出", "导出加班记录")

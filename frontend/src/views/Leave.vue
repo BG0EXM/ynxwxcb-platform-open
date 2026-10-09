@@ -518,6 +518,32 @@ onMounted(() => {
       localStorage.removeItem('compUser')
     }
   }
+
+  // 检查是否有从考勤点到带来的“未配置请假，引导填写”人员信息
+  const leaveDraftRaw = localStorage.getItem('leaveApplyDraft')
+  if (leaveDraftRaw) {
+    try {
+      const draft = JSON.parse(leaveDraftRaw)
+      localStorage.removeItem('leaveApplyDraft')
+      openCreate()
+      if (draft.user_id) {
+        form.user_id = draft.user_id
+      }
+      if (draft.date) {
+        form.start_date = draft.date
+        form.end_date = draft.date
+        form.days = 1
+      }
+      ElNotification({
+        title: '已自动联动点到人员',
+        message: `正在为【${draft.real_name || '干部职工'}】填写 ${draft.date || ''} 的请假单，填写保存后返回考勤点到即可自动联动！`,
+        type: 'success',
+        duration: 5500
+      })
+    } catch (e) {
+      localStorage.removeItem('leaveApplyDraft')
+    }
+  }
 })
 </script>
 

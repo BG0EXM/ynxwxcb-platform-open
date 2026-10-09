@@ -167,7 +167,7 @@ func ExportStandingCommitteeEvents(w http.ResponseWriter, r *http.Request) {
 		args = append(args, month+"%")
 	}
 	query := `SELECT e.event_date, e.title
-		FROM standing_committee_events e` + where + ` ORDER BY e.event_date, e.id`
+		FROM standing_committee_events e` + where + ` ORDER BY e.event_date, e.id LIMIT 10000`
 	rows, err := database.DB.Query(query, args...)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})

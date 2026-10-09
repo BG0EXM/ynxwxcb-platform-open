@@ -64,14 +64,16 @@ type Contact struct {
 
 // DutySchedule 值守排班（当天值守，至晚上9点收文；可标记县委大院附加排班）
 type DutySchedule struct {
-	ID           int64     `json:"id"`
-	DutyDate     string    `json:"duty_date"` // YYYY-MM-DD
-	UserID       int64     `json:"user_id"`
-	UserName     string    `json:"user_name,omitempty"`
-	IsDaWangYuan int       `json:"is_dawangyuan"` // 1=当天同时有县委大院排班
-	Note         string    `json:"note"`
-	Status       int       `json:"status"` // 1正常 2已完成
-	CreatedAt    time.Time `json:"created_at"`
+	ID             int64     `json:"id"`
+	DutyDate       string    `json:"duty_date"` // YYYY-MM-DD
+	UserID         int64     `json:"user_id"`
+	UserName       string    `json:"user_name,omitempty"`
+	DepartmentName string    `json:"department_name,omitempty"`
+	Phone          string    `json:"phone,omitempty"`
+	IsDaWangYuan   int       `json:"is_dawangyuan"` // 1=当天同时有县委大院排班
+	Note           string    `json:"note"`
+	Status         int       `json:"status"` // 1正常 2已完成
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // LoginRequest 登录请求
@@ -185,6 +187,78 @@ type MeetingRegistration struct {
 	Reason        string    `json:"reason"`
 	CreatedAt     time.Time `json:"created_at"`
 }
+
+// Solicit 征求文件与材料意见
+type Solicit struct {
+	ID            int64     `json:"id"`
+	Title         string    `json:"title"`
+	DocNo         string    `json:"doc_no"`
+	Deadline      string    `json:"deadline"`      // 截止时间 YYYY-MM-DD HH:mm
+	Units         string    `json:"units"`         // 征求单位范围（换行分隔）
+	Content       string    `json:"content"`       // 征求意见要求说明
+	PdfPath       string    `json:"pdf_path"`      // 正文 PDF 存储路径
+	PdfName       string    `json:"pdf_name"`      // 正文 PDF 原始名称
+	WordPath      string    `json:"word_path"`     // 配套 Word 存储路径（可选）
+	WordName      string    `json:"word_name"`     // 配套 Word 原始名称（可选）
+	CreatedBy     int64     `json:"created_by"`
+	CreatedName   string    `json:"created_name,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+	FeedbackCount int       `json:"feedback_count,omitempty"` // 已反馈单位数
+	TotalUnits    int       `json:"total_units,omitempty"`    // 需反馈单位总数
+	OpinionCount  int       `json:"opinion_count,omitempty"`  // 提出修改意见的单位数
+}
+
+// SolicitFeedback 单位反馈意见与红头回函
+type SolicitFeedback struct {
+	ID             int64     `json:"id"`
+	SolicitID      int64     `json:"solicit_id"`
+	Unit           string    `json:"unit"`
+	HasOpinion     int       `json:"has_opinion"`     // 0=无修改意见/原则同意, 1=有修改意见
+	OpinionDetail  string    `json:"opinion_detail"`  // 详细修改意见
+	ReplyDocPath   string    `json:"reply_doc_path"`  // 盖章红头回函文件路径
+	ReplyDocName   string    `json:"reply_doc_name"`  // 盖章红头回函原文件名
+	AttachmentPath string    `json:"attachment_path"` // 可选标红修改稿路径
+	AttachmentName string    `json:"attachment_name"` // 可选标红修改稿原文件名
+	ContactName    string    `json:"contact_name"`    // 经办人姓名
+	ContactPhone   string    `json:"contact_phone"`   // 经办人电话
+	IP             string    `json:"ip,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+// Dispatch 官方文件与学习材料下发任务
+type Dispatch struct {
+	ID             int64     `json:"id"`
+	Title          string    `json:"title"`           // 材料标题
+	DocNo          string    `json:"doc_no"`          // 发文字号
+	Units          string    `json:"units"`           // 下发单位范围（换行分隔）
+	Content        string    `json:"content"`         // 学习贯彻/工作要求说明
+	PdfPath        string    `json:"pdf_path"`        // 正文 PDF 存储路径
+	PdfName        string    `json:"pdf_name"`        // 正文 PDF 原始文件名
+	AttachmentPath string    `json:"attachment_path"` // 配套附件存储路径（可选）
+	AttachmentName string    `json:"attachment_name"` // 配套附件原始文件名（可选）
+	Deadline       string    `json:"deadline"`        // 查收截止时间 YYYY-MM-DD HH:mm（可选）
+	CreatedBy      int64     `json:"created_by"`
+	CreatedName    string    `json:"created_name,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	ReceiptCount   int       `json:"receipt_count,omitempty"` // 已查收单位数
+	TotalUnits     int       `json:"total_units,omitempty"`   // 需查收单位总数
+}
+
+// DispatchReceipt 各单位查收签收记录
+type DispatchReceipt struct {
+	ID            int64     `json:"id"`
+	DispatchID    int64     `json:"dispatch_id"`
+	Unit          string    `json:"unit"`
+	ReceiverName  string    `json:"receiver_name"`
+	ReceiverPhone string    `json:"receiver_phone"`
+	ReadCount     int       `json:"read_count"`
+	IP            string    `json:"ip,omitempty"`
+	ReceivedAt    time.Time `json:"received_at"`
+}
+
 
 // Attachment 文件附件
 type Attachment struct {

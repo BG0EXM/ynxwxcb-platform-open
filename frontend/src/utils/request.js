@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { showWafAlert } from './wafAlert'
+import { showSecrecyAlert } from './secrecyGuard'
 import router from '../router'
 
 const request = axios.create({
@@ -22,6 +23,19 @@ request.interceptors.response.use(
     const status = error.response?.status
     const msg = error.response?.data?.error || error.message
     const code = error.response?.data?.code
+    const secViolation = error.response?.data?.security_violation
+
+    // 1. 保密防线拦截（涉密文件上传熔断）
+    if (status === 403 && (secViolation === 'SECRECY_LEAK_PREVENTED' || code === 'SECRECY_BLOCK')) {
+      showSecrecyAlert({
+        fileName: error.response?.data?.filename || '上传文件',
+        keyword: error.response?.data?.matched_rule || '国家秘密/内部级标识',
+        isPublic: !localStorage.getItem('token')
+      })
+      return Promise.reject(error)
+    }
+
+    // 2. WAF 防火墙拦截
     if (status === 403 && code === 'WAF_BLOCK') {
       showWafAlert()
       return Promise.reject(error)

@@ -20,7 +20,11 @@ func logOperation(r *http.Request, module, action, detail string) {
 
 // logWithUser 按指定用户写日志（登录等上下文尚无用户的场景用）
 func logWithUser(userID int64, userName, module, action, detail, ip string) {
-	dept := ""
+	logWithUserDept(userID, userName, "", module, action, detail, ip)
+}
+
+// logWithUserDept 支持指定部门/单位归属的操作日志写入
+func logWithUserDept(userID int64, userName, dept, module, action, detail, ip string) {
 	if userID != 0 {
 		var name, d sql.NullString
 		if err := database.DB.QueryRow(
@@ -29,8 +33,16 @@ func logWithUser(userID int64, userName, module, action, detail, ip string) {
 			if name.Valid && name.String != "" {
 				userName = name.String
 			}
-			dept = d.String
+			if d.Valid && d.String != "" {
+				dept = d.String
+			}
 		}
+	}
+	if userName == "" {
+		userName = "外部访问者"
+	}
+	if dept == "" {
+		dept = "外网公开端"
 	}
 	database.DB.Exec(
 		`INSERT INTO operation_logs (user_id, user_name, department, module, action, detail, ip, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))`,

@@ -23,22 +23,22 @@ func Auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
-			http.Error(w, `{"error":"未登录"}`, http.StatusUnauthorized)
+			JSON(w, http.StatusUnauthorized, map[string]string{"error": "未登录"})
 			return
 		}
 		parts := strings.SplitN(authHeader, " ", 2)
 		if len(parts) != 2 || parts[0] != "Bearer" {
-			http.Error(w, `{"error":"认证格式错误"}`, http.StatusUnauthorized)
+			JSON(w, http.StatusUnauthorized, map[string]string{"error": "认证格式错误"})
 			return
 		}
 		claims, err := auth.ParseToken(parts[1])
 		if err != nil {
-			http.Error(w, `{"error":"登录已过期，请重新登录"}`, http.StatusUnauthorized)
+			JSON(w, http.StatusUnauthorized, map[string]string{"error": "登录已过期，请重新登录"})
 			return
 		}
 		// 令牌版本校验：改密/禁用/登出后旧令牌立即失效
 		if ver, ok := currentTokenVersion(claims.UserID); !ok || ver != claims.TokenVersion {
-			http.Error(w, `{"error":"登录已失效，请重新登录"}`, http.StatusUnauthorized)
+			JSON(w, http.StatusUnauthorized, map[string]string{"error": "登录已失效，请重新登录"})
 			return
 		}
 
@@ -62,7 +62,7 @@ func RequireRole(roles ...string) func(http.Handler) http.Handler {
 					return
 				}
 			}
-			http.Error(w, `{"error":"无权访问"}`, http.StatusForbidden)
+			JSON(w, http.StatusForbidden, map[string]string{"error": "无权访问"})
 		})
 	}
 }
