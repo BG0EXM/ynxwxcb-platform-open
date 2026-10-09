@@ -137,14 +137,14 @@ func CheckFileSecrecy(filename string, r io.Reader) (ViolationResult, io.Reader)
 			return res, restoredReader
 		}
 		// 2. 深度视觉 OCR 识别（涵盖扫描型/图片型 PDF 及含公章扫描件）
-		if ocrText, err := runOCROnBytes(".pdf", fileBytes); err == nil && ocrText != "" {
+		if ocrText, err := runOCROnPdf(fileBytes); err == nil && ocrText != "" {
 			if res := matchTextRules(ocrText, "PDF扫描/图像公文OCR识别"); res.Violated {
 				return res, restoredReader
 			}
 		}
 	case ".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff":
 		// 3. 各单位公函照片、盖章件与红头扫描图片 OCR 智能识别
-		if ocrText, err := runOCROnBytes(ext, fileBytes); err == nil && ocrText != "" {
+		if ocrText, err := runOCROnImage(ext, fileBytes); err == nil && ocrText != "" {
 			if res := matchTextRules(ocrText, "公文图片附件OCR智能识别"); res.Violated {
 				return res, restoredReader
 			}

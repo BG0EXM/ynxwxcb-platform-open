@@ -14,6 +14,7 @@ import (
 	"ynxwxcb-platform/internal/handlers"
 	"ynxwxcb-platform/internal/middleware"
 	"ynxwxcb-platform/internal/router"
+	"ynxwxcb-platform/internal/secrecy"
 )
 
 func main() {
@@ -54,6 +55,9 @@ func main() {
 
 	// 应用配置中的管理员账号覆盖默认管理员
 	applyAdmin(cfg)
+
+	// 启动自检保密安全与 OCR 审查引擎
+	secrecy.InitOCR()
 
 	// 确保上传目录存在
 	os.MkdirAll(cfg.Upload.Dir, 0755)
