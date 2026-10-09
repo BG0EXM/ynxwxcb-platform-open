@@ -17,3 +17,7 @@ frontend/dist/
 # 系统文件
 .DS_Store
 Thumbs.db
+
+# 内部工作流与开发指令（严禁上传 GitHub）
+AGENTS.md
+agents.md
