@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"ynxwxcb-platform/internal/config"
 	"ynxwxcb-platform/internal/database"
 	"ynxwxcb-platform/internal/middleware"
 	"ynxwxcb-platform/internal/models"
@@ -372,40 +373,66 @@ func UpdateIncomingDocStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// DeleteIncomingDoc 删除收文（仅办公室部门用户可删除）
-func DeleteIncomingDoc(w http.ResponseWriter, r *http.Request) {
-	if !isOfficeUser(r) {
-		middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "仅办公室用户可删除收文"})
-		return
+// DeleteIncomingDoc 删除收文（仅办公室部门用户可删除，级联物理清理附件文件）
+func DeleteIncomingDoc(cfg *config.Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !isOfficeUser(r) {
+			middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "仅办公室用户可删除收文"})
+			return
+		}
+		id := pathID(r)
+		if id == 0 {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
+			return
+		}
+		var title string
+		database.DB.QueryRow("SELECT title FROM incoming_docs WHERE id=?", id).Scan(&title)
+
+		// 收集该收文关联的物理附件文件路径
+		var attPaths []string
+		if attRows, err := database.DB.Query("SELECT file_path FROM attachments WHERE owner_id=? AND owner_type='document'", id); err == nil {
+			for attRows.Next() {
+				var p sql.NullString
+				if err := attRows.Scan(&p); err == nil && p.Valid && p.String != "" {
+					attPaths = append(attPaths, p.String)
+				}
+			}
+			attRows.Close()
+		}
+
+		tx, err := database.DB.Begin()
+		if err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+			return
+		}
+		if _, err := tx.Exec("DELETE FROM circulation_records WHERE doc_id=?", id); err != nil {
+			tx.Rollback()
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+			return
+		}
+		if _, err := tx.Exec("DELETE FROM attachments WHERE owner_id=? AND owner_type='document'", id); err != nil {
+			tx.Rollback()
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+			return
+		}
+		if _, err := tx.Exec("DELETE FROM incoming_docs WHERE id=?", id); err != nil {
+			tx.Rollback()
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+			return
+		}
+
+		// 物理删除磁盘文件
+		for _, p := range attPaths {
+			SafeRemoveUploadedFile(cfg, p)
+		}
+
+		logOperation(r, "收文管理", "删除", "删除收文《"+title+"》并物理清理附件")
+		middleware.JSON(w, http.StatusOK, map[string]string{"message": "删除成功"})
 	}
-	id := pathID(r)
-	if id == 0 {
-		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
-		return
-	}
-	var title string
-	database.DB.QueryRow("SELECT title FROM incoming_docs WHERE id=?", id).Scan(&title)
-	tx, err := database.DB.Begin()
-	if err != nil {
-		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
-		return
-	}
-	if _, err := tx.Exec("DELETE FROM circulation_records WHERE doc_id=?", id); err != nil {
-		tx.Rollback()
-		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
-		return
-	}
-	if _, err := tx.Exec("DELETE FROM incoming_docs WHERE id=?", id); err != nil {
-		tx.Rollback()
-		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
-		return
-	}
-	if err := tx.Commit(); err != nil {
-		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
-		return
-	}
-	logOperation(r, "收文管理", "删除", "删除收文《"+title+"》")
-	middleware.JSON(w, http.StatusOK, map[string]string{"message": "删除成功"})
 }
 
 // 传阅记录管理

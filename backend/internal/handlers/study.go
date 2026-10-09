@@ -4,9 +4,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
-	"os"
 	"strconv"
 
+	"ynxwxcb-platform/internal/config"
 	"ynxwxcb-platform/internal/database"
 	"ynxwxcb-platform/internal/middleware"
 	"ynxwxcb-platform/internal/models"
@@ -163,41 +163,46 @@ func GetStudyMaterial(w http.ResponseWriter, r *http.Request) {
 	middleware.JSON(w, http.StatusOK, s)
 }
 
-// DeleteStudyMaterial 删除公共资料（级联清理附件）
-func DeleteStudyMaterial(w http.ResponseWriter, r *http.Request) {
-	id := pathID(r)
-	if id == 0 {
-		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
-		return
-	}
-	var matTitle string
-	database.DB.QueryRow("SELECT title FROM study_materials WHERE id=?", id).Scan(&matTitle)
-	// 先删附件文件，再删附件记录与资料本体
-	rows, err := database.DB.Query("SELECT file_path FROM attachments WHERE owner_type='study' AND owner_id=?", id)
-	if err == nil {
-		defer rows.Close()
-		paths := []string{}
-		for rows.Next() {
-			var p sql.NullString
-			if err := rows.Scan(&p); err != nil {
-				continue
+// DeleteStudyMaterial 删除公共资料（级联物理清理附件文件与记录）
+func DeleteStudyMaterial(cfg *config.Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := pathID(r)
+		if id == 0 {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
+			return
+		}
+		var matTitle string
+		database.DB.QueryRow("SELECT title FROM study_materials WHERE id=?", id).Scan(&matTitle)
+
+		// 查出该资料关联的所有附件记录（兼容 owner_type='study' 或默认的 'document'）
+		rows, err := database.DB.Query("SELECT id, file_path FROM attachments WHERE owner_id=? AND (owner_type='study' OR owner_type='document')", id)
+		if err == nil {
+			defer rows.Close()
+			var attIDs []int64
+			for rows.Next() {
+				var attID int64
+				var p sql.NullString
+				if err := rows.Scan(&attID, &p); err == nil {
+					attIDs = append(attIDs, attID)
+					if p.Valid && p.String != "" {
+						SafeRemoveUploadedFile(cfg, p.String)
+					}
+				}
 			}
-			if p.Valid && p.String != "" {
-				paths = append(paths, p.String)
+			for _, aid := range attIDs {
+				database.DB.Exec("DELETE FROM attachments WHERE id=?", aid)
 			}
 		}
-		for _, p := range paths {
-			os.Remove(p)
+
+		database.DB.Exec("DELETE FROM attachments WHERE owner_id=? AND (owner_type='study' OR owner_type='document')", id)
+		_, err = database.DB.Exec("DELETE FROM study_materials WHERE id=?", id)
+		if err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+			return
 		}
+		logOperation(r, "公共资料", "删除", "删除公共资料《"+matTitle+"》并物理清理附件")
+		middleware.JSON(w, http.StatusOK, map[string]string{"message": "删除成功"})
 	}
-	database.DB.Exec("DELETE FROM attachments WHERE owner_type='study' AND owner_id=?", id)
-	_, err = database.DB.Exec("DELETE FROM study_materials WHERE id=?", id)
-	if err != nil {
-		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
-		return
-	}
-	logOperation(r, "公共资料", "删除", "删除公共资料《"+matTitle+"》")
-	middleware.JSON(w, http.StatusOK, map[string]string{"message": "删除成功"})
 }
 
 // StudyCategory 公共资料分类

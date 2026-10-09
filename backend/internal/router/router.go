@@ -81,7 +81,7 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("GET /api/study-materials", perm("study.view", handlers.ListStudyMaterials))
 	mux.Handle("POST /api/study-materials", perm("study.publish", handlers.CreateStudyMaterial))
 	mux.Handle("GET /api/study-materials/{id}", perm("study.view", handlers.GetStudyMaterial))
-	mux.Handle("DELETE /api/study-materials/{id}", perm("study.delete", handlers.DeleteStudyMaterial))
+	mux.Handle("DELETE /api/study-materials/{id}", perm("study.delete", handlers.DeleteStudyMaterial(cfg)))
 	mux.Handle("GET /api/study-categories", perm("study.view", handlers.ListStudyCategories))
 	mux.Handle("POST /api/study-categories", perm("study.category", handlers.CreateStudyCategory))
 	mux.Handle("PUT /api/study-categories", perm("study.category", handlers.UpdateStudyCategory))
@@ -151,7 +151,7 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("PUT /api/solicits", perm("solicit.manage", handlers.UpdateSolicit(cfg)))
 	mux.Handle("DELETE /api/solicits/{id}", perm("solicit.manage", handlers.DeleteSolicit(cfg)))
 	mux.Handle("GET /api/solicits/{id}", perm("solicit.manage", handlers.GetSolicit))
-	mux.Handle("POST /api/solicits/{id}/feedbacks/reset-unit", perm("solicit.manage", handlers.ResetUnitFeedback))
+	mux.Handle("POST /api/solicits/{id}/feedbacks/reset-unit", perm("solicit.manage", handlers.ResetUnitFeedback(cfg)))
 	mux.Handle("GET /api/export/solicits/{id}/feedbacks", perm("solicit.manage", handlers.ExportSolicitFeedbacks))
 	mux.Handle("GET /api/solicits/{id}/download-replies", perm("solicit.manage", handlers.DownloadSolicitRepliesZip(cfg)))
 
@@ -213,7 +213,7 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("POST /api/incoming-docs/{id}/status", perm("incoming.manage", handlers.UpdateIncomingDocStatus))
 	mux.Handle("GET /api/incoming-docs/{id}", perm("incoming.view", handlers.GetIncomingDoc))
 	mux.Handle("PUT /api/incoming-docs", perm("incoming.manage", handlers.UpdateIncomingDoc))
-	mux.Handle("DELETE /api/incoming-docs/{id}", perm("incoming.manage", handlers.DeleteIncomingDoc))
+	mux.Handle("DELETE /api/incoming-docs/{id}", perm("incoming.manage", handlers.DeleteIncomingDoc(cfg)))
 	mux.Handle("GET /api/incoming-doc-stats", perm("incoming.view", handlers.IncomingDocStats))
 	// 传阅记录
 	mux.Handle("POST /api/circulations", perm("incoming.circulation", handlers.AddCirculation))

@@ -315,7 +315,8 @@ func DeleteDispatch(cfg *config.Config) http.HandlerFunc {
 		}
 
 		var title string
-		if err := database.DB.QueryRow("SELECT title FROM dispatches WHERE id = ?", id).Scan(&title); err != nil {
+		var fileURL, attachURL sql.NullString
+		if err := database.DB.QueryRow("SELECT title, file_url, attachment_url FROM dispatches WHERE id = ?", id).Scan(&title, &fileURL, &attachURL); err != nil {
 			middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "材料下发任务不存在"})
 			return
 		}
@@ -327,7 +328,15 @@ func DeleteDispatch(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		logOperation(r, "材料下发", "删除", fmt.Sprintf("删除材料通知「%s」(ID=%d)", title, id))
+		// 物理删除材料文件与附件
+		if fileURL.Valid && fileURL.String != "" {
+			SafeRemoveUploadedFile(cfg, fileURL.String)
+		}
+		if attachURL.Valid && attachURL.String != "" {
+			SafeRemoveUploadedFile(cfg, attachURL.String)
+		}
+
+		logOperation(r, "材料下发", "删除", fmt.Sprintf("删除材料通知「%s」(ID=%d)并物理清理附件文件", title, id))
 		middleware.JSON(w, http.StatusOK, map[string]string{"message": "材料已成功删除"})
 	}
 }

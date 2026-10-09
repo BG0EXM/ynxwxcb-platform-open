@@ -202,7 +202,25 @@ func DeleteSolicit(cfg *config.Config) http.HandlerFunc {
 		}
 
 		var title string
-		database.DB.QueryRow("SELECT title FROM solicits WHERE id=?", id).Scan(&title)
+		var draftURL, attachURL sql.NullString
+		database.DB.QueryRow("SELECT title, draft_file_url, attachment_url FROM solicits WHERE id=?", id).Scan(&title, &draftURL, &attachURL)
+
+		// 收集该任务下所有反馈提交的回函文件与附件，以便事务提交后物理删除
+		var feedbackFiles []string
+		if fbRows, err := database.DB.Query("SELECT reply_doc_path, attachment_path FROM solicit_feedbacks WHERE solicit_id=?", id); err == nil {
+			for fbRows.Next() {
+				var rDoc, aDoc sql.NullString
+				if err := fbRows.Scan(&rDoc, &aDoc); err == nil {
+					if rDoc.Valid && rDoc.String != "" {
+						feedbackFiles = append(feedbackFiles, rDoc.String)
+					}
+					if aDoc.Valid && aDoc.String != "" {
+						feedbackFiles = append(feedbackFiles, aDoc.String)
+					}
+				}
+			}
+			fbRows.Close()
+		}
 
 		tx, err := database.DB.Begin()
 		if err != nil {
@@ -231,7 +249,18 @@ func DeleteSolicit(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		logOperation(r, "征求意见", "删除", "删除征求意见「"+title+"」")
+		// 物理清理磁盘文件（草案、附件、所有单位盖章回函与修改稿）
+		if draftURL.Valid && draftURL.String != "" {
+			SafeRemoveUploadedFile(cfg, draftURL.String)
+		}
+		if attachURL.Valid && attachURL.String != "" {
+			SafeRemoveUploadedFile(cfg, attachURL.String)
+		}
+		for _, f := range feedbackFiles {
+			SafeRemoveUploadedFile(cfg, f)
+		}
+
+		logOperation(r, "征求意见", "删除", "删除征求意见「"+title+"」并物理清理关联草案与回函文件")
 		middleware.JSON(w, http.StatusOK, map[string]string{"message": "删除成功"})
 	}
 }
@@ -349,29 +378,42 @@ func GetSolicit(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ResetUnitFeedback 管理员重置指定单位的反馈（允许单位重新提交）
-func ResetUnitFeedback(w http.ResponseWriter, r *http.Request) {
-	id := pathID(r)
-	if id == 0 {
-		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少任务ID"})
-		return
-	}
-	var req struct {
-		Unit string `json:"unit"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Unit) == "" {
-		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请提供要重置的单位名称"})
-		return
-	}
+// ResetUnitFeedback 管理员重置指定单位的反馈（允许单位重新提交，并级联物理清理旧文件）
+func ResetUnitFeedback(cfg *config.Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := pathID(r)
+		if id == 0 {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少任务ID"})
+			return
+		}
+		var req struct {
+			Unit string `json:"unit"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Unit) == "" {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请提供要重置的单位名称"})
+			return
+		}
 
-	_, err := database.DB.Exec("DELETE FROM solicit_feedbacks WHERE solicit_id=? AND unit=?", id, req.Unit)
-	if err != nil {
-		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "重置失败"})
-		return
-	}
+		// 查出该单位已上传的旧回函文件与修改附件
+		var rDoc, aDoc sql.NullString
+		database.DB.QueryRow("SELECT reply_doc_path, attachment_path FROM solicit_feedbacks WHERE solicit_id=? AND unit=?", id, req.Unit).Scan(&rDoc, &aDoc)
 
-	logOperation(r, "征求意见", "重置", fmt.Sprintf("管理员重置了【%s】在任务ID=%d中的反馈状态", req.Unit, id))
-	middleware.JSON(w, http.StatusOK, map[string]string{"message": "已重置该单位反馈状态"})
+		_, err := database.DB.Exec("DELETE FROM solicit_feedbacks WHERE solicit_id=? AND unit=?", id, req.Unit)
+		if err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "重置失败"})
+			return
+		}
+
+		if rDoc.Valid && rDoc.String != "" {
+			SafeRemoveUploadedFile(cfg, rDoc.String)
+		}
+		if aDoc.Valid && aDoc.String != "" {
+			SafeRemoveUploadedFile(cfg, aDoc.String)
+		}
+
+		logOperation(r, "征求意见", "重置", fmt.Sprintf("管理员重置了【%s】在任务ID=%d中的反馈状态并清理旧附件", req.Unit, id))
+		middleware.JSON(w, http.StatusOK, map[string]string{"message": "已重置该单位反馈状态"})
+	}
 }
 
 // ExportSolicitFeedbacks 导出征求意见反馈汇总表（Excel）

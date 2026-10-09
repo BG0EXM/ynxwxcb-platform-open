@@ -71,6 +71,15 @@ func main() {
 		}
 	}()
 
+	// 磁盘孤儿残留文件大扫除：启动扫描清理历史无引用残留文件，之后每天例行清理一次
+	handlers.CleanupOrphanFiles(cfg)
+	go func() {
+		for {
+			time.Sleep(24 * time.Hour)
+			handlers.CleanupOrphanFiles(cfg)
+		}
+	}()
+
 	// 构建路由，并套上安全响应头 + 请求体大小限制（上传接口自行限制，故跳过）
 	r := router.NewRouter(cfg)
 	handler := middleware.SecurityHeaders(middleware.WAF(middleware.LimitBody(10<<20, "/api/uploads", "/api/public/solicits/")(r)))

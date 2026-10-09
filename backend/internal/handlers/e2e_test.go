@@ -281,7 +281,7 @@ func TestSolicitWorkflowE2E(t *testing.T) {
 		req = reqWithContext(req, 1, "admin", "admin", "系统管理员")
 		req.SetPathValue("id", strconv.FormatInt(solicitID, 10))
 		rec := httptest.NewRecorder()
-		ResetUnitFeedback(rec, req)
+		ResetUnitFeedback(cfg)(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("管理员重置反馈失败: %d, %s", rec.Code, rec.Body.String())
 		}

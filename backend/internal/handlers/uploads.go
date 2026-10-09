@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -431,4 +432,144 @@ func pathID(r *http.Request) int64 {
 	}
 	id, _ := strconv.ParseInt(parts[len(parts)-1], 10, 64)
 	return id
+}
+
+// SafeRemoveUploadedFile 安全删除上传目录下的物理文件并同步清理 attachments 关联记录
+func SafeRemoveUploadedFile(cfg *config.Config, fileURLOrPath string) {
+	if fileURLOrPath == "" || cfg == nil {
+		return
+	}
+
+	// 1. 如果是 /api/uploads/123 形式的附件引用
+	if strings.HasPrefix(fileURLOrPath, "/api/uploads/") {
+		idStr := strings.TrimPrefix(fileURLOrPath, "/api/uploads/")
+		if id, err := strconv.ParseInt(idStr, 10, 64); err == nil && id > 0 {
+			var physicalPath string
+			if err := database.DB.QueryRow("SELECT file_path FROM attachments WHERE id=?", id).Scan(&physicalPath); err == nil {
+				deletePhysicalPath(cfg, physicalPath)
+			}
+			database.DB.Exec("DELETE FROM attachments WHERE id=?", id)
+			return
+		}
+	}
+
+	// 2. 如果是 web 访问路径，如 /uploads/2026/10/xxx 或 /uploads/solicits/2026/10/xxx
+	cleanURL := strings.TrimPrefix(fileURLOrPath, "/")
+	if strings.HasPrefix(cleanURL, "uploads/") {
+		rel := strings.TrimPrefix(cleanURL, "uploads/")
+		realPath := filepath.Join(cfg.Upload.Dir, rel)
+		deletePhysicalPath(cfg, realPath)
+		database.DB.Exec("DELETE FROM attachments WHERE file_path=? OR file_path=?", realPath, fileURLOrPath)
+		return
+	}
+
+	// 3. 其它路径（如直接存的物理相对或绝对路径）
+	deletePhysicalPath(cfg, fileURLOrPath)
+	database.DB.Exec("DELETE FROM attachments WHERE file_path=?", fileURLOrPath)
+}
+
+func deletePhysicalPath(cfg *config.Config, p string) {
+	if p == "" || cfg == nil {
+		return
+	}
+	cleanP := filepath.Clean(p)
+	absUploadDir, err1 := filepath.Abs(cfg.Upload.Dir)
+	absTarget, err2 := filepath.Abs(cleanP)
+	if err1 != nil || err2 != nil {
+		return
+	}
+
+	// 安全边界校验：必须严格在 cfg.Upload.Dir 目录下，防止路径穿越删除系统关键文件
+	rel, err := filepath.Rel(absUploadDir, absTarget)
+	if err != nil || strings.HasPrefix(rel, "..") || rel == "." {
+		return
+	}
+
+	if fi, err := os.Stat(absTarget); err == nil && !fi.IsDir() {
+		if err := os.Remove(absTarget); err == nil {
+			log.Printf("[文件清理] 成功物理清理磁盘文件: %s", absTarget)
+		}
+	}
+}
+
+// CleanupOrphanFiles 扫描并清理磁盘上超过24小时且无任何数据库引用的孤儿残留文件
+func CleanupOrphanFiles(cfg *config.Config) {
+	if cfg == nil || cfg.Upload.Dir == "" {
+		return
+	}
+
+	absUploadDir, err := filepath.Abs(cfg.Upload.Dir)
+	if err != nil {
+		return
+	}
+	if fi, err := os.Stat(absUploadDir); err != nil || !fi.IsDir() {
+		return
+	}
+
+	activeFiles := make(map[string]bool)
+
+	// 1. 收集 attachments 表活跃文件
+	if rows, err := database.DB.Query("SELECT file_path FROM attachments"); err == nil {
+		for rows.Next() {
+			var p string
+			if err := rows.Scan(&p); err == nil && p != "" {
+				if absP, err := filepath.Abs(p); err == nil {
+					activeFiles[absP] = true
+				}
+				if strings.HasPrefix(p, "/uploads/") {
+					realP := filepath.Join(absUploadDir, strings.TrimPrefix(p, "/uploads/"))
+					activeFiles[realP] = true
+				}
+			}
+		}
+		rows.Close()
+	}
+
+	// 2. 收集征求意见 solicits / solicit_feedbacks 活跃文件
+	if rows, err := database.DB.Query("SELECT draft_file_url FROM solicits WHERE draft_file_url != '' UNION SELECT attachment_url FROM solicits WHERE attachment_url != '' UNION SELECT file_url FROM solicit_feedbacks WHERE file_url != ''"); err == nil {
+		for rows.Next() {
+			var p string
+			if err := rows.Scan(&p); err == nil && p != "" {
+				clean := strings.TrimPrefix(strings.TrimPrefix(p, "/"), "uploads/")
+				activeFiles[filepath.Join(absUploadDir, clean)] = true
+			}
+		}
+		rows.Close()
+	}
+
+	// 3. 收集材料下发 dispatches 活跃文件
+	if rows, err := database.DB.Query("SELECT file_url FROM dispatches WHERE file_url != '' UNION SELECT attachment_url FROM dispatches WHERE attachment_url != ''"); err == nil {
+		for rows.Next() {
+			var p string
+			if err := rows.Scan(&p); err == nil && p != "" {
+				clean := strings.TrimPrefix(strings.TrimPrefix(p, "/"), "uploads/")
+				activeFiles[filepath.Join(absUploadDir, clean)] = true
+			}
+		}
+		rows.Close()
+	}
+
+	cleanedCount := 0
+	cutoff := time.Now().Add(-24 * time.Hour)
+
+	filepath.Walk(absUploadDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info == nil || info.IsDir() {
+			return nil
+		}
+		// 仅清理修改时间在 24 小时之前的孤儿文件（防止误删当前正在并发上传的临时文件）
+		if info.ModTime().Before(cutoff) {
+			absP, _ := filepath.Abs(path)
+			if !activeFiles[absP] {
+				if err := os.Remove(absP); err == nil {
+					cleanedCount++
+					log.Printf("[孤儿文件清理] 清理无引用历史残留文件: %s", absP)
+				}
+			}
+		}
+		return nil
+	})
+
+	if cleanedCount > 0 {
+		log.Printf("[孤儿文件清理] 完成历史残留文件大扫除，共物理释放 %d 个孤儿文件", cleanedCount)
+	}
 }
