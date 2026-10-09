@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
+	_ "image/jpeg"
 	"image/png"
 	"io"
 	"log"
@@ -157,25 +159,20 @@ func hasLanguage(lang string) bool {
 
 // buildLangsArg 根据实际安装的模型构建最匹配的语言参数
 func buildLangsArg() string {
-	// 优先简体中文（党政机关公文标准规范），绝不主动混入 chi_tra
-	// 一旦将 chi_sim 与 chi_tra 混合传参，Tesseract 遇到简体字时会因笔画权重优先输出繁体字（如「機密」）
-	if hasLanguage("chi_sim") {
-		if hasLanguage("eng") {
-			return "chi_sim+eng"
-		}
-		return "chi_sim"
-	} else if hasLanguage("chi-sim") {
-		if hasLanguage("eng") {
-			return "chi-sim+eng"
-		}
-		return "chi-sim"
+	// 中文涉密公文场景：优先组合简体与繁体字典（chi_sim+chi_tra），提供最强汉字笔画互补
+	// 坚决不混入英文 eng（混入 eng 会导致大篇幅白边下的汉字笔画被英文模型抢占强行识别为大写字母 LE）
+	hasSim := hasLanguage("chi_sim") || hasLanguage("chi-sim")
+	simName := "chi_sim"
+	if !hasLanguage("chi_sim") && hasLanguage("chi-sim") {
+		simName = "chi-sim"
 	}
+	hasTra := hasLanguage("chi_tra")
 
-	// 仅当服务器未安装简体字库时，才回退繁体字库
-	if hasLanguage("chi_tra") {
-		if hasLanguage("eng") {
-			return "chi_tra+eng"
-		}
+	if hasSim && hasTra {
+		return simName + "+chi_tra"
+	} else if hasSim {
+		return simName
+	} else if hasTra {
 		return "chi_tra"
 	}
 
@@ -184,6 +181,26 @@ func buildLangsArg() string {
 	}
 
 	return ""
+}
+
+// normalizeChinese 将 OCR 吐出的繁体汉字统一规整为规范简体汉字
+func normalizeChinese(s string) string {
+	replacements := []string{
+		"機密", "机密",
+		"絕密", "绝密",
+		"祕密", "秘密",
+		"內部", "内部",
+		"資料", "资料",
+		"檔案", "档案",
+		"單位", "单位",
+		"測試", "测试",
+		"工作祕密", "工作秘密",
+		"嚴禁外傳", "严禁外传",
+		"非公開發布", "非公开发布",
+		"商業祕密", "商业秘密",
+	}
+	r := strings.NewReplacer(replacements...)
+	return r.Replace(s)
 }
 
 // runTesseractOnFile 对单个图片文件运行 Tesseract
@@ -262,6 +279,9 @@ func runTesseractOnFile(filePath string) (string, error) {
 		merged = psm11Text
 	}
 
+	// 统一繁简转换为规范简体
+	merged = normalizeChinese(merged)
+
 	cost := time.Since(start)
 	if len(merged) > 0 {
 		preview := merged
@@ -326,14 +346,125 @@ func runOCROnImage(ext string, data []byte) (string, error) {
 	}
 	tmpFile.Close()
 
+	var sb strings.Builder
+
 	// 1. 如果在 macOS 下且存在原生工具，优先使用
 	if txt := runNativeAppleVision(tmpPath); txt != "" {
 		log.Printf("[OCR] macOS Apple Vision 原生引擎识别完成: 字符数=%d", len(txt))
-		return txt, nil
+		sb.WriteString(txt)
+		sb.WriteString("\n")
 	}
 
-	// 2. 调用跨平台通用 Tesseract OCR
-	return runTesseractOnFile(tmpPath)
+	// 2. 调用跨平台通用 Tesseract OCR 识别整图
+	if txt, err := runTesseractOnFile(tmpPath); err == nil && txt != "" {
+		sb.WriteString(txt)
+		sb.WriteString("\n")
+	}
+
+	// 3. 抗留白畸变增强：若原图四周存在大片白边导致文字微缩，纯 Go 自动裁切出文字特写区进行二次复核
+	if croppedBytes := autoCropContent(data); len(croppedBytes) > 0 {
+		tmpCrop, err := os.CreateTemp("", "secrecy_crop_*.png")
+		if err == nil {
+			cropPath := tmpCrop.Name()
+			tmpCrop.Write(croppedBytes)
+			tmpCrop.Close()
+
+			if cropTxt, err := runTesseractOnFile(cropPath); err == nil && cropTxt != "" {
+				log.Printf("[OCR] 核心文字区局部特写识别增益: 字符数=%d", len(cropTxt))
+				sb.WriteString(cropTxt)
+				sb.WriteString("\n")
+			}
+			os.Remove(cropPath)
+		}
+	}
+
+	res := normalizeChinese(sb.String())
+	return res, nil
+}
+
+// autoCropContent 纯 Go 探测图片有效内容边界，消除巨大空白页对 OCR 字符识别的干扰
+func autoCropContent(data []byte) []byte {
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil
+	}
+
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w <= 100 || h <= 100 {
+		return nil
+	}
+
+	minX, minY, maxX, maxY := w, h, 0, 0
+	nonWhiteFound := false
+
+	step := 1
+	if w > 1500 || h > 1500 {
+		step = 2
+	}
+
+	for y := b.Min.Y; y < b.Max.Y; y += step {
+		for x := b.Min.X; x < b.Max.X; x += step {
+			r, g, bColor, a := img.At(x, y).RGBA()
+			// 过滤纯白底色（r,g,b > 60000 且未透明）
+			if a > 10000 && (r < 60000 || g < 60000 || bColor < 60000) {
+				nonWhiteFound = true
+				if x < minX {
+					minX = x
+				}
+				if x > maxX {
+					maxX = x
+				}
+				if y < minY {
+					minY = y
+				}
+				if y > maxY {
+					maxY = y
+				}
+			}
+		}
+	}
+
+	if !nonWhiteFound {
+		return nil
+	}
+
+	padding := 50
+	if minX > padding {
+		minX -= padding
+	} else {
+		minX = 0
+	}
+	if minY > padding {
+		minY -= padding
+	} else {
+		minY = 0
+	}
+	if maxX+padding < w {
+		maxX += padding
+	} else {
+		maxX = w
+	}
+	if maxY+padding < h {
+		maxY += padding
+	} else {
+		maxY = h
+	}
+
+	cropW := maxX - minX
+	cropH := maxY - minY
+
+	// 仅当有效区域占整图面积小于 75% 时进行特写裁切
+	if cropW*cropH < (w*h*3)/4 && cropW > 50 && cropH > 50 {
+		subImg := image.NewRGBA(image.Rect(0, 0, cropW, cropH))
+		draw.Draw(subImg, subImg.Bounds(), img, image.Pt(minX, minY), draw.Src)
+		var buf bytes.Buffer
+		if err := png.Encode(&buf, subImg); err == nil {
+			return buf.Bytes()
+		}
+	}
+
+	return nil
 }
 
 // runOCROnPdf 执行 PDF 文档的图像化 OCR 识别（重点支持纯图片型/扫描型 PDF）
