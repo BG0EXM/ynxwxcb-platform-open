@@ -157,23 +157,30 @@ func hasLanguage(lang string) bool {
 
 // buildLangsArg 根据实际安装的模型构建最匹配的语言参数
 func buildLangsArg() string {
-	var preferred []string
+	// 优先简体中文（党政机关公文标准规范），绝不主动混入 chi_tra
+	// 一旦将 chi_sim 与 chi_tra 混合传参，Tesseract 遇到简体字时会因笔画权重优先输出繁体字（如「機密」）
 	if hasLanguage("chi_sim") {
-		preferred = append(preferred, "chi_sim")
+		if hasLanguage("eng") {
+			return "chi_sim+eng"
+		}
+		return "chi_sim"
 	} else if hasLanguage("chi-sim") {
-		preferred = append(preferred, "chi-sim")
+		if hasLanguage("eng") {
+			return "chi-sim+eng"
+		}
+		return "chi-sim"
 	}
 
+	// 仅当服务器未安装简体字库时，才回退繁体字库
 	if hasLanguage("chi_tra") {
-		preferred = append(preferred, "chi_tra")
+		if hasLanguage("eng") {
+			return "chi_tra+eng"
+		}
+		return "chi_tra"
 	}
 
 	if hasLanguage("eng") {
-		preferred = append(preferred, "eng")
-	}
-
-	if len(preferred) > 0 {
-		return strings.Join(preferred, "+")
+		return "eng"
 	}
 
 	return ""

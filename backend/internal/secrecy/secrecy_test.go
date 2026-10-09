@@ -129,3 +129,18 @@ func TestExtractImagesFromPdf(t *testing.T) {
 		}
 	}
 }
+
+func TestTraditionalChineseMatch(t *testing.T) {
+	for _, text := range []string{
+		"测试用例 機密  測試用例",
+		"機密  測試用例",
+		"單位公函 絕密★1年",
+		"內部資料 嚴禁外傳",
+	} {
+		res := matchTextRules(text, "繁体OCR测试")
+		if !res.Violated {
+			t.Fatalf("Expected violation for text %q, but got not violated", text)
+		}
+		t.Logf("Passed: %s -> %s (%s)", text, res.Rule, res.Category)
+	}
+}

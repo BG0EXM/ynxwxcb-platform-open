@@ -30,40 +30,40 @@ var (
 	ruleTopSecret = SecrecyRule{
 		Name:     "国家秘密密级标识(绝密)",
 		Category: "国家秘密",
-		Keywords: []string{"绝密", "绝密级"},
-		Regex:    regexp.MustCompile(`绝密`),
+		Keywords: []string{"绝密", "绝密级", "絕密", "絕密級"},
+		Regex:    regexp.MustCompile(`(绝密|絕密)`),
 	}
 	ruleConfidential = SecrecyRule{
 		Name:     "国家秘密密级标识(机密)",
 		Category: "国家秘密",
-		Keywords: []string{"机密", "机密级"},
-		Regex:    regexp.MustCompile(`机密`),
+		Keywords: []string{"机密", "机密级", "機密", "機密級"},
+		Regex:    regexp.MustCompile(`(机密|機密)`),
 	}
 	ruleSecretStar = SecrecyRule{
 		Name:     "国家秘密密级及保密期限标识(★)",
 		Category: "国家秘密",
-		Keywords: []string{"★", "秘密★", "机密★", "绝密★"},
-		Regex:    regexp.MustCompile(`(绝密|机密|秘密|内部|商业秘密|工作秘密)\s*[★☆﹡＊\*]|\d+\s*年\s*[★☆﹡＊\*]|[★☆﹡＊\*]\s*\d+\s*(年|个月|天)|[★☆﹡＊\*]\s*长期`),
+		Keywords: []string{"★", "秘密★", "机密★", "绝密★", "祕密★", "機密★", "絕密★"},
+		Regex:    regexp.MustCompile(`(绝密|絕密|机密|機密|秘密|祕密|内部|內部|商业秘密|商業祕密|工作秘密|工作祕密)\s*[★☆﹡＊\*]|\d+\s*年\s*[★☆﹡＊\*]|[★☆﹡＊\*]\s*\d+\s*(年|个月|天)|[★☆﹡＊\*]\s*长期`),
 	}
 	ruleSecret = SecrecyRule{
 		Name:     "国家秘密密级标识(秘密)",
 		Category: "国家秘密",
-		Keywords: []string{"秘密级", "密级：秘密", "密级:秘密", "属于国家秘密", "国家秘密"},
-		Regex:    regexp.MustCompile(`(秘密级|密级\s*[:：]\s*秘密|国家秘密|保守国家秘密法|定密依据|保密期限\s*[:：])`),
+		Keywords: []string{"秘密级", "密级：秘密", "密级:秘密", "属于国家秘密", "国家秘密", "秘密級", "祕密級", "密級：秘密", "密級:秘密", "國家秘密"},
+		Regex:    regexp.MustCompile(`(秘密级|秘密級|祕密級|密级\s*[:：]\s*秘密|密級\s*[:：]\s*祕?密|国家秘密|國家秘密|保守国家秘密法|保守國家秘密法|定密依据|定密依據|保密期限\s*[:：])`),
 	}
 
 	// 工作秘密与内部级标识
 	ruleWorkSecret = SecrecyRule{
 		Name:     "工作秘密标识",
 		Category: "工作秘密",
-		Keywords: []string{"工作秘密", "工作秘密★"},
-		Regex:    regexp.MustCompile(`工作秘密`),
+		Keywords: []string{"工作秘密", "工作秘密★", "工作祕密", "工作祕密★"},
+		Regex:    regexp.MustCompile(`(工作秘密|工作祕密)`),
 	}
 	ruleInternal = SecrecyRule{
 		Name:     "内部资料与敏感控制标识",
 		Category: "内部级资料",
-		Keywords: []string{"内部资料", "内部文件", "内部掌握", "内部参考", "内部使用", "不得外传", "严禁外传", "严禁外发", "非公开发布"},
-		Regex:    regexp.MustCompile(`(内部资料|内部文件|内部掌握|内部参考|内部使用|不得外传|严禁外传|严禁外发|非公开发布)`),
+		Keywords: []string{"内部资料", "内部文件", "内部掌握", "内部参考", "内部使用", "不得外传", "严禁外传", "严禁外发", "非公开发布", "內部資料", "內部文件", "內部掌握", "內部參考", "內部使用", "不得外傳", "嚴禁外傳", "嚴禁外發", "非公開發布"},
+		Regex:    regexp.MustCompile(`(内部资料|内部文件|内部掌握|内部参考|内部使用|不得外传|严禁外传|严禁外发|非公开发布|內部資料|內部文件|內部掌握|內部參考|內部使用|不得外傳|嚴禁外傳|嚴禁外發|非公開發布)`),
 	}
 
 	// 规则集合
@@ -468,7 +468,7 @@ func checkRawBytesFallback(data []byte) ViolationResult {
 func matchEncodedBytes(data []byte, source string) ViolationResult {
 	// 重点检查的涉密词
 	keyWords := []string{
-		"机密", "绝密", "秘密", "工作秘密", "内部资料", "内部文件", "不得外传", "严禁外传",
+		"机密", "機密", "绝密", "絕密", "秘密", "祕密", "工作秘密", "工作祕密", "内部资料", "內部資料", "内部文件", "內部文件", "不得外传", "不得外傳", "严禁外传", "嚴禁外傳",
 	}
 
 	for _, kw := range keyWords {
