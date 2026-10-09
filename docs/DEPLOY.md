@@ -1,11 +1,12 @@
 # 伊宁县委宣传部部务工作平台 - 部署文档（Nginx）
 
-> 适用版本：**V1.6.1** · 更新日期：**2026-10-06**  
-> 服务器配置：Debian (2C / 2G) · HTTPS 公网访问（支持 IPv6）
+> 适用版本：**V1.7.0** · 更新日期：**2026-10-10**  
+> 服务器配置：Debian / Ubuntu (2C / 2G) · HTTPS 公网访问（支持 IPv6）
 
-## 〇、系统由两部分组成
+## 〇、系统组成与服务端可选增强组件
 
-部署到服务器需要**两样东西**：
+### 1. 核心运行组件（必选）
+部署到服务器需要**两样核心东西**：
 
 | 名称 | 说明 |
 |---|---|
@@ -14,6 +15,18 @@
 
 > **`ynxwxcb-server` 和 `static/` 必须放在同一个目录**（后端在运行目录下找 static）。
 > 本仓库的 `backend/static/` 已帮你准备好前端页面，直接用即可。
+
+### 2. 国家保密审查环境依赖（强烈推荐）
+系统全链路集成四维国家涉密安全审查引擎。为使服务器具备**公文扫描件图片 OCR 识别**以及**纯扫描式 PDF 视觉深度审查**能力，推荐在 Linux 服务器上一键安装 Tesseract OCR 和 Poppler 工具库：
+
+```bash
+# Debian / Ubuntu 环境一键安装
+sudo apt update
+sudo apt install -y tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-chi-tra poppler-utils
+```
+- **`tesseract-ocr` + `tesseract-ocr-chi-sim` + `tesseract-ocr-chi-tra`**：提供底层离线 OCR 光学字符识别引擎，支持简体中文与繁体中文双向词库审查；
+- **`poppler-utils`（内置 `pdftoppm` 工具）**：负责将纯图像/扫描式 PDF 公文各页面高保真光栅化渲染为图像送入 OCR，彻底杜绝扫描公文规避检测；
+- *提示*：若未安装上述组件，系统启动时会在日志中清晰提示，并平滑降级为 Word XML 解构与 PDF 原生文本流检测（不影响基础部务业务正常运行，但无法识别纯图片扫描件与扫描式 PDF 内部的密级印记）。
 
 ## 一、部署后的目录结构
 

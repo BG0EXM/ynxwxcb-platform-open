@@ -1,6 +1,6 @@
 # 伊宁县委宣传部部务工作平台
 
-> 版本：**V1.7.0**（更新日期：**2026-10-09**）
+> 版本：**V1.7.0**（更新日期：**2026-10-10**）
 
 面向县级党委宣传部的内部部务工作平台，开源免费，可自部署。
 
@@ -44,6 +44,23 @@
 > 各模块台账（用车报备/请假/考勤/排班/收文/征求意见/材料下发）均支持 Excel 导出。
 
 ## 更新日志
+
+### V1.7.0 深度补丁（2026-10-10）
+
+**国家保密审查视觉链路强化 · 物理存储生命周期治理与缺陷排除**
+- 🛡️ **扫描式 PDF 视觉解包与光栅化渲染全链路打通**：
+  - 现象：扫描版 PDF 公文内部无纯文本流，Tesseract 原生不支持 PDF 容器格式导致扫描 PDF 涉密审查失效；
+  - 修复：构建“纯 Go 解包提取嵌入式扫描图片流 + 生产环境 `pdftoppm` (150 DPI) 高清光栅化渲染”双轨管道，无死角提取扫描 PDF 页面图像送检 OCR。
+- 🛡️ **OCR 简体/繁体词库互补与繁简自动规整**：
+  - 现象：Tesseract 在混合多语言模式下对中文生僻字或部分印刷体字模倾向判定为繁体字（如“机密”被识别为“機密”），导致命中率偏差；
+  - 修复：扩充全量繁体涉密词库与正则（機密/絕密/祕密/內部/嚴禁外傳等），新增 `normalizeChinese` 繁简自动转化映射，实现繁简双向 100% 精准拦截。
+- 🛡️ **智能白边裁剪特写与英文模型抗干扰**：
+  - 现象：A4 扫描件由于大幅白边留白导致微缩字符变形、被识别为英文字母 "LE"；
+  - 修复：新增纯 Go `autoCropContent` 算法自动裁切大白边并提取正文特写送检；涉密场景剔除英文字模干扰，锁定 `chi_sim+chi_tra` 纯中文双字模互补。
+- 🧹 **文件物理存储生命周期闭环治理（根治磁盘残留）**：
+  - 现象：删除征求意见、公共资料或重置单位反馈后，数据库记录虽已清除但服务器 `uploads/` 磁盘目录文件依然残留；
+  - 修复：封装 `SafeRemoveUploadedFile`（注入防目录穿越安全校验），业务删除操作（征求意见、各单位反馈附件、材料下发、公共资料）全面联动物理磁盘清理；
+  - 兜底自检：在后端主程序启动时增加 `CleanupOrphanFiles` 开机自检大扫除，并启动后台每日定时协程，自动清扫未关联任何业务的孤儿物理文件。
 
 ### V1.7.0（2026-10-09）
 
@@ -479,18 +496,21 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ynxwxcb-server ./cmd/server
 1. **主程序** `ynxwxcb-server`（编译出的可执行文件）
 2. **static 文件夹**（前端网页文件）
 
-> ⚠️ **【重要】服务端涉密 OCR 识别环境提示（可选）**：
-> 本平台在服务端全面集成了文档涉密审查引擎。对于普通的 Word (`.docx`) 及电子文本 PDF，系统通过内置纯 Go 解码引擎完成内容解构，**服务器无需安装任何三方组件即可离线检测**。
-> 若您的业务需要支持**扫描件公文、拍照图片、图片版 PDF** 的离线光学文字识别（OCR 审查），需在 Linux 生产服务器上安装通用 Tesseract OCR 引擎及中文字库（系统启动后将自动智能探测识别）：
+> ⚠️ **【重要】服务端涉密审查 OCR 与 PDF 视觉组件提示（强烈推荐）**：
+> 本平台在服务端全面集成了四维文档涉密审查引擎。对于普通的 Word (`.docx`) 及电子文本 PDF，系统通过内置纯 Go 解码引擎完成内容解构，**服务器无需安装任何三方组件即可离线检测**。
+> 若您的业务需要支持**扫描件公文图片**以及**扫描式纯图片 PDF 公文**的离线光学文字审查（OCR），需在 Linux 生产服务器上安装通用 Tesseract OCR 引擎及 Poppler 工具库（系统启动后将自动智能探测识别）：
 > - **Ubuntu / Debian**：
 >   ```bash
->   sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-chi-tra
+>   sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-chi-tra poppler-utils
 >   ```
 > - **CentOS / RHEL / Rocky Linux**：
 >   ```bash
->   sudo yum install -y epel-release && sudo yum install -y tesseract tesseract-langpack-chi_sim tesseract-langpack-chi_tra
+>   sudo yum install -y epel-release && sudo yum install -y tesseract tesseract-langpack-chi_sim tesseract-langpack-chi_tra poppler-utils
 >   ```
-> - **说明**：未安装 Tesseract 时，系统自动无缝退化为“文件名 + Word XML 全文/页眉/页脚 + PDF 原始文本流/CMap”三重防御模式，常规文档上传与业务运行不受任何影响。
+> - **组件分工**：
+>   - `tesseract-ocr` + `tesseract-ocr-chi-sim` + `tesseract-ocr-chi-tra`：负责扫描件图片离线 OCR 识别，已内置简繁字库互补与繁简自动规整；
+>   - `poppler-utils`（内置 `pdftoppm` 命令）：负责将纯扫描式 PDF 页面高保真渲染为图像送入 OCR 审查，彻底杜绝扫描公文规避检测。
+> - **说明**：未安装上述组件时，系统启动时将打印提示日志，并自动无缝退化为“文件名 + Word XML 全文/页眉/页脚 + PDF 原始文本流/CMap”模式，常规协同业务不受影响。
 
 部署后服务器目录结构如下：
 
