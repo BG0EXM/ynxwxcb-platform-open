@@ -170,8 +170,9 @@ type Meeting struct {
 	CreatedName string    `json:"created_name,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
-	RegCount    int       `json:"reg_count,omitempty"`  // 已报名人数
-	NotAttend   int       `json:"not_attend,omitempty"` // 不参加人数
+	RegCount       int       `json:"reg_count,omitempty"`       // 已报名人数
+	NotAttend      int       `json:"not_attend,omitempty"`      // 不参加人数
+	ConfirmedUnits int       `json:"confirmed_units"`           // 已报名不同单位数
 }
 
 // MeetingRegistration 会议参会报名（匿名填写）

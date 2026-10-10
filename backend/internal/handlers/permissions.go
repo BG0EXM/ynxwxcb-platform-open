@@ -101,6 +101,7 @@ func SavePermissionMatrix(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "保存失败"})
 		return
 	}
+	defer tx.Rollback()
 	for _, rp := range req.Roles {
 		// admin 角色锁定，忽略对其的修改（代码层旁路，始终全权限）
 		if roleCodeByID[rp.RoleID] == "admin" {

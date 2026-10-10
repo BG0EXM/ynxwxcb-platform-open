@@ -271,6 +271,17 @@
               </div>
 
               <el-form :model="receiptForm" label-position="top" class="mt-16">
+                <!-- 若材料查收已截止，显示明确的截止已过提示 -->
+                <div v-if="expired" class="expired-alert-banner">
+                  <el-alert
+                    title="公文材料查收已截止"
+                    type="warning"
+                    description="该公文材料设定的查收截止时限已过，在线签收通道已关闭。如需补录或有紧急情况，请联系县委宣传部办公室核实。"
+                    show-icon
+                    :closable="false"
+                  />
+                </div>
+
                 <el-row :gutter="20">
                   <el-col :xs="24" :sm="12">
                     <el-form-item label="经办人姓名" required>
@@ -279,6 +290,7 @@
                         size="large"
                         placeholder="请输入具体查收经办人姓名" 
                         :prefix-icon="'User'"
+                        :disabled="expired"
                       />
                     </el-form-item>
                   </el-col>
@@ -289,6 +301,7 @@
                         size="large"
                         placeholder="请输入经办人手机号码" 
                         :prefix-icon="'Phone'"
+                        :disabled="expired"
                       />
                     </el-form-item>
                   </el-col>
@@ -300,12 +313,14 @@
                     size="large" 
                     class="btn-submit-receipt"
                     :loading="submitting"
+                    :disabled="expired"
                     @click="submitReceipt"
                   >
-                    确认查收本期公文材料
+                    {{ expired ? '材料查收已截止（签收通道关闭）' : '确认查收本期公文材料' }}
                   </el-button>
                   <div class="submit-tip">
-                    点击确认后即刻打上查收印章，后台实时计入查收率，免报回函
+                    <span v-if="expired" class="text-expired-tip">查收时限已截止，签收确认已被系统锁定</span>
+                    <span v-else>点击确认后即刻打上查收印章，后台实时计入查收率，免报回函</span>
                   </div>
                 </div>
               </el-form>
@@ -330,11 +345,11 @@
           <span class="footer-org font-serif">中共伊宁县委宣传部</span>
           <span class="crest-dot"></span>
         </div>
-        <div class="footer-system">部务工作平台 · 数字化协同政务服务终端 V1.7.0</div>
+        <div class="footer-system">部务工作平台 · 数字化协同政务服务终端 V1.7.1</div>
         <div class="footer-beian">
-          <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">ICP备案号占位</a>
+          <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">[滇ICP备XXXXXXXX号-X]</a>
           <span class="sep">|</span>
-          <a href="https://beian.mps.gov.cn/#/query/webSearch" target="_blank" rel="noopener">公网安备号占位</a>
+          <a href="https://beian.mps.gov.cn/#/query/webSearch" target="_blank" rel="noopener">[滇公网安备XXXXXXXXXXXXXXXX号]</a>
           <span class="sep">|</span>
           <span class="ipv6-tag">本平台已全面支持 IPv6 访问</span>
         </div>
@@ -470,6 +485,9 @@ const reselectUnit = () => {
 
 // 提交确认查收
 const submitReceipt = async () => {
+  if (expired.value) {
+    return ElMessage.warning('材料查收时限已截止，签收通道已关闭')
+  }
   if (!receiptForm.value.receiver_name.trim()) {
     return ElMessage.warning('请填写经办人姓名')
   }
@@ -507,27 +525,32 @@ onUnmounted(() => {
 <style scoped>
 .gov-dispatch-wrapper {
   min-height: 100vh;
-  background-color: #f6f7f9;
+  background-color: #f6f8fb;
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(158, 27, 30, 0.05) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(36, 64, 110, 0.04) 0px, transparent 50%);
   display: flex;
   flex-direction: column;
+  position: relative;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
-/* 顶部深红深金政务天际线 */
+/* 顶部深色政务天际线 - 与征求意见、会议填报页 100% 对齐 */
 .skyline-bg {
   position: relative;
-  background: linear-gradient(135deg, #7a0e10 0%, #9e1b1e 50%, #4a0809 100%);
-  padding: 36px 20px 72px;
+  background: linear-gradient(135deg, #131a26 0%, #1b2433 45%, #7a1417 100%);
+  padding: 32px 20px 110px;
+  color: #fff;
   overflow: hidden;
 }
 
 .skyline-glow {
   position: absolute;
-  top: -50%;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 800px;
-  height: 400px;
-  background: radial-gradient(circle, rgba(245, 212, 153, 0.25) 0%, rgba(245, 212, 153, 0) 70%);
+  top: -60px;
+  right: 10%;
+  width: 320px;
+  height: 320px;
+  background: radial-gradient(circle, rgba(227, 207, 166, 0.22) 0%, rgba(158, 27, 30, 0) 70%);
   pointer-events: none;
 }
 
@@ -536,7 +559,7 @@ onUnmounted(() => {
   bottom: 0;
   left: 0;
   width: 100%;
-  height: 70px;
+  height: 100px;
   pointer-events: none;
 }
 
@@ -546,41 +569,43 @@ onUnmounted(() => {
   margin: 0 auto;
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
   z-index: 2;
 }
 
 .brand-crest {
-  width: 48px;
-  height: 48px;
-  filter: drop-shadow(0 2px 8px rgba(0,0,0,0.3));
+  width: 50px;
+  height: 50px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 14px rgba(245, 212, 153, 0.65));
 }
 
 .brand-titles {
   display: flex;
   flex-direction: column;
-  gap: 2px;
 }
 
 .brand-sup {
-  color: #fef08a;
+  font-family: var(--yx-font-serif);
   font-size: 17px;
   font-weight: 600;
-  letter-spacing: 1px;
-  text-shadow: 0 1px 3px rgba(0,0,0,0.4);
+  letter-spacing: 1.2px;
+  color: #f7ecec;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
 .brand-sub {
-  color: #fee2e2;
-  font-size: 13px;
-  opacity: 0.9;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.72);
+  margin-top: 3px;
+  letter-spacing: 0.8px;
 }
 
 /* 主体容器 */
 .main-container {
   max-width: 960px;
   width: 100%;
-  margin: -40px auto 40px;
+  margin: -70px auto 40px;
   padding: 0 16px;
   position: relative;
   z-index: 3;
@@ -1118,6 +1143,15 @@ onUnmounted(() => {
 .submit-tip {
   font-size: 12px;
   color: #94a3b8;
+}
+
+.expired-alert-banner {
+  margin-bottom: 20px;
+}
+
+.text-expired-tip {
+  color: #d97706;
+  font-weight: 500;
 }
 
 /* 页脚 */

@@ -315,25 +315,39 @@ func DeleteDispatch(cfg *config.Config) http.HandlerFunc {
 		}
 
 		var title string
-		var fileURL, attachURL sql.NullString
-		if err := database.DB.QueryRow("SELECT title, file_url, attachment_url FROM dispatches WHERE id = ?", id).Scan(&title, &fileURL, &attachURL); err != nil {
+		var pdfPath, attachPath sql.NullString
+		if err := database.DB.QueryRow("SELECT title, pdf_path, attachment_path FROM dispatches WHERE id = ?", id).Scan(&title, &pdfPath, &attachPath); err != nil {
 			middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "材料下发任务不存在"})
 			return
 		}
 
-		// 级联删除查收记录与任务
-		database.DB.Exec("DELETE FROM dispatch_receipts WHERE dispatch_id = ?", id)
-		if _, err := database.DB.Exec("DELETE FROM dispatches WHERE id = ?", id); err != nil {
+		// 级联删除查收记录与任务（事务包裹）
+		tx, err := database.DB.Begin()
+		if err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+			return
+		}
+		defer tx.Rollback()
+
+		if _, err := tx.Exec("DELETE FROM dispatch_receipts WHERE dispatch_id = ?", id); err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+			return
+		}
+		if _, err := tx.Exec("DELETE FROM dispatches WHERE id = ?", id); err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+			return
+		}
+		if err := tx.Commit(); err != nil {
 			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
 			return
 		}
 
 		// 物理删除材料文件与附件
-		if fileURL.Valid && fileURL.String != "" {
-			SafeRemoveUploadedFile(cfg, fileURL.String)
+		if pdfPath.Valid && pdfPath.String != "" {
+			SafeRemoveUploadedFile(cfg, pdfPath.String)
 		}
-		if attachURL.Valid && attachURL.String != "" {
-			SafeRemoveUploadedFile(cfg, attachURL.String)
+		if attachPath.Valid && attachPath.String != "" {
+			SafeRemoveUploadedFile(cfg, attachPath.String)
 		}
 
 		logOperation(r, "材料下发", "删除", fmt.Sprintf("删除材料通知「%s」(ID=%d)并物理清理附件文件", title, id))
@@ -635,6 +649,12 @@ func PublicConfirmDispatchReceipt(w http.ResponseWriter, r *http.Request) {
 	err := database.DB.QueryRow("SELECT units, deadline FROM dispatches WHERE id = ?", id).Scan(&unitsRaw, &deadline)
 	if err != nil {
 		middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "材料下发任务不存在"})
+		return
+	}
+
+	// 校验截止时限：若已设置截止时限且已过期，直接拦截
+	if deadline != "" && isDeadlineExpired(deadline) {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "公文材料查收时限已截止"})
 		return
 	}
 

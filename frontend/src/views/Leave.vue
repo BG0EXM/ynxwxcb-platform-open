@@ -249,7 +249,7 @@
       <template #footer>
         <div class="drawer-footer-wrap">
           <el-button @click="drawerVisible = false">取消</el-button>
-          <el-button type="primary" @click="saveLeave">确认提交申请</el-button>
+          <el-button type="primary" :loading="submitting" @click="saveLeave">确认提交申请</el-button>
         </div>
       </template>
     </el-drawer>
@@ -429,10 +429,13 @@ const openEdit = (row) => {
   drawerVisible.value = true
 }
 
+const submitting = ref(false)
+
 const saveLeave = async () => {
-  if (!formRef.value) return
+  if (!formRef.value || submitting.value) return
   await formRef.value.validate(async (valid) => {
     if (!valid) return
+    submitting.value = true
     try {
       const payload = {
         user_id: form.user_id || authStore.user?.id,
@@ -453,7 +456,11 @@ const saveLeave = async () => {
       drawerVisible.value = false
       loadData()
       loadStats()
-    } catch (e) { console.error(e) }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      submitting.value = false
+    }
   })
 }
 

@@ -435,11 +435,11 @@
           <span class="footer-org font-serif">中共伊宁县委宣传部</span>
           <span class="crest-dot"></span>
         </div>
-        <div class="footer-system">部务工作平台 · 数字化会务服务终端 V1.7.0</div>
+        <div class="footer-system">部务工作平台 · 数字化会务服务终端 V1.7.1</div>
         <div class="footer-beian">
-          <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">ICP备案号占位</a>
+          <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">[滇ICP备XXXXXXXX号-X]</a>
           <span class="sep">|</span>
-          <a href="https://beian.mps.gov.cn/#/query/webSearch" target="_blank" rel="noopener">公网安备号占位</a>
+          <a href="https://beian.mps.gov.cn/#/query/webSearch" target="_blank" rel="noopener">[滇公网安备XXXXXXXXXXXXXXXX号]</a>
           <span class="sep">|</span>
           <span class="ipv6-tag">本平台已全面支持 IPv6 访问</span>
         </div>

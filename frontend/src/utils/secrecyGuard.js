@@ -53,8 +53,22 @@ let vnode = null
 let container = null
 
 /**
+ * 清理涉密警报 DOM 与 VNode 实例
+ */
+export const cleanupSecrecyAlert = () => {
+  if (container) {
+    render(null, container)
+    if (document.body.contains(container)) {
+      document.body.removeChild(container)
+    }
+    container = null
+    vnode = null
+  }
+}
+
+/**
  * 弹出全屏震撼保密警报并锁定当前会话
- * @param {Object} options { fileName, keyword, isPublic, onLock }
+ * @param {Object} options { fileName, keyword, isPublic, onLock, onClose }
  */
 export const showSecrecyAlert = (options = {}) => {
   if (vnode) return // 已有弹窗显示中
@@ -66,19 +80,29 @@ export const showSecrecyAlert = (options = {}) => {
   render(vnode, container)
 
   setTimeout(() => {
-    if (vnode.component && vnode.component.exposed) {
-      vnode.component.exposed.open(options, () => {
-        // 锁定会话核心逻辑
-        if (options.isPublic) {
-          // 公开端：清空表单并锁定会话状态
-          console.warn('[SecrecyGuard] 公开端涉密阻断，锁定当前会话')
-        } else {
-          // 管理后台：直接清除认证凭证，使现有 JWT 立即失效
-          console.warn('[SecrecyGuard] 管理后台涉密阻断，会话强制锁定并清空令牌')
-          localStorage.removeItem('token')
-          localStorage.removeItem('user')
+    if (vnode && vnode.component && vnode.component.exposed) {
+      vnode.component.exposed.open(
+        options,
+        () => {
+          // 锁定会话核心逻辑
+          if (options.isPublic) {
+            // 公开端：清空表单并锁定会话状态
+            console.warn('[SecrecyGuard] 公开端涉密阻断，锁定当前会话')
+          } else {
+            // 管理后台：直接清除认证凭证，使现有 JWT 立即失效
+            console.warn('[SecrecyGuard] 管理后台涉密阻断，会话强制锁定并清空令牌')
+            localStorage.removeItem('token')
+            localStorage.removeItem('user')
+          }
+        },
+        () => {
+          // 警报关闭或退出时的清理逻辑
+          cleanupSecrecyAlert()
+          if (typeof options.onClose === 'function') {
+            options.onClose()
+          }
         }
-      })
+      )
     }
   }, 10)
 }

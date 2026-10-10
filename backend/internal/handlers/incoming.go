@@ -405,6 +405,7 @@ func DeleteIncomingDoc(cfg *config.Config) http.HandlerFunc {
 			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
 			return
 		}
+		defer tx.Rollback()
 		if _, err := tx.Exec("DELETE FROM circulation_records WHERE doc_id=?", id); err != nil {
 			tx.Rollback()
 			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})

@@ -1,0 +1,1 @@
+import{h as o,ag as d,g as t}from"./index-Dv2Gi4Tu.js";function r(n=768){const i=t(typeof window<"u"?window.innerWidth<=n:!1),e=()=>{typeof window<"u"&&(i.value=window.innerWidth<=n)};return o(()=>{e(),window.addEventListener("resize",e)}),d(()=>{window.removeEventListener("resize",e)}),{isMobile:i}}export{r as u};

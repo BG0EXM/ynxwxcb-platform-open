@@ -122,11 +122,29 @@ func DeleteOvertimeRecord(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
 		return
 	}
+	var userID int64
+	var hours float64
 	var personName, overtimeDate string
-	database.DB.QueryRow(
-		`SELECT u.real_name, o.overtime_date FROM overtime_records o LEFT JOIN users u ON o.user_id=u.id WHERE o.id=?`, id).
-		Scan(&personName, &overtimeDate)
-	_, err := database.DB.Exec("DELETE FROM overtime_records WHERE id=?", id)
+	err := database.DB.QueryRow(
+		`SELECT o.user_id, o.hours, COALESCE(u.real_name, ''), o.overtime_date
+		 FROM overtime_records o LEFT JOIN users u ON o.user_id=u.id WHERE o.id=?`, id).
+		Scan(&userID, &hours, &personName, &overtimeDate)
+	if err != nil {
+		middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "加班记录不存在"})
+		return
+	}
+
+	// 删除前核验：若删除后会导致调休余额变成负数，禁止删除并友好提示
+	currentRemain := getCompRemainDays(userID)
+	reduceDays := hours / OvertimeHoursPerDay
+	if currentRemain-reduceDays < -0.0001 {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{
+			"error": fmt.Sprintf("无法删除：该干部已使用调休，删除该记录会导致调休余额变成负数（当前剩余可调休 %.1f 天，删除将扣减 %.1f 天）", currentRemain, reduceDays),
+		})
+		return
+	}
+
+	_, err = database.DB.Exec("DELETE FROM overtime_records WHERE id=?", id)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
 		return
@@ -186,14 +204,23 @@ func ExportOvertimeRecords(w http.ResponseWriter, r *http.Request) {
 // getCompRemainDays 计算指定人员的全部可补休天数（不限定月份）
 // = 加班折合补休天数 - 已用补休天数
 func getCompRemainDays(userID int64) float64 {
+	return getCompRemainDaysFromQuerier(database.DB, userID)
+}
+
+// getCompRemainDaysTx 事务内计算指定人员的全部可补休天数
+func getCompRemainDaysTx(tx *sql.Tx, userID int64) float64 {
+	return getCompRemainDaysFromQuerier(tx, userID)
+}
+
+func getCompRemainDaysFromQuerier(q queryRower, userID int64) float64 {
 	var hours float64
-	if err := database.DB.QueryRow("SELECT COALESCE(SUM(hours),0) FROM overtime_records WHERE user_id=?", userID).Scan(&hours); err != nil {
+	if err := q.QueryRow("SELECT COALESCE(SUM(hours),0) FROM overtime_records WHERE user_id=?", userID).Scan(&hours); err != nil {
 		return 0
 	}
 	compDays := hours / OvertimeHoursPerDay
 
 	var used float64
-	if err := database.DB.QueryRow(
+	if err := q.QueryRow(
 		`SELECT COALESCE(SUM(eff),0) FROM (
 			SELECT MIN(days, CAST(julianday(end_date) - julianday(start_date) + 1 AS INTEGER)) as eff
 			FROM leave_records
@@ -334,6 +361,7 @@ func OvertimeStats(w http.ResponseWriter, r *http.Request) {
 			SELECT user_id, MIN(days, CAST(julianday(end_date) - julianday(start_date) + 1 AS INTEGER)) as eff
 			FROM leave_records WHERE status = 1 AND leave_type = 'comp' GROUP BY id
 		) WHERE eff > 0 GROUP BY user_id`); err == nil {
+		defer ur.Close()
 		for ur.Next() {
 			var uid int64
 			var d float64

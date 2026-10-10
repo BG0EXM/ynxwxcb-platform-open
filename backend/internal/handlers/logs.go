@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -147,4 +148,40 @@ func ListOperationLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	middleware.JSON(w, http.StatusOK, paginateResult(list, total, p.Page, p.PageSize))
+}
+
+// ClearOperationLogs 清空操作日志（仅限系统管理员安全清空）
+func ClearOperationLogs(w http.ResponseWriter, r *http.Request) {
+	// 统计清空前的总日志条数
+	var count int
+	database.DB.QueryRow("SELECT COUNT(*) FROM operation_logs").Scan(&count)
+
+	tx, err := database.DB.Begin()
+	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "清除操作日志失败"})
+		return
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec("DELETE FROM operation_logs"); err != nil {
+		tx.Rollback()
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "清除操作日志失败"})
+		return
+	}
+
+	// 重置自增序列
+	tx.Exec("DELETE FROM sqlite_sequence WHERE name='operation_logs'")
+
+	if err := tx.Commit(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "清除操作日志失败"})
+		return
+	}
+
+	// 记录本次清除操作的留痕审计日志
+	logOperation(r, "系统安全", "清空", fmt.Sprintf("管理员清空历史系统操作日志（共清理 %d 条历史审计记录）", count))
+
+	middleware.JSON(w, http.StatusOK, map[string]interface{}{
+		"message":       "系统操作日志已成功清空",
+		"cleared_count": count,
+	})
 }

@@ -478,14 +478,27 @@ const copyPhone = async (phone) => {
   }
 }
 
+// HTML 实体转义防止 XSS 漏洞
+const escapeHtml = (str) => {
+  if (str === null || str === undefined) return ''
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 // 高亮关键词
 const highlight = (text) => {
   if (!text) return ''
+  const safeText = escapeHtml(text)
   const q = keyword.value.trim()
-  if (!q) return String(text)
-  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  if (!q) return safeText
+  const safeQ = escapeHtml(q)
+  const escaped = safeQ.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const reg = new RegExp(`(${escaped})`, 'gi')
-  return String(text).replace(reg, '<mark class="highlight-kw">$1</mark>')
+  return safeText.replace(reg, '<mark class="highlight-kw">$1</mark>')
 }
 
 // 全局快捷键监听（Cmd+K / Ctrl+K）

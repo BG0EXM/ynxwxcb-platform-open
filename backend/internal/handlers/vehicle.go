@@ -3,7 +3,10 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"ynxwxcb-platform/internal/database"
@@ -134,6 +137,7 @@ func DeleteVehicle(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
 		return
 	}
+	defer tx.Rollback()
 	if _, err := tx.Exec("UPDATE vehicle_applies SET vehicle_id=0 WHERE vehicle_id=?", id); err != nil {
 		tx.Rollback()
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
@@ -150,6 +154,73 @@ func DeleteVehicle(w http.ResponseWriter, r *http.Request) {
 	}
 	logOperation(r, "用车管理", "删除", "删除车辆「"+plate+"」")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "删除成功"})
+}
+
+// parseTimeRange 解析时段字符串，转换为分钟数区间 [startMin, endMin]
+// 如 "09:00-12:00" -> 540, 720, true
+func parseTimeRange(s string) (int, int, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "全天" || s == "整天" {
+		return 0, 1440, true // 覆盖全天
+	}
+	if s == "上午" {
+		return 8*60 + 30, 12*60 + 30, true
+	}
+	if s == "下午" {
+		return 14 * 60, 19 * 60, true
+	}
+	// 尝试以常见分隔符拆分: -, ~, —, 至, 到
+	var parts []string
+	for _, sep := range []string{"-", "~", "—", "至", "到"} {
+		if strings.Contains(s, sep) {
+			parts = strings.Split(s, sep)
+			break
+		}
+	}
+	if len(parts) == 2 {
+		parseClock := func(str string) (int, bool) {
+			str = strings.TrimSpace(str)
+			colonIdx := strings.Index(str, ":")
+			if colonIdx < 0 {
+				colonIdx = strings.Index(str, "：")
+			}
+			if colonIdx > 0 {
+				h, e1 := strconv.Atoi(strings.TrimSpace(str[:colonIdx]))
+				m, e2 := strconv.Atoi(strings.TrimSpace(str[colonIdx+1:]))
+				if e1 == nil && e2 == nil && h >= 0 && h <= 24 && m >= 0 && m < 60 {
+					return h*60 + m, true
+				}
+			}
+			return 0, false
+		}
+		sm, ok1 := parseClock(parts[0])
+		em, ok2 := parseClock(parts[1])
+		if ok1 && ok2 {
+			if em < sm {
+				em += 1440 // 跨午夜
+			}
+			return sm, em, true
+		}
+	}
+	return 0, 1440, false
+}
+
+// isVehicleTimeOverlap 判断两个时段是否重叠冲突
+func isVehicleTimeOverlap(t1, t2 string) bool {
+	t1 = strings.TrimSpace(t1)
+	t2 = strings.TrimSpace(t2)
+	// 若完全相同，或任意一方为全天/空，直接判定冲突
+	if t1 == t2 || t1 == "" || t2 == "" || t1 == "全天" || t2 == "全天" {
+		return true
+	}
+	s1, e1, ok1 := parseTimeRange(t1)
+	s2, e2, ok2 := parseTimeRange(t2)
+	// 若任意一方无法解析为精确起止区间，为安全起见视为全天占用冲突
+	if !ok1 || !ok2 {
+		return true
+	}
+	// 标准开闭区间重叠判断：两个区间 [s1, e1] 与 [s2, e2] 重叠条件为 max(s1, s2) < min(e1, e2)
+	return s1 < e2 && s2 < e1
 }
 
 // CreateVehicleApply 用车报备（无需审批）
@@ -174,6 +245,44 @@ func CreateVehicleApply(w http.ResponseWriter, r *http.Request) {
 	if req.Passengers == 0 {
 		req.Passengers = 1
 	}
+
+	// 1. 车辆状态强校验：禁止对维修中或停用的车辆报备
+	var vehicleStatus int
+	var plateNo string
+	err := database.DB.QueryRow("SELECT status, plate_no FROM vehicles WHERE id = ?", req.VehicleID).Scan(&vehicleStatus, &plateNo)
+	if err != nil {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "所选车辆不存在"})
+		return
+	}
+	if vehicleStatus != 1 {
+		statusText := "不可用"
+		if vehicleStatus == 2 {
+			statusText = "维修中"
+		} else if vehicleStatus == 3 {
+			statusText = "已停用"
+		}
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("车辆「%s」当前为%s状态，禁止报备", plateNo, statusText)})
+		return
+	}
+
+	// 2. 时段重叠冲突校验：同一车辆在同日期的所选时段已被占用时直接拦截
+	conflictQuery := `SELECT user_name, use_time FROM vehicle_applies WHERE vehicle_id = ? AND use_date = ? AND id != ?`
+	conflictRows, err := database.DB.Query(conflictQuery, req.VehicleID, req.UseDate, req.ID)
+	if err == nil {
+		defer conflictRows.Close()
+		for conflictRows.Next() {
+			var occUser, occTime sql.NullString
+			if err := conflictRows.Scan(&occUser, &occTime); err == nil {
+				if isVehicleTimeOverlap(req.UseTime, occTime.String) {
+					middleware.JSON(w, http.StatusBadRequest, map[string]string{
+						"error": fmt.Sprintf("车辆「%s」在 %s 的时段（%s）已被「%s」报备占用，请更换车辆或调整用车时段", plateNo, req.UseDate, occTime.String, occUser.String),
+					})
+					return
+				}
+			}
+		}
+	}
+
 	res, err := database.DB.Exec(
 		`INSERT INTO vehicle_applies (vehicle_id, reporter_id, user_name, driver_name, purpose, destination, use_date, use_time, passengers)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -220,7 +329,45 @@ func UpdateVehicleApply(w http.ResponseWriter, r *http.Request) {
 	if req.Passengers == 0 {
 		req.Passengers = 1
 	}
-	_, err := database.DB.Exec(
+
+	// 1. 车辆状态强校验：禁止对维修中或停用的车辆报备
+	var vehicleStatus int
+	var plateNo string
+	err := database.DB.QueryRow("SELECT status, plate_no FROM vehicles WHERE id = ?", req.VehicleID).Scan(&vehicleStatus, &plateNo)
+	if err != nil {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "所选车辆不存在"})
+		return
+	}
+	if vehicleStatus != 1 {
+		statusText := "不可用"
+		if vehicleStatus == 2 {
+			statusText = "维修中"
+		} else if vehicleStatus == 3 {
+			statusText = "已停用"
+		}
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("车辆「%s」当前为%s状态，禁止报备", plateNo, statusText)})
+		return
+	}
+
+	// 2. 时段重叠冲突校验：同一车辆在同日期的所选时段已被占用时直接拦截（排除本条报备）
+	conflictQuery := `SELECT user_name, use_time FROM vehicle_applies WHERE vehicle_id = ? AND use_date = ? AND id != ?`
+	conflictRows, err := database.DB.Query(conflictQuery, req.VehicleID, req.UseDate, req.ID)
+	if err == nil {
+		defer conflictRows.Close()
+		for conflictRows.Next() {
+			var occUser, occTime sql.NullString
+			if err := conflictRows.Scan(&occUser, &occTime); err == nil {
+				if isVehicleTimeOverlap(req.UseTime, occTime.String) {
+					middleware.JSON(w, http.StatusBadRequest, map[string]string{
+						"error": fmt.Sprintf("车辆「%s」在 %s 的时段（%s）已被「%s」报备占用，请更换车辆或调整用车时段", plateNo, req.UseDate, occTime.String, occUser.String),
+					})
+					return
+				}
+			}
+		}
+	}
+
+	_, err = database.DB.Exec(
 		`UPDATE vehicle_applies SET vehicle_id=?, user_name=?, driver_name=?, purpose=?, destination=?, use_date=?, use_time=?, passengers=? WHERE id=?`,
 		req.VehicleID, req.UserName, req.DriverName, req.Purpose, req.Destination, req.UseDate, req.UseTime, req.Passengers, req.ID)
 	if err != nil {

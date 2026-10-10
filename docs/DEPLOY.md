@@ -1,6 +1,6 @@
 # 伊宁县委宣传部部务工作平台 - 部署文档（Nginx）
 
-> 适用版本：**V1.7.0** · 更新日期：**2026-10-10**  
+> 适用版本：**V1.7.1** · 更新日期：**2026-10-11**  
 > 服务器配置：Debian / Ubuntu (2C / 2G) · HTTPS 公网访问（支持 IPv6）
 
 ## 〇、系统组成与服务端可选增强组件
@@ -140,28 +140,46 @@ sudo ufw enable
 
 > 后端 8080 端口无需对外开放（Nginx 内网反代）。
 
-## 六、数据备份
+## 六、数据灾备与恢复
 
-### 手动备份
+系统采用**服务器级全量自动化灾备**，打包完整 SQLite 数据库及全部公文与附件材料（`uploads/`）。
+
+### 1. 手动立即执行备份
 ```bash
-sudo -u ynxwxcb /opt/ynxwxcb/backup.sh
+sudo /opt/ynxwxcb/deploy/backup.sh
 ```
 
-### 定时备份（每天 2:00）
+### 2. 配置定时自动化备份（每天凌晨 2:00，保留 14 天）
 ```bash
 sudo crontab -e
-# 加入：
-0 2 * * * /opt/ynxwxcb/backup.sh >> /var/log/ynxwxcb-backup.log 2>&1
+# 在末尾添加以下一行：
+0 2 * * * /opt/ynxwxcb/deploy/backup.sh >> /var/log/ynxwxcb-backup.log 2>&1
 ```
 
-备份文件在 `/opt/ynxwxcb-backup/`，保留 14 天。**建议定期同步到另一台机器或对象存储。**
+> 备份包存储在独立的 `/opt/ynxwxcb-backup/`，自动保留最近 14 天并带有 SHA256 校验和。**强烈建议定期将此目录同步到离线介质或异地存储。**
 
-### 恢复备份
+### 3. 数据灾难恢复（一键恢复或手动恢复）
+
+**方式一：一键脚本自动恢复（推荐）**
 ```bash
-tar -xzf /opt/ynxwxcb-backup/ynxwxcb_xxx.tar.gz -C /tmp/restore
+sudo /opt/ynxwxcb/deploy/restore.sh /opt/ynxwxcb-backup/ynxwxcb_20261010_020000.tar.gz
+```
+- 脚本会自动停止服务、为当前数据创建安全兜底副本、写入数据库和附件、修复权限并自动重启服务。
+
+**方式二：手动分步恢复**
+```bash
+# 1. 停止服务
 sudo systemctl stop ynxwxcb
-sudo cp /tmp/restore/ynxwxcb_backup_*.db /opt/ynxwxcb/data/ynxwxcb.db
-sudo chown ynxwxcb:ynxwxcb /opt/ynxwxcb/data/ynxwxcb.db
+
+# 2. 解包到临时目录
+mkdir -p /tmp/restore && tar -xzf /opt/ynxwxcb-backup/ynxwxcb_xxx.tar.gz -C /tmp/restore
+
+# 3. 替换数据库与附件
+sudo cp /tmp/restore/ynxwxcb.db /opt/ynxwxcb/data/ynxwxcb.db
+sudo cp -r /tmp/restore/uploads /opt/ynxwxcb/data/
+sudo chown -R ynxwxcb:ynxwxcb /opt/ynxwxcb/data
+
+# 4. 重启服务
 sudo systemctl start ynxwxcb
 ```
 

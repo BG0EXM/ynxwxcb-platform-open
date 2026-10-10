@@ -537,6 +537,7 @@ func DeleteUser(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
 		return
 	}
+	defer tx.Rollback()
 	// 个人维度的私有记录随用户物理删除
 	personalTables := []string{
 		"attendances", "leave_records", "circulation_records",
@@ -604,6 +605,7 @@ func resetAutoIncrement() {
 	if err != nil {
 		return
 	}
+	defer tx.Rollback()
 	for _, t := range tables {
 		// 将序列设为当前最大 ID（若表为空则为 0）
 		if _, err := tx.Exec("DELETE FROM sqlite_sequence WHERE name=?", t); err != nil {

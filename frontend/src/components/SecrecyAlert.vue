@@ -85,12 +85,14 @@ const isPublicPage = ref(false)
 const countdown = ref(30)
 let timer = null
 let onLockCallback = null
+let onCloseCallback = null
 
-const open = (options = {}, onLock) => {
+const open = (options = {}, onLock, onClose) => {
   fileName.value = options.fileName || '未知文件'
   matchedKeyword.value = options.keyword || '国家秘密/内部级标识'
   isPublicPage.value = !!options.isPublic
   onLockCallback = onLock
+  onCloseCallback = onClose || options?.onClose
   visible.value = true
   countdown.value = 30
 
@@ -114,6 +116,10 @@ const handleForceExit = () => {
   if (timer) clearInterval(timer)
   visible.value = false
 
+  if (onCloseCallback) {
+    try { onCloseCallback() } catch (_) {}
+  }
+
   // 清除敏感缓存并根据页面类型执行安全重定向
   if (isPublicPage.value) {
     // 公开端：强制刷新页面并锁定
@@ -129,6 +135,9 @@ const handleForceExit = () => {
 
 onUnmounted(() => {
   if (timer) clearInterval(timer)
+  if (onCloseCallback) {
+    try { onCloseCallback() } catch (_) {}
+  }
 })
 
 defineExpose({ open, handleForceExit })

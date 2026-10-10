@@ -202,8 +202,11 @@ func DeleteSolicit(cfg *config.Config) http.HandlerFunc {
 		}
 
 		var title string
-		var draftURL, attachURL sql.NullString
-		database.DB.QueryRow("SELECT title, draft_file_url, attachment_url FROM solicits WHERE id=?", id).Scan(&title, &draftURL, &attachURL)
+		var pdfPath, wordPath sql.NullString
+		if err := database.DB.QueryRow("SELECT title, pdf_path, word_path FROM solicits WHERE id=?", id).Scan(&title, &pdfPath, &wordPath); err != nil {
+			middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "征求意见任务不存在"})
+			return
+		}
 
 		// 收集该任务下所有反馈提交的回函文件与附件，以便事务提交后物理删除
 		var feedbackFiles []string
@@ -227,6 +230,7 @@ func DeleteSolicit(cfg *config.Config) http.HandlerFunc {
 			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
 			return
 		}
+		defer tx.Rollback()
 
 		if _, err := tx.Exec("DELETE FROM solicit_feedbacks WHERE solicit_id=?", id); err != nil {
 			tx.Rollback()
@@ -250,17 +254,17 @@ func DeleteSolicit(cfg *config.Config) http.HandlerFunc {
 		}
 
 		// 物理清理磁盘文件（草案、附件、所有单位盖章回函与修改稿）
-		if draftURL.Valid && draftURL.String != "" {
-			SafeRemoveUploadedFile(cfg, draftURL.String)
+		if pdfPath.Valid && pdfPath.String != "" {
+			SafeRemoveUploadedFile(cfg, pdfPath.String)
 		}
-		if attachURL.Valid && attachURL.String != "" {
-			SafeRemoveUploadedFile(cfg, attachURL.String)
+		if wordPath.Valid && wordPath.String != "" {
+			SafeRemoveUploadedFile(cfg, wordPath.String)
 		}
 		for _, f := range feedbackFiles {
 			SafeRemoveUploadedFile(cfg, f)
 		}
 
-		logOperation(r, "征求意见", "删除", "删除征求意见「"+title+"」并物理清理关联草案与回函文件")
+		logOperation(r, "征求意见", "删除", fmt.Sprintf("删除征求意见「%s」(ID=%d)并物理清理关联草案与回函文件", title, id))
 		middleware.JSON(w, http.StatusOK, map[string]string{"message": "删除成功"})
 	}
 }
@@ -349,8 +353,11 @@ func GetSolicit(w http.ResponseWriter, r *http.Request) {
 			if f.HasOpinion == 1 {
 				opinionCount++
 			}
+			f.Unit = strings.TrimSpace(f.Unit)
 			feedbacks = append(feedbacks, f)
-			feedbackUnitSet[f.Unit] = true
+			if f.Unit != "" {
+				feedbackUnitSet[f.Unit] = true
+			}
 		}
 	}
 
@@ -393,6 +400,7 @@ func ResetUnitFeedback(cfg *config.Config) http.HandlerFunc {
 			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请提供要重置的单位名称"})
 			return
 		}
+		req.Unit = strings.TrimSpace(req.Unit)
 
 		// 查出该单位已上传的旧回函文件与修改附件
 		var rDoc, aDoc sql.NullString
@@ -443,13 +451,18 @@ func ExportSolicitFeedbacks(w http.ResponseWriter, r *http.Request) {
 			var opDetail, replyName, attName sql.NullString
 			var crAt sql.NullTime
 			if err := rows.Scan(&f.Unit, &f.HasOpinion, &opDetail, &replyName, &attName, &f.ContactName, &f.ContactPhone, &crAt); err == nil {
-				f.OpinionDetail = opDetail.String
-				f.ReplyDocName = replyName.String
-				f.AttachmentName = attName.String
+				f.Unit = strings.TrimSpace(f.Unit)
+				f.ContactName = strings.TrimSpace(f.ContactName)
+				f.ContactPhone = strings.TrimSpace(f.ContactPhone)
+				f.OpinionDetail = strings.TrimSpace(opDetail.String)
+				f.ReplyDocName = strings.TrimSpace(replyName.String)
+				f.AttachmentName = strings.TrimSpace(attName.String)
 				if crAt.Valid {
 					f.CreatedAt = crAt.Time
 				}
-				feedbackMap[f.Unit] = f
+				if f.Unit != "" {
+					feedbackMap[f.Unit] = f
+				}
 			}
 		}
 	}
@@ -532,7 +545,7 @@ func DownloadSolicitRepliesZip(cfg *config.Config) http.HandlerFunc {
 					if ext == "" {
 						ext = filepath.Ext(replyPath.String)
 					}
-					cleanUnit := sanitizeFileName(unit)
+					cleanUnit := sanitizeFileName(strings.TrimSpace(unit))
 					entries = append(entries, FileEntry{
 						zipName:  fmt.Sprintf("%s_盖章回函%s", cleanUnit, ext),
 						diskPath: fullReplyPath,
@@ -641,31 +654,39 @@ func PublicSolicit(w http.ResponseWriter, r *http.Request) {
 	expired := isDeadlineExpired(s.Deadline)
 
 	// 若传了 unit 参数，返回该单位当前已提交的反馈（方便回显与重修）
-	var currentFeedback *models.SolicitFeedback
+	var currentFeedback map[string]interface{}
 	if unit := r.URL.Query().Get("unit"); unit != "" {
-		var f models.SolicitFeedback
-		var opDetail, replyPath, replyName, attPath, attName sql.NullString
+		var fID, hasOp int64
+		var opDetail, replyPath, replyName, attPath, attName, cName, cPhone sql.NullString
 		var crAt, upAt sql.NullTime
 		qerr := database.DB.QueryRow(
 			`SELECT id, has_opinion, opinion_detail, reply_doc_path, reply_doc_name,
 				attachment_path, attachment_name, contact_name, contact_phone, created_at, updated_at
 			 FROM solicit_feedbacks WHERE solicit_id=? AND unit=?`, id, unit).
-			Scan(&f.ID, &f.HasOpinion, &opDetail, &replyPath, &replyName, &attPath, &attName, &f.ContactName, &f.ContactPhone, &crAt, &upAt)
+			Scan(&fID, &hasOp, &opDetail, &replyPath, &replyName, &attPath, &attName, &cName, &cPhone, &crAt, &upAt)
 		if qerr == nil {
-			f.SolicitID = id
-			f.Unit = unit
-			f.OpinionDetail = opDetail.String
-			f.ReplyDocPath = replyPath.String
-			f.ReplyDocName = replyName.String
-			f.AttachmentPath = attPath.String
-			f.AttachmentName = attName.String
+			var createdAtVal, updatedAtVal interface{}
 			if crAt.Valid {
-				f.CreatedAt = crAt.Time
+				createdAtVal = crAt.Time
 			}
 			if upAt.Valid {
-				f.UpdatedAt = upAt.Time
+				updatedAtVal = upAt.Time
 			}
-			currentFeedback = &f
+			hasReplyDoc := replyPath.Valid && replyPath.String != ""
+			currentFeedback = map[string]interface{}{
+				"id":              fID,
+				"solicit_id":      id,
+				"unit":            unit,
+				"has_opinion":     hasOp,
+				"opinion_detail":  opDetail.String,
+				"has_reply_doc":   hasReplyDoc,
+				"reply_doc_name":  replyName.String,
+				"attachment_name": attName.String,
+				"contact_name":    cName.String,
+				"contact_phone":   maskPhoneNumber(cPhone.String),
+				"created_at":      createdAtVal,
+				"updated_at":      updatedAtVal,
+			}
 		}
 	}
 
@@ -893,6 +914,16 @@ func PublicSubmitFeedback(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请上传经单位主要领导审签并加盖公章的红头回函"})
 		return
 	}
+	if !strings.HasPrefix(req.ReplyDocPath, "/uploads/solicits/") || strings.Contains(req.ReplyDocPath, "..") {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "回函文件路径非法"})
+		return
+	}
+	if strings.TrimSpace(req.AttachmentPath) != "" {
+		if !strings.HasPrefix(req.AttachmentPath, "/uploads/solicits/") || strings.Contains(req.AttachmentPath, "..") {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "修改稿附件路径非法"})
+			return
+		}
+	}
 
 	req.ContactName = strings.TrimSpace(req.ContactName)
 	if req.ContactName == "" {
@@ -965,9 +996,27 @@ func isDeadlineExpired(deadlineStr string) bool {
 	return false
 }
 
+func maskPhoneNumber(phone string) string {
+	phone = strings.TrimSpace(phone)
+	runes := []rune(phone)
+	n := len(runes)
+	if n >= 11 {
+		return string(runes[:3]) + "****" + string(runes[n-4:])
+	} else if n >= 7 {
+		return string(runes[:3]) + "****" + string(runes[n-2:])
+	} else if n > 3 {
+		return string(runes[:1]) + "****" + string(runes[n-1:])
+	}
+	return "****"
+}
+
 func resolveFilePath(baseDir, rawPath string) string {
 	rawPath = strings.TrimSpace(rawPath)
-	if rawPath == "" {
+	if rawPath == "" || baseDir == "" {
+		return ""
+	}
+	// 严禁包含反斜杠或冒号（防止跨平台路径混淆或 Windows 绝对路径绕过）
+	if strings.Contains(rawPath, "\\") || strings.Contains(rawPath, ":") {
 		return ""
 	}
 	// 如果是 /api/uploads/{id} 格式，从 attachments 表查出文件真实路径
@@ -981,24 +1030,34 @@ func resolveFilePath(baseDir, rawPath string) string {
 		}
 	}
 
-	// 优先处理 /uploads/ 虚拟路径映射到配置的上传物理目录
+	cleanBase, err := filepath.Abs(baseDir)
+	if err != nil {
+		cleanBase = filepath.Clean(baseDir)
+	}
+
+	var candidate string
 	if strings.HasPrefix(rawPath, "/uploads/") {
-		return filepath.Join(baseDir, strings.TrimPrefix(rawPath, "/uploads/"))
+		candidate = filepath.Join(cleanBase, strings.TrimPrefix(rawPath, "/uploads/"))
+	} else if filepath.IsAbs(rawPath) {
+		// 严禁直接返回任意绝对路径！
+		candidate = rawPath
+	} else {
+		candidate = filepath.Join(cleanBase, rawPath)
 	}
 
-	// 如果当前直接命中文件（如已经在当前工作目录下）
-	if _, err := os.Stat(rawPath); err == nil {
-		return rawPath
+	cleanTarget := filepath.Clean(candidate)
+	absTarget, err := filepath.Abs(cleanTarget)
+	if err != nil {
+		return ""
 	}
 
-	if filepath.IsAbs(rawPath) {
-		return rawPath
+	// 强校验解析后的路径在 baseDir 目录之内，若越界或包含 .. 必须拒绝返回空字符串
+	rel, err := filepath.Rel(cleanBase, absTarget)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || strings.Contains(rel, "..") || rel == "." {
+		return ""
 	}
 
-	if strings.HasPrefix(rawPath, baseDir) {
-		return rawPath
-	}
-	return filepath.Join(baseDir, rawPath)
+	return absTarget
 }
 
 func sanitizeFileName(name string) string {

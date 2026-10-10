@@ -122,7 +122,7 @@
           </el-row>
 
           <el-form-item label="会议地点" required>
-            <el-input v-model="form.location" placeholder="如：县委二楼一号会议室" />
+            <el-input v-model="form.location" placeholder="如：县委三楼会议室" />
           </el-form-item>
         </div>
 
@@ -164,7 +164,7 @@
       <template #footer>
         <div class="drawer-footer-wrap">
           <el-button @click="dialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="save">保存会务通知</el-button>
+          <el-button type="primary" :loading="submitting" @click="save">保存会务通知</el-button>
         </div>
       </template>
     </el-drawer>
@@ -336,9 +336,9 @@ const PRESETS = {
     '县委办', '人大办', '政府办', '政协办', '纪委监委', '组织部',
     '社会工作部', '宣传部', '统战部', '政法委', '巡察办', '公安局',
     '法院', '检察院', '司法局', '网信办', '应急管理局', '信访局',
-    '退役军人事务局', '财政局', '交通局', '党研室', '编  办', '党  校',
-    '机关工委', '民政局', '人社局', '工商联', '团  委', '妇  联',
-    '总工会', '红十字会', '老干局', '残  联', '科  协', '发改委',
+    '退役军人事务局', '财政局', '交通局', '党研室', '编办', '党校',
+    '机关工委', '民政局', '人社局', '工商联', '团委', '妇联',
+    '总工会', '红十字会', '老干局', '残联', '科协', '发改委',
     '商工信局', '住建局', '审计局', '统计局', '供销社', '环保局',
     '税务局', '自然资源局', '伊东工业园区', '市场监督管理局', '农业农村局', '林草局',
     '水利局', '教育局', '卫健委', '融媒体中心', '文旅局', '医保局',
@@ -443,10 +443,14 @@ const openEdit = (row) => {
   dialogVisible.value = true
 }
 
+const submitting = ref(false)
+
 const save = async () => {
+  if (submitting.value) return
   if (!form.value.title) return ElMessage.warning('请输入会议标题')
   if (!form.value.meeting_date) return ElMessage.warning('请选择会议日期')
   if (!form.value.units) return ElMessage.warning('请输入参会单位')
+  submitting.value = true
   try {
     if (editId.value) {
       await request.put('/meetings', { ...form.value, id: editId.value })
@@ -457,7 +461,11 @@ const save = async () => {
     }
     dialogVisible.value = false
     loadData()
-  } catch (e) { console.error(e) }
+  } catch (e) {
+    console.error(e)
+  } finally {
+    submitting.value = false
+  }
 }
 
 const handleRowCommand = (cmd, row) => {

@@ -142,24 +142,48 @@ func DownloadAttachment(cfg *config.Config) http.HandlerFunc {
 		}
 		var a models.Attachment
 		var uploaderID, ownerID int64
+		var ownerType string
 		err := database.DB.QueryRow(
-			"SELECT id, file_name, file_path, file_size, uploader_id, owner_id FROM attachments WHERE id=?", id).
-			Scan(&a.ID, &a.FileName, &a.FilePath, &a.FileSize, &uploaderID, &ownerID)
+			"SELECT id, owner_type, file_name, file_path, file_size, uploader_id, owner_id FROM attachments WHERE id=?", id).
+			Scan(&a.ID, &ownerType, &a.FileName, &a.FilePath, &a.FileSize, &uploaderID, &ownerID)
 		if err != nil {
 			middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "附件不存在"})
 			return
 		}
-		// 权限：管理员、上传者本人、或已关联到业务对象的附件（业务数据已由各自接口鉴权）可下载
-		if roleCode != "admin" && uploaderID != userID && ownerID == 0 {
-			middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "无权下载该附件"})
+
+		// 鉴权校验：管理员和上传者本人可直接下载；
+		// 非 admin 且非上传者下载时，严格校验记录归属与角色权限，修复 ownerID!=0 鉴权穿透
+		if roleCode != "admin" && uploaderID != userID {
+			if ownerID == 0 {
+				middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "无权下载该未关联附件"})
+				return
+			}
+			allowed := false
+			switch ownerType {
+			case "document":
+				// 收文附件需具备 incoming.view 权限
+				allowed = middleware.HasPermission(roleCode, "incoming.view")
+			case "study":
+				// 学习资料需具备 study.view 权限
+				allowed = middleware.HasPermission(roleCode, "study.view")
+			default:
+				// 其他业务附件，校验用户是否拥有合法业务角色权限
+				if roleCode != "" && (roleCode == "leader" || roleCode == "staff" || middleware.HasPermission(roleCode, "dashboard.view")) {
+					allowed = true
+				}
+			}
+			if !allowed {
+				middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "无权下载该业务附件"})
+				return
+			}
+		}
+
+		// 文件路径安全解析（防目录穿越与相对路径逃逸）
+		fullPath := resolveFilePath(cfg.Upload.Dir, a.FilePath)
+		if fullPath == "" {
+			middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "附件路径非法或已被移除"})
 			return
 		}
-		// 文件路径以 /uploads/ 开头则转实际路径（使用配置的上传目录，兼容旧数据）
-		fullPath := a.FilePath
-		if strings.HasPrefix(fullPath, "/uploads/") {
-			fullPath = filepath.Join(cfg.Upload.Dir, strings.TrimPrefix(fullPath, "/uploads/"))
-		}
-		// 若数据库存的是绝对路径，直接使用
 		if _, err := os.Stat(fullPath); err != nil {
 			middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "文件已被移除"})
 			return
@@ -508,46 +532,98 @@ func CleanupOrphanFiles(cfg *config.Config) {
 
 	activeFiles := make(map[string]bool)
 
-	// 1. 收集 attachments 表活跃文件
-	if rows, err := database.DB.Query("SELECT file_path FROM attachments"); err == nil {
-		for rows.Next() {
-			var p string
-			if err := rows.Scan(&p); err == nil && p != "" {
-				if absP, err := filepath.Abs(p); err == nil {
-					activeFiles[absP] = true
-				}
-				if strings.HasPrefix(p, "/uploads/") {
-					realP := filepath.Join(absUploadDir, strings.TrimPrefix(p, "/uploads/"))
-					activeFiles[realP] = true
-				}
+	addActivePath := func(p string) {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			return
+		}
+		if filepath.IsAbs(p) {
+			if absP, err := filepath.Abs(p); err == nil {
+				activeFiles[absP] = true
 			}
 		}
-		rows.Close()
+		clean := strings.TrimPrefix(p, "/")
+		clean = strings.TrimPrefix(clean, "uploads/")
+		realP := filepath.Join(absUploadDir, clean)
+		if absRealP, err := filepath.Abs(realP); err == nil {
+			activeFiles[absRealP] = true
+		}
+		activeFiles[realP] = true
 	}
+
+	// 1. 收集 attachments 表活跃文件
+	rows, err := database.DB.Query("SELECT file_path FROM attachments WHERE file_path != ''")
+	if err != nil {
+		log.Printf("[孤儿文件清理] 熔断防护触发：查询 attachments 表失败: %v，已终止清理以保护数据安全", err)
+		return
+	}
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			rows.Close()
+			log.Printf("[孤儿文件清理] 熔断防护触发：扫描 attachments 数据失败: %v，已终止清理", err)
+			return
+		}
+		addActivePath(p)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		log.Printf("[孤儿文件清理] 熔断防护触发：遍历 attachments 发生错误: %v，已终止清理", err)
+		return
+	}
+	rows.Close()
 
 	// 2. 收集征求意见 solicits / solicit_feedbacks 活跃文件
-	if rows, err := database.DB.Query("SELECT draft_file_url FROM solicits WHERE draft_file_url != '' UNION SELECT attachment_url FROM solicits WHERE attachment_url != '' UNION SELECT file_url FROM solicit_feedbacks WHERE file_url != ''"); err == nil {
-		for rows.Next() {
-			var p string
-			if err := rows.Scan(&p); err == nil && p != "" {
-				clean := strings.TrimPrefix(strings.TrimPrefix(p, "/"), "uploads/")
-				activeFiles[filepath.Join(absUploadDir, clean)] = true
-			}
-		}
-		rows.Close()
+	// 修正字段名：solicits 为 pdf_path, word_path；solicit_feedbacks 为 reply_doc_path, attachment_path
+	sRows, err := database.DB.Query(`
+		SELECT pdf_path FROM solicits WHERE pdf_path != ''
+		UNION SELECT word_path FROM solicits WHERE word_path != ''
+		UNION SELECT reply_doc_path FROM solicit_feedbacks WHERE reply_doc_path != ''
+		UNION SELECT attachment_path FROM solicit_feedbacks WHERE attachment_path != ''`)
+	if err != nil {
+		log.Printf("[孤儿文件清理] 熔断防护触发：查询 solicits/solicit_feedbacks 表失败: %v，已终止清理以保护数据安全", err)
+		return
 	}
+	for sRows.Next() {
+		var p string
+		if err := sRows.Scan(&p); err != nil {
+			sRows.Close()
+			log.Printf("[孤儿文件清理] 熔断防护触发：扫描 solicits/solicit_feedbacks 数据失败: %v，已终止清理", err)
+			return
+		}
+		addActivePath(p)
+	}
+	if err := sRows.Err(); err != nil {
+		sRows.Close()
+		log.Printf("[孤儿文件清理] 熔断防护触发：遍历 solicits/solicit_feedbacks 发生错误: %v，已终止清理", err)
+		return
+	}
+	sRows.Close()
 
 	// 3. 收集材料下发 dispatches 活跃文件
-	if rows, err := database.DB.Query("SELECT file_url FROM dispatches WHERE file_url != '' UNION SELECT attachment_url FROM dispatches WHERE attachment_url != ''"); err == nil {
-		for rows.Next() {
-			var p string
-			if err := rows.Scan(&p); err == nil && p != "" {
-				clean := strings.TrimPrefix(strings.TrimPrefix(p, "/"), "uploads/")
-				activeFiles[filepath.Join(absUploadDir, clean)] = true
-			}
-		}
-		rows.Close()
+	// 修正字段名：dispatches 为 pdf_path, attachment_path
+	dRows, err := database.DB.Query(`
+		SELECT pdf_path FROM dispatches WHERE pdf_path != ''
+		UNION SELECT attachment_path FROM dispatches WHERE attachment_path != ''`)
+	if err != nil {
+		log.Printf("[孤儿文件清理] 熔断防护触发：查询 dispatches 表失败: %v，已终止清理以保护数据安全", err)
+		return
 	}
+	for dRows.Next() {
+		var p string
+		if err := dRows.Scan(&p); err != nil {
+			dRows.Close()
+			log.Printf("[孤儿文件清理] 熔断防护触发：扫描 dispatches 数据失败: %v，已终止清理", err)
+			return
+		}
+		addActivePath(p)
+	}
+	if err := dRows.Err(); err != nil {
+		dRows.Close()
+		log.Printf("[孤儿文件清理] 熔断防护触发：遍历 dispatches 发生错误: %v，已终止清理", err)
+		return
+	}
+	dRows.Close()
 
 	cleanedCount := 0
 	cutoff := time.Now().Add(-24 * time.Hour)
@@ -559,7 +635,7 @@ func CleanupOrphanFiles(cfg *config.Config) {
 		// 仅清理修改时间在 24 小时之前的孤儿文件（防止误删当前正在并发上传的临时文件）
 		if info.ModTime().Before(cutoff) {
 			absP, _ := filepath.Abs(path)
-			if !activeFiles[absP] {
+			if !activeFiles[absP] && !activeFiles[path] {
 				if err := os.Remove(absP); err == nil {
 					cleanedCount++
 					log.Printf("[孤儿文件清理] 清理无引用历史残留文件: %s", absP)

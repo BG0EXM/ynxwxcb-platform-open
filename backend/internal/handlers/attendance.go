@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -84,6 +85,7 @@ func MarkAttendance(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "点到失败"})
 		return
 	}
+	defer tx.Rollback()
 	for _, rec := range recs {
 		if _, err := tx.Exec(
 			`INSERT INTO attendances (user_id, attend_date, status, leave_type, remark, marked_by) VALUES (?, ?, ?, ?, ?, ?)
@@ -380,6 +382,73 @@ func isValidYear(s string) bool {
 	return true
 }
 
+// syncAttendanceForDateRangeTx 级联更新覆盖时间段内 attendances 表的记录
+// 当请假变动（创建、修改、删除）时，逐日回溯检查用户在当天的有效请假情况：
+// - 若当天存在有效请假：更新或补全考勤记录为请假状态（status=2, leave_type=该请假类型）
+// - 若当天已无任何有效请假：若考勤记录原为请假状态（status=2），恢复为正常状态（status=1, leave_type=''）
+func syncAttendanceForDateRangeTx(tx *sql.Tx, userID int64, startDate, endDate string) error {
+	t1, err := time.Parse("2006-01-02", startDate)
+	if err != nil {
+		return err
+	}
+	t2, err := time.Parse("2006-01-02", endDate)
+	if err != nil {
+		return err
+	}
+	if t2.Before(t1) {
+		return nil
+	}
+
+	for d := t1; !d.After(t2); d = d.AddDate(0, 0, 1) {
+		dateStr := d.Format("2006-01-02")
+		// 1. 查询当天是否存在生效中的请假记录
+		var activeLeaveType string
+		err := tx.QueryRow(
+			`SELECT leave_type FROM leave_records 
+			 WHERE user_id = ? AND status = 1 AND start_date <= ? AND end_date >= ?
+			 ORDER BY id DESC LIMIT 1`,
+			userID, dateStr, dateStr).Scan(&activeLeaveType)
+		hasActiveLeave := (err == nil && activeLeaveType != "")
+
+		// 2. 检查 attendances 表中当天是否有记录
+		var attID int64
+		var currentStatus int
+		attErr := tx.QueryRow(
+			`SELECT id, status FROM attendances WHERE user_id = ? AND attend_date = ?`,
+			userID, dateStr).Scan(&attID, &currentStatus)
+
+		if attErr == nil {
+			if hasActiveLeave {
+				targetStatus := 2
+				targetRemark := "请假登记联动"
+				if activeLeaveType == "comp" {
+					targetStatus = 1
+					targetRemark = "补休登记联动"
+				}
+				if currentStatus != targetStatus {
+					_, err = tx.Exec(
+						`UPDATE attendances SET status = ?, leave_type = ?, remark = CASE WHEN remark = '' OR remark IS NULL THEN ? ELSE remark END, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+						targetStatus, activeLeaveType, targetRemark, attID)
+					if err != nil {
+						return err
+					}
+				}
+			} else {
+				// 若当天已无任何有效请假，且原考勤记录为请假状态（status=2），则恢复为正常出勤状态（status=1）
+				if currentStatus == 2 {
+					_, err = tx.Exec(
+						`UPDATE attendances SET status = 1, leave_type = '', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+						attID)
+					if err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // CreateLeaveRecord 登记请假
 // 管理员可为任意人员登记；普通用户只能为自己提交请假
 func CreateLeaveRecord(w http.ResponseWriter, r *http.Request) {
@@ -418,40 +487,114 @@ func CreateLeaveRecord(w http.ResponseWriter, r *http.Request) {
 	if req.Days <= 0 {
 		req.Days = 1
 	}
-	// 补休校验：加班折合的补休天数不足时不允许登记
-	if req.LeaveType == "comp" {
-		remain := getCompRemainDays(req.UserID)
-		if remain < req.Days {
-			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "可补休天数不足"})
-			return
-		}
+
+	// 开启事务：事务内重新聚合核算额度，若不足立即回滚报错，杜绝并发穿透与额度超支
+	tx, err := database.DB.Begin()
+	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "系统繁忙，请稍后再试"})
+		return
 	}
-	// 年休假校验：当年年休假剩余额度不足时不允许登记
-	if req.LeaveType == "annual" {
-		if len(req.StartDate) < 4 {
-			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "开始日期格式错误，无法提取年份"})
-			return
-		}
-		year := req.StartDate[:4]
-		remain, configDays := getAnnualLeaveRemainDays(req.UserID, year, 0)
-		if configDays <= 0 {
-			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": year + "年度尚未配置年休假额度，请联系管理员配置"})
-			return
-		}
+	defer tx.Rollback()
+
+	// 补休校验：在事务内聚合重新计算剩余额度
+	if req.LeaveType == "comp" {
+		remain := getCompRemainDaysTx(tx, req.UserID)
 		if remain < req.Days {
+			tx.Rollback()
 			middleware.JSON(w, http.StatusBadRequest, map[string]string{
-				"error": fmt.Sprintf("%s年度年休假剩余天数不足（剩余 %s 天，申请 %.1f 天）", year, strconv.FormatFloat(remain, 'f', -1, 64), req.Days),
+				"error": fmt.Sprintf("可补休天数不足（剩余 %s 天，申请 %.1f 天）", strconv.FormatFloat(remain, 'f', -1, 64), req.Days),
 			})
 			return
 		}
 	}
-	_, err := database.DB.Exec(
+
+	// 年休假校验：当年年休假剩余额度不足时不允许登记
+	if req.LeaveType == "annual" {
+		if len(req.StartDate) < 4 || len(req.EndDate) < 4 {
+			tx.Rollback()
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "日期格式错误，无法提取年份"})
+			return
+		}
+		startYear := req.StartDate[:4]
+		endYear := req.EndDate[:4]
+		if startYear == endYear {
+			remain, configDays := getAnnualLeaveRemainDaysTx(tx, req.UserID, startYear, 0)
+			if configDays <= 0 {
+				tx.Rollback()
+				middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": startYear + "年度尚未配置年休假额度，请联系管理员配置"})
+				return
+			}
+			if remain < req.Days {
+				tx.Rollback()
+				middleware.JSON(w, http.StatusBadRequest, map[string]string{
+					"error": fmt.Sprintf("%s年度年休假剩余天数不足（剩余 %s 天，申请 %.1f 天）", startYear, strconv.FormatFloat(remain, 'f', -1, 64), req.Days),
+				})
+				return
+			}
+		} else {
+			// 跨年申请：按实际日历天数比例分配扣减天数核算
+			t1, _ := time.Parse("2006-01-02", req.StartDate)
+			t2, _ := time.Parse("2006-01-02", req.EndDate)
+			totalSpan := t2.Sub(t1).Hours()/24 + 1
+			if totalSpan < 1 {
+				totalSpan = 1
+			}
+			endOfStartYear, _ := time.Parse("2006-01-02", startYear+"-12-31")
+			span1 := endOfStartYear.Sub(t1).Hours()/24 + 1
+			need1 := math.Round((req.Days*span1/totalSpan)*100) / 100
+			need2 := math.Round((req.Days-need1)*100) / 100
+
+			remain1, config1 := getAnnualLeaveRemainDaysTx(tx, req.UserID, startYear, 0)
+			if config1 <= 0 {
+				tx.Rollback()
+				middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": startYear + "年度尚未配置年休假额度，请联系管理员配置"})
+				return
+			}
+			if remain1 < need1 {
+				tx.Rollback()
+				middleware.JSON(w, http.StatusBadRequest, map[string]string{
+					"error": fmt.Sprintf("%s年度年休假剩余天数不足（剩余 %s 天，跨年申请需扣减 %s 天）", startYear, strconv.FormatFloat(remain1, 'f', -1, 64), strconv.FormatFloat(need1, 'f', -1, 64)),
+				})
+				return
+			}
+
+			remain2, config2 := getAnnualLeaveRemainDaysTx(tx, req.UserID, endYear, 0)
+			if config2 <= 0 {
+				tx.Rollback()
+				middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": endYear + "年度尚未配置年休假额度，请联系管理员配置"})
+				return
+			}
+			if remain2 < need2 {
+				tx.Rollback()
+				middleware.JSON(w, http.StatusBadRequest, map[string]string{
+					"error": fmt.Sprintf("%s年度年休假剩余天数不足（剩余 %s 天，跨年申请需扣减 %s 天）", endYear, strconv.FormatFloat(remain2, 'f', -1, 64), strconv.FormatFloat(need2, 'f', -1, 64)),
+				})
+				return
+			}
+		}
+	}
+
+	_, err = tx.Exec(
 		`INSERT INTO leave_records (user_id, leave_type, start_date, end_date, days, leave_hours, reason, status) VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
 		req.UserID, req.LeaveType, req.StartDate, req.EndDate, req.Days, req.LeaveHours, req.Reason)
 	if err != nil {
+		tx.Rollback()
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "登记失败"})
 		return
 	}
+
+	// 同步级联更新覆盖时间段内 attendances 表的记录（标记为请假）
+	if err := syncAttendanceForDateRangeTx(tx, req.UserID, req.StartDate, req.EndDate); err != nil {
+		tx.Rollback()
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "同步考勤状态失败"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "提交事务失败"})
+		return
+	}
+
 	var personName string
 	database.DB.QueryRow("SELECT real_name FROM users WHERE id=?", req.UserID).Scan(&personName)
 	logOperation(r, "请假管理", "新增", "登记请假："+personName+" "+leaveTypeLabel(req.LeaveType)+"（"+req.StartDate+" 至 "+req.EndDate+"）")
@@ -612,14 +755,31 @@ func UpdateLeaveRecord(w http.ResponseWriter, r *http.Request) {
 	if req.Days <= 0 {
 		req.Days = 1
 	}
+	// 查出修改前的旧记录信息，用于级联回溯更新原日期的考勤点到
+	var oldUserID int64
+	var oldStartDate, oldEndDate, oldLeaveType string
+	err := database.DB.QueryRow("SELECT user_id, start_date, end_date, leave_type FROM leave_records WHERE id = ?", req.ID).
+		Scan(&oldUserID, &oldStartDate, &oldEndDate, &oldLeaveType)
+	if err != nil {
+		middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "请假记录不存在"})
+		return
+	}
+
+	tx, err := database.DB.Begin()
+	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "系统繁忙，请稍后再试"})
+		return
+	}
+
 	// 补休校验：改为补休类型时校验余额（排除本记录自身已占用的天数）
 	if req.LeaveType == "comp" {
-		remain := getCompRemainDays(req.UserID)
+		remain := getCompRemainDaysTx(tx, req.UserID)
 		var selfDays float64
-		database.DB.QueryRow(
+		tx.QueryRow(
 			`SELECT COALESCE(MIN(days, CAST(julianday(end_date)-julianday(start_date)+1 AS INTEGER)),0)
 			 FROM leave_records WHERE id=? AND leave_type='comp' AND user_id=?`, req.ID, req.UserID).Scan(&selfDays)
 		if remain+selfDays < req.Days {
+			tx.Rollback()
 			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "可补休天数不足"})
 			return
 		}
@@ -627,29 +787,51 @@ func UpdateLeaveRecord(w http.ResponseWriter, r *http.Request) {
 	// 年休假校验：修改为年休假或调整天数时校验当年额度（排除本记录自身已占用的天数）
 	if req.LeaveType == "annual" {
 		if len(req.StartDate) < 4 {
+			tx.Rollback()
 			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "开始日期格式错误，无法提取年份"})
 			return
 		}
 		year := req.StartDate[:4]
-		remain, configDays := getAnnualLeaveRemainDays(req.UserID, year, req.ID)
+		remain, configDays := getAnnualLeaveRemainDaysTx(tx, req.UserID, year, req.ID)
 		if configDays <= 0 {
+			tx.Rollback()
 			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": year + "年度尚未配置年休假额度，请联系管理员配置"})
 			return
 		}
 		if remain < req.Days {
+			tx.Rollback()
 			middleware.JSON(w, http.StatusBadRequest, map[string]string{
 				"error": fmt.Sprintf("%s年度年休假剩余天数不足（剩余 %s 天，申请 %.1f 天）", year, strconv.FormatFloat(remain, 'f', -1, 64), req.Days),
 			})
 			return
 		}
 	}
-	_, err := database.DB.Exec(
+	_, err = tx.Exec(
 		`UPDATE leave_records SET user_id=?, leave_type=?, start_date=?, end_date=?, days=?, leave_hours=?, reason=? WHERE id=?`,
 		req.UserID, req.LeaveType, req.StartDate, req.EndDate, req.Days, req.LeaveHours, req.Reason, req.ID)
 	if err != nil {
+		tx.Rollback()
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "修改失败"})
 		return
 	}
+
+	// 级联回溯更新受影响日期的考勤点到记录（旧区间恢复/重新计算，新区间标记请假）
+	if err := syncAttendanceForDateRangeTx(tx, oldUserID, oldStartDate, oldEndDate); err != nil {
+		tx.Rollback()
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "同步考勤记录失败"})
+		return
+	}
+	if err := syncAttendanceForDateRangeTx(tx, req.UserID, req.StartDate, req.EndDate); err != nil {
+		tx.Rollback()
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "同步考勤记录失败"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "提交事务失败"})
+		return
+	}
+
 	var personName string
 	database.DB.QueryRow("SELECT real_name FROM users WHERE id=?", req.UserID).Scan(&personName)
 	logOperation(r, "请假管理", "修改", "修改请假记录："+personName+" "+leaveTypeLabel(req.LeaveType)+"（"+req.StartDate+" 至 "+req.EndDate+"）")
@@ -663,15 +845,57 @@ func DeleteLeaveRecord(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
 		return
 	}
+
+	userID, _ := r.Context().Value(middleware.ContextUserID).(int64)
+	roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
+
+	var ownerID int64
 	var personName, ltype, sdate, edate string
-	database.DB.QueryRow(
-		`SELECT u.real_name, l.leave_type, l.start_date, l.end_date FROM leave_records l LEFT JOIN users u ON l.user_id=u.id WHERE l.id=?`, id).
-		Scan(&personName, &ltype, &sdate, &edate)
-	_, err := database.DB.Exec("DELETE FROM leave_records WHERE id=?", id)
+	err := database.DB.QueryRow(
+		`SELECT l.user_id, u.real_name, l.leave_type, l.start_date, l.end_date 
+		 FROM leave_records l 
+		 LEFT JOIN users u ON l.user_id=u.id 
+		 WHERE l.id=?`, id).
+		Scan(&ownerID, &personName, &ltype, &sdate, &edate)
+	if err == sql.ErrNoRows {
+		middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "请假记录不存在"})
+		return
+	} else if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
+	// 权限与归属校验：非 admin 用户必须校验记录所有者为当前登录用户（ownerID == userID）
+	if roleCode != "admin" && ownerID != userID {
+		middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "无权删除他人的请假记录"})
+		return
+	}
+
+	tx, err := database.DB.Begin()
 	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "系统繁忙，请稍后再试"})
+		return
+	}
+
+	_, err = tx.Exec("DELETE FROM leave_records WHERE id=?", id)
+	if err != nil {
+		tx.Rollback()
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
 		return
 	}
+
+	// 撤销请假后回溯更新覆盖时间段内的点到记录（若无其它有效请假则恢复正常出勤，防止误记旷工）
+	if err := syncAttendanceForDateRangeTx(tx, ownerID, sdate, edate); err != nil {
+		tx.Rollback()
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "回溯考勤记录失败"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "提交事务失败"})
+		return
+	}
+
 	logOperation(r, "请假管理", "删除", "删除请假记录："+personName+" "+leaveTypeLabel(ltype)+"（"+sdate+" 至 "+edate+"）")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "删除成功"})
 }

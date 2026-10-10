@@ -63,20 +63,48 @@ func main() {
 	os.MkdirAll(cfg.Upload.Dir, 0755)
 
 	// 操作日志：启动清理一次，之后每天清理超过 1 年的记录
-	handlers.CleanupOldLogs()
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[后台任务异常] 初始化清理操作日志发生 panic: %v", r)
+			}
+		}()
+		handlers.CleanupOldLogs()
+	}()
 	go func() {
 		for {
 			time.Sleep(24 * time.Hour)
-			handlers.CleanupOldLogs()
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[后台任务异常] 定时清理操作日志发生 panic: %v", r)
+					}
+				}()
+				handlers.CleanupOldLogs()
+			}()
 		}
 	}()
 
 	// 磁盘孤儿残留文件大扫除：启动扫描清理历史无引用残留文件，之后每天例行清理一次
-	handlers.CleanupOrphanFiles(cfg)
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[后台任务异常] 初始化清理孤儿文件发生 panic: %v", r)
+			}
+		}()
+		handlers.CleanupOrphanFiles(cfg)
+	}()
 	go func() {
 		for {
 			time.Sleep(24 * time.Hour)
-			handlers.CleanupOrphanFiles(cfg)
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[后台任务异常] 定时清理孤儿文件发生 panic: %v", r)
+					}
+				}()
+				handlers.CleanupOrphanFiles(cfg)
+			}()
 		}
 	}()
 

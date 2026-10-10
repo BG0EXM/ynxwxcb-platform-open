@@ -61,12 +61,9 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("POST /api/users/reset-password", perm("user.manage", handlers.ResetPassword))
 	mux.Handle("GET /api/users/{id}/attendance-profile", perm("attendance.view", handlers.GetUserAttendanceProfile))
 	mux.Handle("GET /api/operation-logs", perm("oplog.view", handlers.ListOperationLogs))
+	mux.Handle("POST /api/operation-logs/clear", perm("user.manage", handlers.ClearOperationLogs))
 	mux.Handle("GET /api/permissions", perm("user.manage", handlers.GetPermissionMatrix))
 	mux.Handle("PUT /api/permissions", perm("user.manage", handlers.SavePermissionMatrix))
-	// 数据库备份与管理（仅超级管理员）
-	mux.Handle("GET /api/system/backups", perm("user.manage", handlers.ListBackups(cfg)))
-	mux.Handle("POST /api/system/backups", perm("user.manage", handlers.CreateBackup(cfg)))
-	mux.Handle("GET /api/system/backups/download", perm("user.manage", handlers.DownloadBackup(cfg)))
 	// 下拉数据：登录即可
 	mux.Handle("GET /api/roles", authOnly(handlers.ListRoles))
 	mux.Handle("GET /api/departments", authOnly(handlers.ListDepartments))
@@ -243,8 +240,8 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("GET /api/export/major-events", perm("event.export", handlers.ExportMajorEvents))
 	mux.Handle("GET /api/export/weekly-summaries", perm("weekly.export", handlers.ExportWeeklySummaries))
 
-	// 上传文件安全直读服务（支持回函 PDF、公函照片、各模块附件在新窗口无损预览或下载）
-	mux.Handle("GET /uploads/", uploadFileHandler{uploadDir: cfg.Upload.Dir})
+	// 上传文件受控直读服务（仅已登录认证用户可访问，收敛未鉴权下载漏洞）
+	mux.Handle("GET /uploads/", authOnly(uploadFileHandler{uploadDir: cfg.Upload.Dir}.ServeHTTP))
 
 	// 静态文件服务（前端构建产物）+ SPA 回退
 	staticDir := "static"
@@ -265,6 +262,15 @@ func (h uploadFileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(cleanRel, "..") || strings.HasPrefix(cleanRel, "/") {
 		http.NotFound(w, r)
 		return
+	}
+
+	roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
+	// 敏感业务子目录防护：如 solicits 目录包含各单位内部红头盖章公函，需管理员或征求意见管理权限
+	if strings.HasPrefix(cleanRel, "solicits/") || strings.HasPrefix(cleanRel, "solicits"+string(filepath.Separator)) {
+		if roleCode != "admin" && !middleware.HasPermission(roleCode, "solicit.manage") {
+			middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "无权访问此敏感公函附件"})
+			return
+		}
 	}
 
 	fullPath := filepath.Join(h.uploadDir, cleanRel)

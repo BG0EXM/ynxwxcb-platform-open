@@ -175,13 +175,6 @@ var systemNavMenus = []navMenuItem{
 		Keywords: []string{"操作日志", "日志", "审计", "记录", "logs", "rizhi"},
 	},
 	{
-		Title:    "数据备份",
-		Path:     "/backups",
-		Icon:     "Coin",
-		Category: "系统管理",
-		Keywords: []string{"备份", "数据备份", "数据库备份", "还原", "backups", "beifen"},
-	},
-	{
 		Title:    "个人中心",
 		Path:     "/profile",
 		Icon:     "Setting",
@@ -257,7 +250,6 @@ func GlobalSearch(w http.ResponseWriter, r *http.Request) {
 		ORDER BY c.sort ASC, c.id ASC
 		LIMIT ?`
 	if rows, err := database.DB.Query(contactQuery, kw, kw, kw, limitPerCategory); err == nil {
-		defer rows.Close()
 		for rows.Next() {
 			var id int64
 			var name, position, dept, phone string
@@ -289,6 +281,7 @@ func GlobalSearch(w http.ResponseWriter, r *http.Request) {
 				})
 			}
 		}
+		rows.Close()
 	}
 
 	// 3. 收文公文（incoming_docs 表）：匹配 doc_no, title, source_unit (from_unit)
@@ -298,7 +291,6 @@ func GlobalSearch(w http.ResponseWriter, r *http.Request) {
 		ORDER BY id DESC
 		LIMIT ?`
 	if rows, err := database.DB.Query(incomingQuery, kw, kw, kw, kw, kw, limitPerCategory); err == nil {
-		defer rows.Close()
 		for rows.Next() {
 			var id int64
 			var docNo, title, fromUnit string
@@ -321,6 +313,7 @@ func GlobalSearch(w http.ResponseWriter, r *http.Request) {
 				})
 			}
 		}
+		rows.Close()
 	}
 
 	// 4. 公共资料（study_materials 表）：匹配 title, category
@@ -330,7 +323,6 @@ func GlobalSearch(w http.ResponseWriter, r *http.Request) {
 		ORDER BY id DESC
 		LIMIT ?`
 	if rows, err := database.DB.Query(studyQuery, kw, kw, limitPerCategory); err == nil {
-		defer rows.Close()
 		for rows.Next() {
 			var id int64
 			var title, category string
@@ -348,6 +340,7 @@ func GlobalSearch(w http.ResponseWriter, r *http.Request) {
 				})
 			}
 		}
+		rows.Close()
 	}
 
 	// 5. 重要会议（meetings 表）：匹配 title, location
@@ -357,7 +350,6 @@ func GlobalSearch(w http.ResponseWriter, r *http.Request) {
 		ORDER BY meeting_date DESC, id DESC
 		LIMIT ?`
 	if rows, err := database.DB.Query(meetingQuery, kw, kw, limitPerCategory); err == nil {
-		defer rows.Close()
 		for rows.Next() {
 			var id int64
 			var title, mDate, mTime, location string
@@ -385,6 +377,7 @@ func GlobalSearch(w http.ResponseWriter, r *http.Request) {
 				})
 			}
 		}
+		rows.Close()
 	}
 
 	// 合并为全部结果列表

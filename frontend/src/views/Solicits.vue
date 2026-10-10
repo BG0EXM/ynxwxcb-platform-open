@@ -70,11 +70,11 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="240" fixed="right" align="right">
+        <el-table-column label="操作" width="260" fixed="right" align="right">
           <template #default="{ row }">
             <div class="row-action-wrap">
               <el-button link type="primary" @click="openDetail(row)">反馈台账</el-button>
-              <el-button link type="primary" @click="copyLink(row)">复制链接</el-button>
+              <el-button link type="primary" @click="notifySolicit(row)">一键通知</el-button>
 
               <el-dropdown @command="(cmd) => handleRowCommand(cmd, row)" trigger="click">
                 <el-button link type="primary" class="more-link">
@@ -83,6 +83,7 @@
                 </el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
+                    <el-dropdown-item command="copy_url" icon="Link">复制纯链接</el-dropdown-item>
                     <el-dropdown-item command="export" icon="Download">导出汇总表 (Excel)</el-dropdown-item>
                     <el-dropdown-item command="zip" icon="FolderChecked">打包下载回函 (ZIP)</el-dropdown-item>
                     <el-dropdown-item command="edit" icon="Edit" divided>编辑任务</el-dropdown-item>
@@ -178,16 +179,11 @@
               <el-upload
                 v-else
                 class="upload-box"
-                action="/api/uploads"
-                :headers="uploadHeaders"
-                :data="{ owner_type: 'solicit' }"
+                :http-request="uploadPdfFile"
                 :show-file-list="false"
-                :before-upload="beforeUploadPdf"
-                :on-success="handleUploadPdfSuccess"
-                :on-error="handleUploadError"
                 accept=".pdf"
               >
-                <el-button type="primary" plain :icon="'Upload'">上传 PDF 格式正文文件</el-button>
+                <el-button type="primary" plain :icon="'Upload'" :loading="uploadPdfLoading">上传 PDF 格式正文文件</el-button>
                 <div class="upload-tip">必填，支持各单位在线阅读查看，限 20MB 以内</div>
               </el-upload>
             </div>
@@ -203,16 +199,11 @@
               <el-upload
                 v-else
                 class="upload-box"
-                action="/api/uploads"
-                :headers="uploadHeaders"
-                :data="{ owner_type: 'solicit' }"
+                :http-request="uploadWordFile"
                 :show-file-list="false"
-                :before-upload="beforeUploadWord"
-                :on-success="handleUploadWordSuccess"
-                :on-error="handleUploadError"
                 accept=".doc,.docx"
               >
-                <el-button plain :icon="'Document'">上传 Word 稿件（选填）</el-button>
+                <el-button plain :icon="'Document'" :loading="uploadWordLoading">上传 Word 稿件（选填）</el-button>
                 <div class="upload-tip">选填，便于各单位下载并在本地标红修改后回传</div>
               </el-upload>
             </div>
@@ -391,7 +382,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import request, { exportFile } from '../utils/request'
+import request, { exportFile, downloadFile } from '../utils/request'
 import dayjs from 'dayjs'
 import PageHeader from '../components/PageHeader.vue'
 import EmptyState from '../components/EmptyState.vue'
@@ -486,6 +477,9 @@ const openCreate = () => {
   dialogVisible.value = true
 }
 
+const uploadPdfLoading = ref(false)
+const uploadWordLoading = ref(false)
+
 const beforeUploadPdf = (file) => {
   if (!validateUploadFileSecrecy(file, { isPublic: false })) {
     return false
@@ -503,10 +497,28 @@ const beforeUploadPdf = (file) => {
   return true
 }
 
-const handleUploadPdfSuccess = (res) => {
-  form.value.pdf_path = res.file_path
-  form.value.pdf_name = res.file_name
-  ElMessage.success('PDF 正文上传成功')
+const uploadPdfFile = async (options) => {
+  const file = options.file
+  if (!beforeUploadPdf(file)) return
+  uploadPdfLoading.value = true
+  const fd = new FormData()
+  fd.append('file', file)
+  fd.append('owner_type', 'solicit')
+  try {
+    const res = await request.post('/uploads', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+    form.value.pdf_path = res.file_path || res.url
+    form.value.pdf_name = res.file_name || file.name
+    ElMessage.success('PDF 正文上传成功')
+  } catch (err) {
+    if (!handleSecrecyUploadError(err, file, { isPublic: false })) {
+      const errMsg = err.response?.data?.error || err.message || '上传失败，请检查文件大小或网络'
+      ElMessage.error(errMsg)
+    }
+  } finally {
+    uploadPdfLoading.value = false
+  }
 }
 
 const beforeUploadWord = (file) => {
@@ -521,15 +533,28 @@ const beforeUploadWord = (file) => {
   return true
 }
 
-const handleUploadWordSuccess = (res) => {
-  form.value.word_path = res.file_path
-  form.value.word_name = res.file_name
-  ElMessage.success('Word 稿件上传成功')
-}
-
-const handleUploadError = (err, file) => {
-  if (handleSecrecyUploadError(err, file, { isPublic: false })) return
-  ElMessage.error('上传失败，请检查文件大小或网络')
+const uploadWordFile = async (options) => {
+  const file = options.file
+  if (!beforeUploadWord(file)) return
+  uploadWordLoading.value = true
+  const fd = new FormData()
+  fd.append('file', file)
+  fd.append('owner_type', 'solicit')
+  try {
+    const res = await request.post('/uploads', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+    form.value.word_path = res.file_path || res.url
+    form.value.word_name = res.file_name || file.name
+    ElMessage.success('Word 稿件上传成功')
+  } catch (err) {
+    if (!handleSecrecyUploadError(err, file, { isPublic: false })) {
+      const errMsg = err.response?.data?.error || err.message || '上传失败，请检查文件大小或网络'
+      ElMessage.error(errMsg)
+    }
+  } finally {
+    uploadWordLoading.value = false
+  }
 }
 
 const removePdf = () => {
@@ -561,9 +586,9 @@ const presets = {
     '县委办', '人大办', '政府办', '政协办', '纪委监委', '组织部',
     '社会工作部', '宣传部', '统战部', '政法委', '巡察办', '公安局',
     '法院', '检察院', '司法局', '网信办', '应急管理局', '信访局',
-    '退役军人事务局', '财政局', '交通局', '党研室', '编  办', '党  校',
-    '机关工委', '民政局', '人社局', '工商联', '团  委', '妇  联',
-    '总工会', '红十字会', '老干局', '残  联', '科  协', '发改委',
+    '退役军人事务局', '财政局', '交通局', '党研室', '编办', '党校',
+    '机关工委', '民政局', '人社局', '工商联', '团委', '妇联',
+    '总工会', '红十字会', '老干局', '残联', '科协', '发改委',
     '商工信局', '住建局', '审计局', '统计局', '供销社', '环保局',
     '税务局', '自然资源局', '伊东工业园区', '市场监督管理局', '农业农村局', '林草局',
     '水利局', '教育局', '卫健委', '融媒体中心', '文旅局', '医保局',
@@ -626,18 +651,47 @@ const openDetail = async (row) => {
   }
 }
 
+// 一键通知：生成微信工作群规范公文征求意见格式（去掉“场”字与无用落款）
+const notifySolicit = (row) => {
+  const url = `${window.location.origin}/solicit/${row.id}`
+  const docNoText = row.doc_no ? `（${row.doc_no}）` : ''
+  const deadlineText = row.deadline ? `【反馈截止时间】${row.deadline}\n` : ''
+
+  let text = `【征求意见通知】\n`
+  text += `各乡镇、部门单位：\n`
+  text += `现将《${row.title}》${docNoText}征求意见稿下发给各单位。请各单位认真组织研究，抓好贯彻落实。\n\n`
+  if (row.content) {
+    text += `【工作要求】${row.content}\n`
+  }
+  if (deadlineText) {
+    text += `${deadlineText}`
+  }
+  text += `【反馈方式】请各单位主要领导审签并加盖公章后，将回函文件扫描件或照片通过下方专属链接上传反馈：\n`
+  text += `${url}\n`
+
+  navigator.clipboard.writeText(text).then(() => {
+    ElMessage.success('已复制征求意见通知文案，可直接发送微信工作群')
+  }).catch(() => {
+    ElMessage.info(`通知文案已生成：\n${text}`)
+  })
+}
+
 const copyLink = (row) => {
   const url = `${window.location.origin}/solicit/${row.id}`
   navigator.clipboard.writeText(url)
-    .then(() => ElMessage.success('公开征求意见填报链接已复制到剪贴板'))
-    .catch(() => ElMessage.error('复制失败，请手动复制：' + url))
+    .then(() => ElMessage.success('征求意见纯链接已复制到剪贴板'))
+    .catch(() => {
+      ElMessage.info(`反馈链接：${url}`)
+    })
 }
 
 const handleRowCommand = async (cmd, row) => {
-  if (cmd === 'export') {
-    exportFile(`/export/solicits/${row.id}/feedbacks`, `征求意见反馈汇总-${row.title}.xlsx`)
+  if (cmd === 'copy_url') {
+    copyLink(row)
+  } else if (cmd === 'export') {
+    exportFile(`/export/solicits/${row.id}/feedbacks`, {}, `征求意见反馈汇总-${row.title}.xlsx`)
   } else if (cmd === 'zip') {
-    exportFile(`/solicits/${row.id}/download-replies`, `各单位盖章回函汇总-${row.title}.zip`)
+    downloadFile(`/solicits/${row.id}/download-replies`, `各单位盖章回函汇总-${row.title}.zip`)
   } else if (cmd === 'edit') {
     editId.value = row.id
     form.value = {
@@ -711,12 +765,12 @@ const copyUrgeList = () => {
 
 const exportFeedbacks = () => {
   if (!detailSolicit.value) return
-  exportFile(`/export/solicits/${detailSolicit.value.id}/feedbacks`, `征求意见反馈汇总-${detailSolicit.value.title}.xlsx`)
+  exportFile(`/export/solicits/${detailSolicit.value.id}/feedbacks`, {}, `征求意见反馈汇总-${detailSolicit.value.title}.xlsx`)
 }
 
 const downloadZip = () => {
   if (!detailSolicit.value) return
-  exportFile(`/solicits/${detailSolicit.value.id}/download-replies`, `各单位盖章回函汇总-${detailSolicit.value.title}.zip`)
+  downloadFile(`/solicits/${detailSolicit.value.id}/download-replies`, `各单位盖章回函汇总-${detailSolicit.value.title}.zip`)
 }
 
 const handlePageChange = (p) => {
@@ -819,6 +873,8 @@ onMounted(() => {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .more-link {

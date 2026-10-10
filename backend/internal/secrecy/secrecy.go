@@ -6,6 +6,7 @@ import (
 	"compress/zlib"
 	"fmt"
 	"io"
+	"log"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -213,7 +214,7 @@ func checkDocx(data []byte) ViolationResult {
 			if err != nil {
 				continue
 			}
-			content, _ := io.ReadAll(rc)
+			content, _ := io.ReadAll(io.LimitReader(rc, 20<<20))
 			rc.Close()
 
 			// 清洗 XML 标签，提取出纯文本
@@ -263,7 +264,7 @@ func checkXlsx(data []byte) ViolationResult {
 			if err != nil {
 				continue
 			}
-			content, _ := io.ReadAll(rc)
+			content, _ := io.ReadAll(io.LimitReader(rc, 20<<20))
 			rc.Close()
 			plain := xmlTagRegex.ReplaceAllString(string(content), " ")
 			sb.WriteString(plain)
@@ -290,7 +291,14 @@ func checkPdf(data []byte) ViolationResult {
 }
 
 // extractPdfWithHighLevelReader 使用 PDF 阅读器提取正文
-func extractPdfWithHighLevelReader(data []byte) ViolationResult {
+func extractPdfWithHighLevelReader(data []byte) (res ViolationResult) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[Secrecy] PDF解析异常捕获: %v", r)
+			res = ViolationResult{Violated: false}
+		}
+	}()
+
 	r, err := pdf.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return ViolationResult{Violated: false}
@@ -301,11 +309,11 @@ func extractPdfWithHighLevelReader(data []byte) ViolationResult {
 		return ViolationResult{Violated: false}
 	}
 
-	extracted, err := io.ReadAll(plainReader)
+	extracted, err := io.ReadAll(io.LimitReader(plainReader, 20<<20))
 	if err == nil && len(extracted) > 0 {
 		text := string(extracted)
-		if res := matchTextRules(text, "PDF提取文本内容"); res.Violated {
-			return res
+		if v := matchTextRules(text, "PDF提取文本内容"); v.Violated {
+			return v
 		}
 	}
 	return ViolationResult{Violated: false}
@@ -318,20 +326,32 @@ func scanPdfStreams(data []byte) ViolationResult {
 		return ViolationResult{Violated: false}
 	}
 
+	// 限制最多审查前 25 个 stream，防止几百页大文件耗尽资源
+	if len(matches) > 25 {
+		matches = matches[:25]
+	}
+
 	// 收集并解析 ToUnicode CMap
 	cmap := make(map[string]rune)
 	var decompressedStreams [][]byte
 
 	for _, m := range matches {
 		streamBytes := m[1]
-		// 尝试 zlib 解压
+		// 如果单个原始 stream 大于 1MB，通常是内嵌高清图像或字体，跳过解压
+		if len(streamBytes) > 1<<20 {
+			continue
+		}
+		// 尝试 zlib 解压（限制最多读取 256KB，足够获取文本/CMap）
 		zr, err := zlib.NewReader(bytes.NewReader(streamBytes))
 		var decomp []byte
 		if err == nil {
-			decomp, _ = io.ReadAll(zr)
+			lr := io.LimitReader(zr, 256<<10)
+			decomp, _ = io.ReadAll(lr)
 			zr.Close()
 		} else {
-			decomp = streamBytes
+			if len(streamBytes) <= 256<<10 {
+				decomp = streamBytes
+			}
 		}
 
 		if len(decomp) > 0 {
@@ -351,11 +371,13 @@ func scanPdfStreams(data []byte) ViolationResult {
 		sb.WriteString(strUTF8)
 		sb.WriteString("\n")
 
-		// GBK 解码尝试
-		gbkReader := simplifiedchinese.GBK.NewDecoder().Reader(bytes.NewReader(decomp))
-		if gbkBytes, err := io.ReadAll(gbkReader); err == nil {
-			sb.WriteString(string(gbkBytes))
-			sb.WriteString("\n")
+		// 仅对包含可能中文或文本操作符的流执行 GBK 解码尝试，跳过纯二进制乱码
+		if bytes.Contains(decomp, []byte("BT")) || bytes.Contains(decomp, []byte("ET")) || bytes.Contains(decomp, []byte("Tj")) || bytes.Contains(decomp, []byte("TJ")) {
+			gbkReader := simplifiedchinese.GBK.NewDecoder().Reader(bytes.NewReader(decomp))
+			if gbkBytes, err := io.ReadAll(gbkReader); err == nil {
+				sb.WriteString(string(gbkBytes))
+				sb.WriteString("\n")
+			}
 		}
 
 		// 2. 检查 UTF-16BE / UTF-16LE 字节
@@ -424,10 +446,23 @@ func matchTextRules(text, source string) ViolationResult {
 		return ViolationResult{Violated: false}
 	}
 
-	// 去除多余空白和换行以防通过空格隐藏
-	cleanText := strings.ReplaceAll(text, "\t", "")
-	cleanText = strings.ReplaceAll(cleanText, "\r", "")
-	compactText := strings.ReplaceAll(cleanText, " ", "")
+	// 深度规整清洗：过滤制表符、回车换行、半角/全角空格以及各类隐蔽零宽字符，防止分词绕过检测
+	replacer := strings.NewReplacer(
+		"\t", "",
+		"\r", "",
+		"\n", "",
+		" ", "",
+		"\u3000", "", // 全角空格
+		"\u00A0", "", // 不间断空格
+		"\u200B", "", // 零宽空格
+		"\u200C", "", // 零宽非连字符
+		"\u200D", "", // 零宽连字符
+		"\uFEFF", "", // 零宽非换行空格 / BOM
+		"\u200E", "", // 左至右符号
+		"\u200F", "", // 右至左符号
+		"\u2060", "", // 词连接符
+	)
+	compactText := replacer.Replace(text)
 
 	for _, rule := range allRules {
 		// 1. 正则优先匹配（如 "秘密★5年"、"绝密★长期"）

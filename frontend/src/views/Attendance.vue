@@ -16,7 +16,7 @@
         <div class="card-header">
           <span class="card-title">晨会点到</span>
           <div class="header-right">
-            <el-date-picker v-model="markDate" type="date" value-format="YYYY-MM-DD" placeholder="选择点到日期" style="width:160px" @change="loadMarkUsers" :cell-class-name="dateCellClass" />
+            <el-date-picker v-model="markDate" type="date" value-format="YYYY-MM-DD" placeholder="选择点到日期" style="width:160px" @change="loadMarkUsers" :cell-class-name="dateCellClass" popper-class="attendance-date-popper" />
             <el-button type="primary" :icon="'CircleCheck'" @click="markAllPresent" class="ml-8">全部出勤</el-button>
             <el-tag v-if="saved" type="success" class="ml-8">当日已点到</el-tag>
           </div>
@@ -139,7 +139,7 @@
             <div class="card-header">
               <span class="card-title">考勤记录</span>
               <div class="header-right">
-                <el-date-picker v-model="queryDate" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" style="width:160px" @change="reloadFirstPage" :cell-class-name="dateCellClass" />
+                <el-date-picker v-model="queryDate" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" style="width:160px" @change="reloadFirstPage" :cell-class-name="dateCellClass" popper-class="attendance-date-popper" />
                 <el-select v-if="authStore.isAdmin" v-model="userFilter" placeholder="全部人员" clearable style="width:140px" class="ml-8" @change="reloadFirstPage">
                   <el-option v-for="a in assignees" :key="a.id" :label="a.real_name" :value="a.id" />
                 </el-select>
@@ -528,20 +528,20 @@ onMounted(() => {
 }
 </style>
 
-<!-- 全局样式：日历面板渲染在 popper 中，scoped 样式无法穿透 -->
+<!-- 全局样式：日历面板渲染在 popper 中，scoped 样式无法穿透，限定在 .attendance-date-popper 下避免全局污染 -->
 <style>
-.el-date-table td.att-done {
+.attendance-date-popper .el-date-table td.att-done {
   background-color: var(--el-color-success) !important;
   border-radius: 50%;
 }
-.el-date-table td.att-done .el-date-table-cell__text {
+.attendance-date-popper .el-date-table td.att-done .el-date-table-cell__text {
   color: #fff !important;
 }
-.el-date-table td.att-missing {
+.attendance-date-popper .el-date-table td.att-missing {
   background-color: var(--el-color-danger) !important;
   border-radius: 50%;
 }
-.el-date-table td.att-missing .el-date-table-cell__text {
+.attendance-date-popper .el-date-table td.att-missing .el-date-table-cell__text {
   color: #fff !important;
 }
 </style>

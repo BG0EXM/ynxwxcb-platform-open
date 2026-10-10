@@ -216,7 +216,7 @@ func runTesseractOnFile(filePath string) (string, error) {
 	var psm3Text, psm11Text string
 
 	// 方案1：标准自动页面分割模式 (--psm 3)
-	ctx1, cancel1 := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx1, cancel1 := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel1()
 
 	args := []string{filePath, "stdout"}
@@ -240,27 +240,29 @@ func runTesseractOnFile(filePath string) (string, error) {
 		log.Printf("[OCR] Tesseract(psm 3) 执行异常: %v, 输出: %s", err, string(out))
 	}
 
-	// 方案2：稀疏模式 (--psm 11)，对公文红头角落密级/印章特别有效
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel2()
+	// 方案2：稀疏模式 (--psm 11)，仅当 psm 3 为空时作为后备重试
+	if psm3Text == "" {
+		ctx2, cancel2 := context.WithTimeout(context.Background(), 4*time.Second)
+		defer cancel2()
 
-	argsSparse := []string{filePath, "stdout"}
-	if tessDataDir != "" {
-		argsSparse = append(argsSparse, "--tessdata-dir", tessDataDir)
-	}
-	if langArg != "" {
-		argsSparse = append(argsSparse, "-l", langArg)
-	}
-	argsSparse = append(argsSparse, "--psm", "11")
+		argsSparse := []string{filePath, "stdout"}
+		if tessDataDir != "" {
+			argsSparse = append(argsSparse, "--tessdata-dir", tessDataDir)
+		}
+		if langArg != "" {
+			argsSparse = append(argsSparse, "-l", langArg)
+		}
+		argsSparse = append(argsSparse, "--psm", "11")
 
-	cmdSparse := exec.CommandContext(ctx2, tessBinPath, argsSparse...)
-	if tessDataDir != "" {
-		cmdSparse.Env = append(os.Environ(), "TESSDATA_PREFIX="+tessDataDir)
-	}
+		cmdSparse := exec.CommandContext(ctx2, tessBinPath, argsSparse...)
+		if tessDataDir != "" {
+			cmdSparse.Env = append(os.Environ(), "TESSDATA_PREFIX="+tessDataDir)
+		}
 
-	outSparse, errSparse := cmdSparse.CombinedOutput()
-	if errSparse == nil {
-		psm11Text = strings.TrimSpace(string(outSparse))
+		outSparse, errSparse := cmdSparse.CombinedOutput()
+		if errSparse == nil {
+			psm11Text = strings.TrimSpace(string(outSparse))
+		}
 	}
 
 	// 智能合并识别结果
@@ -571,6 +573,9 @@ func extractImagesFromPdf(data []byte) [][]byte {
 
 	var results [][]byte
 	for _, m := range matches {
+		if len(results) >= 2 {
+			break // 仅审查前 2 张版头/公文核心图片，防止卡死
+		}
 		dict := string(m[1])
 		stream := m[2]
 
@@ -586,20 +591,22 @@ func extractImagesFromPdf(data []byte) [][]byte {
 			// 过滤小图标/微型线条
 			continue
 		}
-
-		// 1. DCTDecode: 标准原生 JPEG 图像（扫描仪、手机拍照公文扫描最常见格式）
+		// 1. DCTDecode: 标准原生 JPEG 图像（扫描仪、手机拍照公文扫描最常见格式，直接复用无额外CPU消耗）
 		if bytes.HasPrefix(stream, []byte("\xFF\xD8\xFF")) || strings.Contains(dict, "DCTDecode") {
 			results = append(results, stream)
 			continue
 		}
 
-		// 2. FlateDecode: 纯像素流（支持 RGB 和 灰度位图）
+		// 2. FlateDecode: 纯像素流（过滤超大像素图，避免纯 Go 像素循环打满 CPU）
 		if strings.Contains(dict, "FlateDecode") {
+			if width > 1800 || height > 1800 {
+				continue
+			}
 			zr, err := zlib.NewReader(bytes.NewReader(stream))
 			if err != nil {
 				continue
 			}
-			raw, _ := io.ReadAll(zr)
+			raw, _ := io.ReadAll(io.LimitReader(zr, 20<<20))
 			zr.Close()
 
 			colorSpace := "DeviceRGB"

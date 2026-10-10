@@ -243,8 +243,7 @@ const menuGroups = computed(() => {
     hp('standing.manage') && { path: '/standing', title: '常委管理', icon: 'UserFilled' },
     hp('user.manage') && { path: '/users', title: '用户管理', icon: 'User' },
     hp('user.manage') && { path: '/permissions', title: '权限管理', icon: 'Lock' },
-    hp('oplog.view') && { path: '/operation-logs', title: '操作日志', icon: 'Files' },
-    hp('user.manage') && { path: '/backups', title: '数据备份', icon: 'Coin' }
+    hp('oplog.view') && { path: '/operation-logs', title: '操作日志', icon: 'Files' }
   ].filter(Boolean)
   if (sys.length) {
     groups.push({ title: '系统管理', icon: 'Setting', items: sys })
@@ -286,6 +285,8 @@ const loadUnread = async () => {
 const refreshUnread = () => {
   loadUnread()
 }
+
+let watermarkObserver = null
 
 const initWatermark = () => {
   const userStr = localStorage.getItem('user')
@@ -345,7 +346,7 @@ const initWatermark = () => {
 
   let watermarkDiv = createDiv()
 
-  const observer = new MutationObserver((mutations) => {
+  watermarkObserver = new MutationObserver((mutations) => {
     let shouldRestore = false
     for (const m of mutations) {
       if (m.type === 'childList') {
@@ -366,15 +367,15 @@ const initWatermark = () => {
       }
     }
     if (shouldRestore) {
-      observer.disconnect()
+      if (watermarkObserver) watermarkObserver.disconnect()
       const oldDiv = document.getElementById('sys-watermark')
       if (oldDiv) oldDiv.remove()
       watermarkDiv = createDiv()
-      observer.observe(document.body, { childList: true, subtree: true, attributes: true })
+      if (watermarkObserver) watermarkObserver.observe(document.body, { childList: true, subtree: true, attributes: true })
     }
   })
   
-  observer.observe(document.body, { childList: true, subtree: true, attributes: true })
+  watermarkObserver.observe(document.body, { childList: true, subtree: true, attributes: true })
 }
 
 onMounted(() => {
@@ -387,6 +388,14 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  if (watermarkObserver) {
+    watermarkObserver.disconnect()
+    watermarkObserver = null
+  }
+  const oldDiv = document.getElementById('sys-watermark')
+  if (oldDiv) {
+    oldDiv.remove()
+  }
   window.removeEventListener('incoming-changed', refreshUnread)
   window.removeEventListener('resize', checkMobile)
 })
@@ -403,6 +412,14 @@ const roleText = computed(() => {
 
 const handleCommand = (cmd) => {
   if (cmd === 'logout') {
+    if (watermarkObserver) {
+      watermarkObserver.disconnect()
+      watermarkObserver = null
+    }
+    const oldDiv = document.getElementById('sys-watermark')
+    if (oldDiv) {
+      oldDiv.remove()
+    }
     authStore.logout()
     ElMessage.success('已安全退出登录')
     router.replace('/login')

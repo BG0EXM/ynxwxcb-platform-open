@@ -17,7 +17,10 @@
             <template #append><el-button :icon="'Search'" @click="reloadFirstPage" /></template>
           </el-input>
         </div>
-        <el-button :icon="'Refresh'" @click="loadData">刷新</el-button>
+        <div class="toolbar-right">
+          <el-button type="danger" plain :icon="'Delete'" @click="handleClearLogs">清空日志</el-button>
+          <el-button :icon="'Refresh'" @click="loadData">刷新</el-button>
+        </div>
       </div>
 
       <el-table :data="list" stripe v-loading="loading" empty-text="暂无操作日志">
@@ -51,6 +54,7 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
+import { ElMessageBox, ElMessage } from 'element-plus'
 import request from '../utils/request'
 
 const modules = [
@@ -101,6 +105,27 @@ const loadData = async () => {
 
 const reloadFirstPage = () => { page.value = 1; loadData() }
 const onPageChange = (p) => { page.value = p; loadData() }
+
+const handleClearLogs = () => {
+  ElMessageBox.confirm(
+    '清空操作日志将永久删除所有历史审计记录，此操作不可撤销，确定清空吗？',
+    '高危安全操作警告',
+    {
+      type: 'warning',
+      confirmButtonText: '确定清空',
+      cancelButtonText: '取消',
+      confirmButtonClass: 'el-button--danger'
+    }
+  ).then(async () => {
+    try {
+      const res = await request.post('/operation-logs/clear')
+      ElMessage.success(res.message || '操作日志已清空')
+      reloadFirstPage()
+    } catch (e) {
+      console.error(e)
+    }
+  }).catch(() => {})
+}
 
 onMounted(loadData)
 </script>

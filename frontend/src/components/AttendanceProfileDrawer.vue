@@ -403,7 +403,7 @@
 
         <div class="print-footer-info">
           <span>单位：中共伊宁县委宣传部办公室</span>
-          <span>系统依据：伊宁县委宣传部部务工作平台V1.7.0</span>
+          <span>系统依据：伊宁县委宣传部部务工作平台V1.7.1</span>
           <span>打印存档专用</span>
         </div>
       </div>
@@ -549,7 +549,186 @@ watch(
 )
 
 const handlePrint = () => {
-  window.print()
+  const printArea = document.getElementById('attendance-profile-print-area')
+  if (!printArea) {
+    ElMessage.warning('打印区域未就绪，请稍后重试')
+    return
+  }
+
+  // 创建隔离的隐藏打印 iframe，彻底避免主页面与 Drawer 样式污染
+  const iframe = document.createElement('iframe')
+  iframe.style.position = 'fixed'
+  iframe.style.right = '0'
+  iframe.style.bottom = '0'
+  iframe.style.width = '0'
+  iframe.style.height = '0'
+  iframe.style.border = '0'
+  document.body.appendChild(iframe)
+
+  const doc = iframe.contentWindow.document
+  const printHtml = `
+    <!DOCTYPE html>
+    <html lang="zh-CN">
+    <head>
+      <meta charset="UTF-8">
+      <title>干部职工年度出勤与休假登记表</title>
+      <style>
+        @page {
+          size: A4 portrait;
+          margin: 15mm 12mm;
+        }
+        * {
+          box-sizing: border-box;
+          margin: 0;
+          padding: 0;
+        }
+        body {
+          font-family: "SimSun", "Songti SC", "STSong", "Microsoft YaHei", serif;
+          color: #000;
+          background: #fff;
+          font-size: 13px;
+          line-height: 1.4;
+          padding: 0;
+        }
+        .attendance-profile-print-sheet {
+          width: 100%;
+          max-width: 100%;
+          margin: 0 auto;
+        }
+        .print-redhead {
+          text-align: center;
+          margin-bottom: 8px;
+        }
+        .redhead-title {
+          font-family: "SimHei", "Heiti SC", "STHeiti", sans-serif;
+          font-size: 26px;
+          font-weight: 700;
+          color: #c00000;
+          letter-spacing: 4px;
+        }
+        .redhead-line {
+          height: 2px;
+          background-color: #c00000;
+          margin-top: 8px;
+        }
+        .print-doc-title {
+          text-align: center;
+          font-size: 20px;
+          font-weight: 700;
+          letter-spacing: 2px;
+          margin: 16px 0 12px;
+          font-family: "SimHei", "Heiti SC", sans-serif;
+        }
+        .print-meta-bar {
+          display: flex;
+          justify-content: space-between;
+          font-size: 12px;
+          color: #222;
+          margin-bottom: 8px;
+          padding: 0 2px;
+        }
+        .print-gov-table {
+          width: 100%;
+          border-collapse: collapse;
+          border: 1.5px solid #000;
+          font-size: 12px;
+        }
+        .print-gov-table th,
+        .print-gov-table td {
+          border: 1px solid #000;
+          padding: 6px 8px;
+          vertical-align: middle;
+        }
+        .print-gov-table th.tbl-head {
+          background: #f7f7f7;
+          font-weight: 600;
+          text-align: center;
+          color: #000;
+          font-family: "SimHei", "Heiti SC", sans-serif;
+        }
+        .nested-mini-table {
+          width: 100%;
+          border-collapse: collapse;
+          text-align: center;
+          font-size: 11px;
+        }
+        .nested-mini-table th,
+        .nested-mini-table td {
+          border: 1px solid #000;
+          padding: 4px 2px;
+        }
+        .nested-mini-table th {
+          background: #fcfcfc;
+          font-weight: 600;
+        }
+        .nested-flow-table {
+          width: 100%;
+          border-collapse: collapse;
+          text-align: center;
+          font-size: 11px;
+        }
+        .nested-flow-table th,
+        .nested-flow-table td {
+          border: 1px solid #000;
+          padding: 4px 4px;
+        }
+        .nested-flow-table th {
+          background: #fcfcfc;
+          font-weight: 600;
+        }
+        .p-0 { padding: 0 !important; }
+        .text-left { text-align: left; }
+        .text-center { text-align: center; }
+        .text-muted { color: #666; }
+        .text-xs { font-size: 11px; }
+        .sign-td {
+          height: 65px;
+          vertical-align: top;
+          position: relative;
+          padding: 6px 8px;
+        }
+        .sign-placeholder {
+          font-size: 12px;
+          color: #000;
+        }
+        .sign-date-placeholder {
+          position: absolute;
+          right: 12px;
+          bottom: 6px;
+          font-size: 11px;
+          color: #333;
+        }
+        .print-footer-info {
+          display: flex;
+          justify-content: space-between;
+          font-size: 11px;
+          color: #555;
+          margin-top: 10px;
+          padding: 0 4px;
+        }
+      </style>
+    </head>
+    <body>
+      ${printArea.outerHTML}
+    </body>
+    </html>
+  `
+  doc.open()
+  doc.write(printHtml)
+  doc.close()
+
+  setTimeout(() => {
+    const win = iframe.contentWindow
+    if (!win) return
+    const cleanup = () => {
+      if (document.body.contains(iframe)) {
+        document.body.removeChild(iframe)
+      }
+    }
+    win.onafterprint = cleanup
+    win.focus()
+    win.print()
+  }, 150)
 }
 </script>
 
@@ -1070,44 +1249,6 @@ const handlePrint = () => {
   }
   .leave-types-grid {
     grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-/* 打印样式适配 */
-@media print {
-  @page {
-    size: A4 portrait;
-    margin: 12mm 10mm;
-  }
-
-  body {
-    background: #ffffff !important;
-  }
-
-  body * {
-    visibility: hidden !important;
-  }
-
-  .attendance-profile-print-sheet,
-  .attendance-profile-print-sheet * {
-    visibility: visible !important;
-  }
-
-  .attendance-profile-print-sheet {
-    position: fixed !important;
-    left: 0 !important;
-    top: 0 !important;
-    width: 100% !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    border: none !important;
-    background: #ffffff !important;
-    z-index: 999999 !important;
-    display: block !important;
-  }
-
-  .no-print {
-    display: none !important;
   }
 }
 </style>

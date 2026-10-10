@@ -540,7 +540,7 @@ export function generateDutyPosterCanvas(weekDaysWithData, meta = {}) {
   ctx.fillStyle = '#64748b'
   ctx.textAlign = 'left'
   ctx.textBaseline = 'middle'
-  ctx.fillText('中共伊宁县委宣传部办公室印发 · 部务协同工作平台', cardX + 26, curY)
+  ctx.fillText('伊宁县委宣传部部务工作平台', cardX + 26, curY)
 
   // 右侧制表时间
   ctx.textAlign = 'right'

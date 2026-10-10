@@ -174,16 +174,11 @@
               <el-upload
                 v-else
                 class="upload-box"
-                action="/api/uploads"
-                :headers="uploadHeaders"
-                :data="{ owner_type: 'dispatch' }"
+                :http-request="uploadPdfFile"
                 :show-file-list="false"
-                :before-upload="beforeUploadPdf"
-                :on-success="handleUploadPdfSuccess"
-                :on-error="handleUploadError"
                 accept=".pdf"
               >
-                <el-button type="primary" plain :icon="'Upload'">上传 PDF 格式正文文件</el-button>
+                <el-button type="primary" plain :icon="'Upload'" :loading="uploadPdfLoading">上传 PDF 格式正文文件</el-button>
                 <div class="upload-tip">必填，供各单位在线查阅与下载，限 20MB 以内</div>
               </el-upload>
             </div>
@@ -199,16 +194,11 @@
               <el-upload
                 v-else
                 class="upload-box"
-                action="/api/uploads"
-                :headers="uploadHeaders"
-                :data="{ owner_type: 'dispatch' }"
+                :http-request="uploadAttachmentFile"
                 :show-file-list="false"
-                :before-upload="beforeUploadAttachment"
-                :on-success="handleUploadAttachmentSuccess"
-                :on-error="handleUploadError"
                 accept=".doc,.docx,.xls,.xlsx,.zip,.rar"
               >
-                <el-button plain :icon="'Document'">上传配套附件（选填）</el-button>
+                <el-button plain :icon="'Document'" :loading="uploadAttachmentLoading">上传配套附件（选填）</el-button>
                 <div class="upload-tip">选填，支持 Word、Excel、压缩包等配套学习材料</div>
               </el-upload>
             </div>
@@ -422,9 +412,9 @@ const PRESETS = {
     '县委办', '人大办', '政府办', '政协办', '纪委监委', '组织部',
     '社会工作部', '宣传部', '统战部', '政法委', '巡察办', '公安局',
     '法院', '检察院', '司法局', '网信办', '应急管理局', '信访局',
-    '退役军人事务局', '财政局', '交通局', '党研室', '编  办', '党  校',
-    '机关工委', '民政局', '人社局', '工商联', '团  委', '妇  联',
-    '总工会', '红十字会', '老干局', '残  联', '科  协', '发改委',
+    '退役军人事务局', '财政局', '交通局', '党研室', '编办', '党校',
+    '机关工委', '民政局', '人社局', '工商联', '团委', '妇联',
+    '总工会', '红十字会', '老干局', '残联', '科协', '发改委',
     '商工信局', '住建局', '审计局', '统计局', '供销社', '环保局',
     '税务局', '自然资源局', '伊东工业园区', '市场监督管理局', '农业农村局', '林草局',
     '水利局', '教育局', '卫健委', '融媒体中心', '文旅局', '医保局',
@@ -513,6 +503,9 @@ const openEdit = (row) => {
   dialogVisible.value = true
 }
 
+const uploadPdfLoading = ref(false)
+const uploadAttachmentLoading = ref(false)
+
 const beforeUploadPdf = (file) => {
   if (!validateUploadFileSecrecy(file, { isPublic: false })) {
     return false
@@ -530,10 +523,28 @@ const beforeUploadPdf = (file) => {
   return true
 }
 
-const handleUploadPdfSuccess = (res) => {
-  form.value.pdf_path = res.file_path || res.url
-  form.value.pdf_name = res.file_name || '正文文件.pdf'
-  ElMessage.success('正文 PDF 上传成功')
+const uploadPdfFile = async (options) => {
+  const file = options.file
+  if (!beforeUploadPdf(file)) return
+  uploadPdfLoading.value = true
+  const fd = new FormData()
+  fd.append('file', file)
+  fd.append('owner_type', 'dispatch')
+  try {
+    const res = await request.post('/uploads', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+    form.value.pdf_path = res.file_path || res.url
+    form.value.pdf_name = res.file_name || file.name
+    ElMessage.success('正文 PDF 上传成功')
+  } catch (err) {
+    if (!handleSecrecyUploadError(err, file, { isPublic: false })) {
+      const errMsg = err.response?.data?.error || err.message || '上传失败，请检查文件大小或网络后重试'
+      ElMessage.error(errMsg)
+    }
+  } finally {
+    uploadPdfLoading.value = false
+  }
 }
 
 const beforeUploadAttachment = (file) => {
@@ -548,15 +559,28 @@ const beforeUploadAttachment = (file) => {
   return true
 }
 
-const handleUploadAttachmentSuccess = (res) => {
-  form.value.attachment_path = res.file_path || res.url
-  form.value.attachment_name = res.file_name || '配套附件'
-  ElMessage.success('配套附件上传成功')
-}
-
-const handleUploadError = (err, file) => {
-  if (handleSecrecyUploadError(err, file, { isPublic: false })) return
-  ElMessage.error('上传失败，请检查文件大小或网络后重试')
+const uploadAttachmentFile = async (options) => {
+  const file = options.file
+  if (!beforeUploadAttachment(file)) return
+  uploadAttachmentLoading.value = true
+  const fd = new FormData()
+  fd.append('file', file)
+  fd.append('owner_type', 'dispatch')
+  try {
+    const res = await request.post('/uploads', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+    form.value.attachment_path = res.file_path || res.url
+    form.value.attachment_name = res.file_name || file.name
+    ElMessage.success('配套附件上传成功')
+  } catch (err) {
+    if (!handleSecrecyUploadError(err, file, { isPublic: false })) {
+      const errMsg = err.response?.data?.error || err.message || '上传失败，请检查文件大小或网络后重试'
+      ElMessage.error(errMsg)
+    }
+  } finally {
+    uploadAttachmentLoading.value = false
+  }
 }
 
 const removePdf = () => {
@@ -628,14 +652,13 @@ const notifyDispatch = (row) => {
   const deadlineText = row.deadline ? `请于 ${row.deadline} 前` : '请'
 
   let text = `【公文材料下发通知】\n`
-  text += `各乡镇场、部门单位：\n`
+  text += `各乡镇、部门单位：\n`
   text += `现将《${row.title}》${docNoText}正式下发给各单位。请各单位认真组织学习领会，抓好贯彻落实。\n\n`
   if (row.content) {
     text += `【工作说明】${row.content}\n`
   }
   text += `【查收提示】${deadlineText}点击下方专属链接查收文件，本文件在线确认查收即可，无需报送回执公函：\n`
-  text += `${url}\n\n`
-  text += `中共伊宁县委宣传部`
+  text += `${url}\n`
 
   navigator.clipboard.writeText(text).then(() => {
     ElMessage.success('已复制公文材料下发通知文案，可直接发送微信工作群')
@@ -696,8 +719,7 @@ const copyUrgeList = () => {
   text += `${unitList}\n\n`
   if (deadlineText) text += `${deadlineText}`
   text += `请上述单位经办同志尽快点击链接查收（在线点击确认即可，无需回函）：\n`
-  text += `${url}\n\n`
-  text += `中共伊宁县委宣传部`
+  text += `${url}\n`
 
   navigator.clipboard.writeText(text).then(() => {
     ElMessage.success('催查收名单已复制到剪贴板，可直接发送微信工作群')
@@ -707,7 +729,7 @@ const copyUrgeList = () => {
 }
 
 const exportReceipts = (row) => {
-  exportFile(`/export/dispatches/${row.id}/receipts`, `材料查收台账-${row.title}.xlsx`)
+  exportFile(`/export/dispatches/${row.id}/receipts`, {}, `材料查收台账-${row.title}.xlsx`)
 }
 
 onMounted(() => {

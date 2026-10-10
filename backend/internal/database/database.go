@@ -19,8 +19,9 @@ func Init(dbPath string) error {
 		return fmt.Errorf("创建数据库目录失败: %v", err)
 	}
 
+	dsn := fmt.Sprintf("%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)", dbPath)
 	var err error
-	DB, err = sql.Open("sqlite", dbPath)
+	DB, err = sql.Open("sqlite", dsn)
 	if err != nil {
 		return fmt.Errorf("打开数据库失败: %v", err)
 	}
@@ -32,10 +33,6 @@ func Init(dbPath string) error {
 	if err := DB.Ping(); err != nil {
 		return fmt.Errorf("数据库连接失败: %v", err)
 	}
-
-	// 开启 WAL 模式提升并发读性能
-	DB.Exec("PRAGMA journal_mode=WAL")
-	DB.Exec("PRAGMA busy_timeout=5000")
 
 	if err := createTables(); err != nil {
 		return err
@@ -109,6 +106,7 @@ var migrations = []migration{
 	{16, "新增公文承办科室与备注", migrateV16},
 	{17, "新增征求意见模块表（征求任务与单位反馈）", migrateV17},
 	{18, "新增材料下发模块表（下发通知与单位查收记录）", migrateV18},
+	{19, "追加缺失的高频索引", migrateV19},
 }
 
 // migrateV2 版本2：用车报备支持科室人开车（增加 driver_name 字段）

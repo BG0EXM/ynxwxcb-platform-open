@@ -239,7 +239,7 @@
       <template #footer>
         <div class="drawer-footer-wrap">
           <el-button @click="applyDialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="submitApply">确认报备并完成</el-button>
+          <el-button type="primary" :loading="submitting" @click="submitApply">确认报备并完成</el-button>
         </div>
       </template>
     </el-drawer>
@@ -477,10 +477,13 @@ const openApplyEdit = (row) => {
   applyDialogVisible.value = true
 }
 
+const submitting = ref(false)
+
 const submitApply = async () => {
-  if (!applyFormRef.value) return
+  if (!applyFormRef.value || submitting.value) return
   await applyFormRef.value.validate(async (valid) => {
     if (!valid) return
+    submitting.value = true
     try {
       if (applyEditId.value) {
         await request.put('/vehicle-applies', { ...applyForm, id: applyEditId.value })
@@ -491,7 +494,11 @@ const submitApply = async () => {
       }
       applyDialogVisible.value = false
       loadApplies()
-    } catch (e) { console.error(e) }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      submitting.value = false
+    }
   })
 }
 

@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"bytes"
+	"html"
 	"io"
 	"log"
 	"net/http"
@@ -13,7 +14,7 @@ import (
 )
 
 // (?i) makes it case-insensitive
-var wafRegex = regexp.MustCompile(`(?i)(select\s+.*\s+from|insert\s+into|update\s+.*\s+set|delete\s+from|drop\s+table|union\s+select|<script>|javascript:|alert\()`)
+var wafRegex = regexp.MustCompile(`(?is)(select\s+.*\s+from|insert\s+into|update\s+.*\s+set|delete\s+from|drop\s+table|union\s+select|<script>|javascript:|alert\()`)
 
 func WAF(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -119,7 +120,7 @@ func blockWAF(w http.ResponseWriter, r *http.Request) {
     <div class="meta">
       <div>安全状态: <span class="tag">WAF_BLOCK (403 Forbidden)</span></div>
       <div>来源IP: ` + ip + `</div>
-      <div>拦截路由: ` + r.URL.Path + `</div>
+      <div>拦截路由: ` + html.EscapeString(r.URL.Path) + `</div>
     </div>
   </div>
 </body>

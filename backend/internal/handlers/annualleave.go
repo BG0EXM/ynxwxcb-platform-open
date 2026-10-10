@@ -73,9 +73,11 @@ func ListAnnualLeaveConfigs(w http.ResponseWriter, r *http.Request) {
 	yearEnd := year + "-12-31"
 	usedQuery := `SELECT user_id, SUM(eff) FROM (
 			SELECT user_id,
-				-- 已休 = MIN(登记天数, 当年重叠整天)，半天/小时假(0.5/0.25)精确扣减
-				MIN(days, CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
-					- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER)) as eff
+				-- 废除 MIN 粗暴逻辑：按请假区间在目标年份的实际日历天数比例分配扣减天数，确保总扣减天数不超过申请天数
+				ROUND(days * (
+					julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
+					- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1.0
+				) / (julianday(end_date) - julianday(start_date) + 1.0), 2) as eff
 			FROM leave_records
 			WHERE status = 1 AND leave_type = 'annual' AND start_date <= ? AND end_date >= ?
 			GROUP BY id
@@ -162,8 +164,11 @@ func ExportAnnualLeaveConfigs(w http.ResponseWriter, r *http.Request) {
 	usedMap := map[int64]float64{}
 	usedQuery := `SELECT user_id, SUM(eff) FROM (
 			SELECT user_id,
-				MIN(days, CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
-					- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER)) as eff
+				-- 按请假区间在目标年份的实际日历天数比例分配扣减天数，确保总扣减天数不超过申请天数
+				ROUND(days * (
+					julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
+					- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1.0
+				) / (julianday(end_date) - julianday(start_date) + 1.0), 2) as eff
 			FROM leave_records
 			WHERE status = 1 AND leave_type = 'annual' AND start_date <= ? AND end_date >= ?
 			GROUP BY id
@@ -243,20 +248,35 @@ func SaveAnnualLeaveConfig(w http.ResponseWriter, r *http.Request) {
 // getAnnualLeaveRemainDays 计算指定人员在某年份的剩余年休假天数
 // 返回：(剩余天数, 该年配置的总天数)
 func getAnnualLeaveRemainDays(userID int64, year string, excludeID int64) (float64, float64) {
+	return getAnnualLeaveRemainDaysFromQuerier(database.DB, userID, year, excludeID)
+}
+
+// getAnnualLeaveRemainDaysTx 事务内计算剩余年休假天数
+func getAnnualLeaveRemainDaysTx(tx *sql.Tx, userID int64, year string, excludeID int64) (float64, float64) {
+	return getAnnualLeaveRemainDaysFromQuerier(tx, userID, year, excludeID)
+}
+
+type queryRower interface {
+	QueryRow(query string, args ...interface{}) *sql.Row
+}
+
+func getAnnualLeaveRemainDaysFromQuerier(q queryRower, userID int64, year string, excludeID int64) (float64, float64) {
 	var configDays float64
-	if err := database.DB.QueryRow("SELECT COALESCE(days, 0) FROM annual_leave_configs WHERE user_id=? AND year=?", userID, year).Scan(&configDays); err != nil {
+	if err := q.QueryRow("SELECT COALESCE(days, 0) FROM annual_leave_configs WHERE user_id=? AND year=?", userID, year).Scan(&configDays); err != nil {
 		configDays = 0
 	}
 	yearStart := year + "-01-01"
 	yearEnd := year + "-12-31"
 	query := `SELECT COALESCE(SUM(eff), 0) FROM (
-		SELECT MIN(days, CAST(julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
-			- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1 AS INTEGER)) as eff
+		SELECT ROUND(days * (
+			julianday(CASE WHEN end_date < ? THEN end_date ELSE ? END)
+			- julianday(CASE WHEN start_date > ? THEN start_date ELSE ? END) + 1.0
+		) / (julianday(end_date) - julianday(start_date) + 1.0), 2) as eff
 		FROM leave_records
 		WHERE status = 1 AND leave_type = 'annual' AND user_id = ? AND id != ? AND start_date <= ? AND end_date >= ?
 	) WHERE eff > 0`
 	var usedDays float64
-	if err := database.DB.QueryRow(query, yearEnd, yearEnd, yearStart, yearStart, userID, excludeID, yearEnd, yearStart).Scan(&usedDays); err != nil {
+	if err := q.QueryRow(query, yearEnd, yearEnd, yearStart, yearStart, userID, excludeID, yearEnd, yearStart).Scan(&usedDays); err != nil {
 		usedDays = 0
 	}
 	remain := configDays - usedDays

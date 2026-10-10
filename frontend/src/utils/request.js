@@ -3,11 +3,63 @@ import { ElMessage } from 'element-plus'
 import { showWafAlert } from './wafAlert'
 import { showSecrecyAlert } from './secrecyGuard'
 import router from '../router'
+import { useAuthStore } from '../store/auth'
 
 const request = axios.create({
   baseURL: '/api',
   timeout: 30000
 })
+
+let isRedirectingToLogin = false
+
+const isPublicPage = (path = '') => {
+  return ['/meeting', '/solicit', '/dispatch'].some(prefix => path.startsWith(prefix))
+}
+
+const handleUnauthorized = (error) => {
+  const currentPath = router.currentRoute.value?.path || ''
+  if (isPublicPage(currentPath)) {
+    // 公开填报页面（以 /meeting, /solicit, /dispatch 等开头），严禁跳转 /login，仅返回 Promise.reject
+    return
+  }
+
+  if (!isRedirectingToLogin) {
+    isRedirectingToLogin = true
+    try {
+      const authStore = useAuthStore()
+      authStore.logout()
+    } catch (_) {
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
+      localStorage.removeItem('must_change')
+    }
+    ElMessage.error('登录已过期，请重新登录')
+    if (currentPath !== '/login') {
+      router.push('/login').finally(() => {
+        setTimeout(() => {
+          isRedirectingToLogin = false
+        }, 1000)
+      })
+    } else {
+      setTimeout(() => {
+        isRedirectingToLogin = false
+      }, 1000)
+    }
+  }
+}
+
+async function parseBlobResponseData(resOrError) {
+  const data = resOrError?.data || resOrError?.response?.data
+  if (data instanceof Blob) {
+    try {
+      const text = await data.text()
+      return JSON.parse(text)
+    } catch (_) {
+      return null
+    }
+  }
+  return typeof data === 'object' ? data : null
+}
 
 request.interceptors.request.use(config => {
   const token = localStorage.getItem('token')
@@ -41,13 +93,12 @@ request.interceptors.response.use(
       return Promise.reject(error)
     }
 
+    // 3. 401 认证失效处理
     if (status === 401) {
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
-      if (router.currentRoute.value.path !== '/login') {
-        router.push('/login')
-      }
+      handleUnauthorized(error)
+      return Promise.reject(error)
     }
+
     ElMessage.error(msg || '请求失败')
     return Promise.reject(error)
   }
@@ -67,10 +118,19 @@ export async function exportFile(url, params = {}, defaultName = '导出.xlsx') 
     })
     // 检查是否为 JSON 错误响应（如 401 时后端返回 {"error":...}）
     if (res.data && res.data.type === 'application/json') {
-      const text = await res.data.text()
-      const err = JSON.parse(text)
-      ElMessage.error(err.error || '导出失败')
-      return
+      const err = await parseBlobResponseData(res)
+      if (err) {
+        if (err.security_violation === 'SECRECY_LEAK_PREVENTED' || err.code === 'SECRECY_BLOCK') {
+          showSecrecyAlert({
+            fileName: err.filename || defaultName,
+            keyword: err.matched_rule || '国家秘密/内部级标识',
+            isPublic: !localStorage.getItem('token')
+          })
+          return
+        }
+        ElMessage.error(err.error || '导出失败')
+        return
+      }
     }
     // 从 Content-Disposition 提取文件名
     let fileName = defaultName
@@ -99,15 +159,38 @@ export async function exportFile(url, params = {}, defaultName = '导出.xlsx') 
     setTimeout(() => URL.revokeObjectURL(link.href), 1000)
     ElMessage.success('导出成功')
   } catch (e) {
-    // 401 时跳登录，其他错误提示
-    if (e.response?.status === 401) {
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
-      router.push('/login')
-      ElMessage.error('登录已过期，请重新登录')
-    } else {
-      ElMessage.error('导出失败，请重试')
+    let errData = null
+    if (e.response?.data instanceof Blob) {
+      errData = await parseBlobResponseData(e)
+    } else if (e.response?.data && typeof e.response.data === 'object') {
+      errData = e.response.data
     }
+
+    const status = e.response?.status
+    const secViolation = errData?.security_violation
+    const code = errData?.code
+
+    if (status === 403 && (secViolation === 'SECRECY_LEAK_PREVENTED' || code === 'SECRECY_BLOCK')) {
+      showSecrecyAlert({
+        fileName: errData?.filename || defaultName,
+        keyword: errData?.matched_rule || '国家秘密/内部级标识',
+        isPublic: !localStorage.getItem('token')
+      })
+      return
+    }
+
+    if (status === 403 && code === 'WAF_BLOCK') {
+      showWafAlert()
+      return
+    }
+
+    if (status === 401) {
+      handleUnauthorized(e)
+      return
+    }
+
+    const msg = errData?.error || e.message || '导出失败，请重试'
+    ElMessage.error(msg)
   }
 }
 
@@ -124,10 +207,19 @@ export async function downloadFile(url, defaultName = '下载文件') {
       timeout: 60000
     })
     if (res.data && res.data.type === 'application/json') {
-      const text = await res.data.text()
-      const err = JSON.parse(text)
-      ElMessage.error(err.error || '下载失败')
-      return
+      const err = await parseBlobResponseData(res)
+      if (err) {
+        if (err.security_violation === 'SECRECY_LEAK_PREVENTED' || err.code === 'SECRECY_BLOCK') {
+          showSecrecyAlert({
+            fileName: err.filename || defaultName,
+            keyword: err.matched_rule || '国家秘密/内部级标识',
+            isPublic: !localStorage.getItem('token')
+          })
+          return
+        }
+        ElMessage.error(err.error || '下载失败')
+        return
+      }
     }
     let fileName = defaultName
     const cd = res.headers['content-disposition']
@@ -153,13 +245,37 @@ export async function downloadFile(url, defaultName = '下载文件') {
     document.body.removeChild(link)
     setTimeout(() => URL.revokeObjectURL(link.href), 1000)
   } catch (e) {
-    if (e.response?.status === 401) {
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
-      router.push('/login')
-      ElMessage.error('登录已过期，请重新登录')
-    } else {
-      ElMessage.error('下载失败，请重试')
+    let errData = null
+    if (e.response?.data instanceof Blob) {
+      errData = await parseBlobResponseData(e)
+    } else if (e.response?.data && typeof e.response.data === 'object') {
+      errData = e.response.data
     }
+
+    const status = e.response?.status
+    const secViolation = errData?.security_violation
+    const code = errData?.code
+
+    if (status === 403 && (secViolation === 'SECRECY_LEAK_PREVENTED' || code === 'SECRECY_BLOCK')) {
+      showSecrecyAlert({
+        fileName: errData?.filename || defaultName,
+        keyword: errData?.matched_rule || '国家秘密/内部级标识',
+        isPublic: !localStorage.getItem('token')
+      })
+      return
+    }
+
+    if (status === 403 && code === 'WAF_BLOCK') {
+      showWafAlert()
+      return
+    }
+
+    if (status === 401) {
+      handleUnauthorized(e)
+      return
+    }
+
+    const msg = errData?.error || e.message || '下载失败，请重试'
+    ElMessage.error(msg)
   }
 }

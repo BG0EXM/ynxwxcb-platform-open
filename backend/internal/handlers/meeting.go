@@ -34,7 +34,8 @@ func ListMeetings(w http.ResponseWriter, r *http.Request) {
 	query := `SELECT m.id, m.title, m.meeting_date, m.meeting_time, m.location, m.content, m.units, m.unit_limit,
 			m.created_by, u.real_name, m.created_at, m.updated_at,
 			COALESCE(SUM(CASE WHEN r.not_attend = 0 THEN 1 ELSE 0 END), 0),
-			COALESCE(SUM(CASE WHEN r.not_attend = 1 THEN 1 ELSE 0 END), 0)
+			COALESCE(SUM(CASE WHEN r.not_attend = 1 THEN 1 ELSE 0 END), 0),
+			COUNT(DISTINCT CASE WHEN r.id IS NOT NULL AND TRIM(r.unit) != '' THEN TRIM(r.unit) END) as confirmed_units
 		FROM meetings m
 		LEFT JOIN users u ON m.created_by = u.id
 		LEFT JOIN meeting_registrations r ON r.meeting_id = m.id
@@ -52,9 +53,9 @@ func ListMeetings(w http.ResponseWriter, r *http.Request) {
 		var creator, meetingDate, meetingTime, location, content, units sql.NullString
 		var createdBy sql.NullInt64
 		var createdAt, updatedAt sql.NullTime
-		var regCount, notAttend int
+		var regCount, notAttend, confirmedUnits int
 		if err := rows.Scan(&m.ID, &m.Title, &meetingDate, &meetingTime, &location, &content, &units, &m.UnitLimit,
-			&createdBy, &creator, &createdAt, &updatedAt, &regCount, &notAttend); err != nil {
+			&createdBy, &creator, &createdAt, &updatedAt, &regCount, &notAttend, &confirmedUnits); err != nil {
 			continue
 		}
 		m.MeetingDate = meetingDate.String
@@ -72,6 +73,7 @@ func ListMeetings(w http.ResponseWriter, r *http.Request) {
 		}
 		m.RegCount = regCount
 		m.NotAttend = notAttend
+		m.ConfirmedUnits = confirmedUnits
 		list = append(list, m)
 	}
 	if err := rows.Err(); err != nil {
@@ -169,6 +171,7 @@ func DeleteMeeting(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
 		return
 	}
+	defer tx.Rollback()
 	if _, err := tx.Exec("DELETE FROM meeting_registrations WHERE meeting_id=?", id); err != nil {
 		tx.Rollback()
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
@@ -254,11 +257,12 @@ func GetMeeting(w http.ResponseWriter, r *http.Request) {
 			if scanErr != nil {
 				continue
 			}
-			rg.Unit = unit.String
-			rg.AttendeeName = name.String
-			rg.AttendeeTitle = title.String
-			rg.Phone = phone.String
-			rg.Reason = reason.String
+			cleanUnit := strings.TrimSpace(unit.String)
+			rg.Unit = cleanUnit
+			rg.AttendeeName = strings.TrimSpace(name.String)
+			rg.AttendeeTitle = strings.TrimSpace(title.String)
+			rg.Phone = strings.TrimSpace(phone.String)
+			rg.Reason = strings.TrimSpace(reason.String)
 			if createdAt.Valid {
 				rg.CreatedAt = createdAt.Time
 			}
@@ -269,7 +273,9 @@ func GetMeeting(w http.ResponseWriter, r *http.Request) {
 				rg.IsAttending = 0
 			}
 			regs = append(regs, rg)
-			registeredUnits[unit.String] = true
+			if cleanUnit != "" {
+				registeredUnits[cleanUnit] = true
+			}
 		}
 		if err := regRows.Err(); err != nil {
 			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
@@ -439,6 +445,7 @@ func PublicRegisterMeeting(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "参数错误"})
 		return
 	}
+	req.Unit = strings.TrimSpace(req.Unit)
 	if req.Unit == "" {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请选择参会单位"})
 		return
@@ -742,8 +749,13 @@ func ExportMeetingRegistration(w http.ResponseWriter, r *http.Request) {
 			if err := regRows.Scan(&unit, &name, &title, &phone, &na, &reason); err != nil {
 				continue
 			}
-			regMap[unit.String] = append(regMap[unit.String], regInfo{
-				name: name.String, title: title.String, phone: phone.String, notAttend: na, reason: reason.String,
+			cleanUnit := strings.TrimSpace(unit.String)
+			regMap[cleanUnit] = append(regMap[cleanUnit], regInfo{
+				name:      strings.TrimSpace(name.String),
+				title:     strings.TrimSpace(title.String),
+				phone:     strings.TrimSpace(phone.String),
+				notAttend: na,
+				reason:    strings.TrimSpace(reason.String),
 			})
 		}
 	}
@@ -814,18 +826,21 @@ func MeetingRegistrations(w http.ResponseWriter, r *http.Request) {
 		if scanErr != nil {
 			continue
 		}
-		rg.Unit = unit.String
-		rg.AttendeeName = name.String
-		rg.AttendeeTitle = title.String
-		rg.Phone = phone.String
-		rg.Reason = reason.String
+		cleanUnit := strings.TrimSpace(unit.String)
+		rg.Unit = cleanUnit
+		rg.AttendeeName = strings.TrimSpace(name.String)
+		rg.AttendeeTitle = strings.TrimSpace(title.String)
+		rg.Phone = strings.TrimSpace(phone.String)
+		rg.Reason = strings.TrimSpace(reason.String)
 		if rg.NotAttend == 0 {
 			rg.IsAttending = 1
 		} else {
 			rg.IsAttending = 0
 		}
 		regs = append(regs, rg)
-		registeredUnits[unit.String] = true
+		if cleanUnit != "" {
+			registeredUnits[cleanUnit] = true
+		}
 	}
 	if err := regRows.Err(); err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
@@ -890,6 +905,7 @@ func AdminChangeUnitToAbsent(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少单位名称"})
 		return
 	}
+	req.Unit = strings.TrimSpace(req.Unit)
 	reason := strings.TrimSpace(req.Reason)
 	if reason == "" {
 		reason = "因公请假（管理员协调代登）"
@@ -941,6 +957,7 @@ func AdminResetUnitRegistration(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少单位名称"})
 		return
 	}
+	req.Unit = strings.TrimSpace(req.Unit)
 	res, err := database.DB.Exec("DELETE FROM meeting_registrations WHERE meeting_id=? AND unit=?", id, req.Unit)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "撤销失败"})

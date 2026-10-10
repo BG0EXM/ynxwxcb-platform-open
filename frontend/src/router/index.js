@@ -193,12 +193,6 @@ const routes = [
         meta: { title: '操作日志', icon: 'Document', admin: true }
       },
       {
-        path: 'backups',
-        name: 'backups',
-        component: () => import('../views/DatabaseBackup.vue'),
-        meta: { title: '数据备份', icon: 'Coin', admin: true }
-      },
-      {
         path: 'profile',
         name: 'profile',
         component: () => import('../views/Profile.vue'),
@@ -242,8 +236,7 @@ const routePerms = {
   dispatches: 'dispatch.manage',
   users: 'user.manage',
   permissions: 'user.manage',
-  'operation-logs': 'oplog.view',
-  backups: 'user.manage'
+  'operation-logs': 'oplog.view'
 }
 
 router.beforeEach((to, from, next) => {
@@ -276,7 +269,7 @@ router.beforeEach((to, from, next) => {
         return
       }
     }
-    document.title = to.meta.title ? `${to.meta.title} - 伊宁县委宣传部部务工作平台 V1.7.0` : '伊宁县委宣传部部务工作平台 V1.7.0'
+    document.title = to.meta.title ? `${to.meta.title} - 伊宁县委宣传部部务工作平台 V1.7.1` : '伊宁县委宣传部部务工作平台 V1.7.1'
     next()
   }
 })

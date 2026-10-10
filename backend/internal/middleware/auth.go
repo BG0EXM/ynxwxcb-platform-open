@@ -22,16 +22,23 @@ const (
 func Auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
+		tokenStr := ""
+		if authHeader != "" {
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) != 2 || parts[0] != "Bearer" {
+				JSON(w, http.StatusUnauthorized, map[string]string{"error": "认证格式错误"})
+				return
+			}
+			tokenStr = parts[1]
+		}
+		if tokenStr == "" {
+			tokenStr = r.URL.Query().Get("token")
+		}
+		if tokenStr == "" {
 			JSON(w, http.StatusUnauthorized, map[string]string{"error": "未登录"})
 			return
 		}
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			JSON(w, http.StatusUnauthorized, map[string]string{"error": "认证格式错误"})
-			return
-		}
-		claims, err := auth.ParseToken(parts[1])
+		claims, err := auth.ParseToken(tokenStr)
 		if err != nil {
 			JSON(w, http.StatusUnauthorized, map[string]string{"error": "登录已过期，请重新登录"})
 			return

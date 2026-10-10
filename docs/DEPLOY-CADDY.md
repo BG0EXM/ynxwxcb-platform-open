@@ -1,6 +1,6 @@
 # 伊宁县委宣传部部务工作平台 - 部署文档（Caddy）
 
-> 适用版本：**V1.7.0** · 更新日期：**2026-10-10**  
+> 适用版本：**V1.7.1** · 更新日期：**2026-10-11**  
 > 运行环境：Debian / Ubuntu · Caddy Web 服务器（自动 HTTPS / IPv6 双栈）· 可与 WordPress 共存
 
 ## 〇、系统组成与服务端可选增强组件
@@ -116,14 +116,25 @@ sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
 ```
 
-## 五、备份
+## 五、数据灾备与恢复
 
+系统采用**服务器级全量自动化灾备**，打包完整 SQLite 数据库及全部公文与附件材料（`uploads/`）。
+
+### 1. 手动备份与定时调度
 ```bash
-sudo -u ynxwxcb /opt/ynxwxcb/backup.sh
-# crontab: 0 2 * * * /opt/ynxwxcb/backup.sh >> /var/log/ynxwxcb-backup.log 2>&1
+# 手动立即备份
+sudo /opt/ynxwxcb/deploy/backup.sh
+
+# crontab 每日凌晨 2:00 自动执行：
+0 2 * * * /opt/ynxwxcb/deploy/backup.sh >> /var/log/ynxwxcb-backup.log 2>&1
 ```
 
-备份在 `/opt/ynxwxcb-backup/`，保留 14 天。建议定期同步到异机或对象存储。
+备份包保存在独立的 `/opt/ynxwxcb-backup/`，自动保留 14 天并带有 SHA256 校验和。建议定期同步到异机或对象存储。
+
+### 2. 灾难恢复
+```bash
+sudo /opt/ynxwxcb/deploy/restore.sh /opt/ynxwxcb-backup/ynxwxcb_xxx.tar.gz
+```
 
 ## 六、默认账号
 

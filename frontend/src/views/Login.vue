@@ -66,17 +66,17 @@
         </el-form>
 
         <div class="form-footer-tip">
-          <span>伊宁县委宣传部部务工作平台 V1.7.0</span>
+          <span>伊宁县委宣传部部务工作平台 V1.7.1</span>
         </div>
       </div>
     </div>
 
     <!-- 底部政务合规备案信息 -->
     <footer class="login-footer">
-      <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">ICP备案号占位</a>
+      <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">[滇ICP备XXXXXXXX号-X]</a>
       <span class="footer-sep">|</span>
       <a href="https://beian.mps.gov.cn/#/query/webSearch" target="_blank" rel="noopener">
-        公网安备号占位
+        [滇公网安备XXXXXXXXXXXXXXXX号]
       </a>
       <span class="footer-sep">|</span>
       <span class="ipv6-tip">本站支持IPv6</span>
