@@ -42,15 +42,19 @@ export const useAuthStore = defineStore('auth', {
       this.mustChange = val
       localStorage.setItem('must_change', val ? '1' : '0')
     },
-    logout() {
-      const oldToken = this.token || localStorage.getItem('token')
-      // 1. 立即同步清空本地响应式状态与持久化缓存，确保路由守卫立即判定为未登录
+    // 仅清空本地登录态（令牌已失效时使用，无需再通知后端）
+    clearLocal() {
       this.token = ''
       this.user = null
       this.mustChange = false
       localStorage.removeItem('token')
       localStorage.removeItem('user')
       localStorage.removeItem('must_change')
+    },
+    logout() {
+      const oldToken = this.token || localStorage.getItem('token')
+      // 1. 立即同步清空本地响应式状态与持久化缓存，确保路由守卫立即判定为未登录
+      this.clearLocal()
 
       // 2. 异步通知后端递增令牌版本使服务端失效（后台执行，不阻塞界面跳转）
       if (oldToken) {

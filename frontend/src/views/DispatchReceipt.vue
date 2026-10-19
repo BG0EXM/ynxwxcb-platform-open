@@ -345,7 +345,7 @@
           <span class="footer-org font-serif">中共伊宁县委宣传部</span>
           <span class="crest-dot"></span>
         </div>
-        <div class="footer-system">部务工作平台 · 数字化协同政务服务终端 V1.7.1</div>
+        <div class="footer-system">部务工作平台 · 数字化协同政务服务终端 V1.8.0</div>
         <div class="footer-beian">
           <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">[滇ICP备XXXXXXXX号-X]</a>
           <span class="sep">|</span>
@@ -450,11 +450,11 @@ const loadData = async () => {
     expired.value = !!res.expired
     hasAttachment.value = !!res.has_attachment
 
+    // 已查收时仅展示脱敏后的登记凭证，绝不回填到表单（避免把脱敏号码或其他单位信息当作新登记提交）
+    receiptForm.value = { receiver_name: '', receiver_phone: '' }
     if (res.current_receipt) {
       receipted.value = true
       receiptData.value = res.current_receipt
-      receiptForm.value.receiver_name = res.current_receipt.receiver_name || ''
-      receiptForm.value.receiver_phone = res.current_receipt.receiver_phone || ''
     } else {
       receipted.value = false
       receiptData.value = null
@@ -481,6 +481,7 @@ const reselectUnit = () => {
   pendingUnit.value = ''
   receipted.value = false
   receiptData.value = null
+  receiptForm.value = { receiver_name: '', receiver_phone: '' }
 }
 
 // 提交确认查收
@@ -538,7 +539,7 @@ onUnmounted(() => {
 /* 顶部深色政务天际线 - 与征求意见、会议填报页 100% 对齐 */
 .skyline-bg {
   position: relative;
-  background: linear-gradient(135deg, #131a26 0%, #1b2433 45%, #7a1417 100%);
+  background: linear-gradient(135deg, var(--yx-ink-dark) 0%, var(--yx-ink) 45%, var(--yx-brand-dark) 100%);
   padding: 32px 20px 110px;
   color: #fff;
   overflow: hidden;
@@ -590,7 +591,7 @@ onUnmounted(() => {
   font-size: 17px;
   font-weight: 600;
   letter-spacing: 1.2px;
-  color: #f7ecec;
+  color: var(--yx-brand-bg);
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 

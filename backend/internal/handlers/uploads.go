@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,6 +21,9 @@ import (
 	"ynxwxcb-platform/internal/secrecy"
 )
 
+// allowedOwnerTypes 附件可声明的业务类型白名单
+var allowedOwnerTypes = map[string]bool{"document": true, "study": true, "solicit": true, "dispatch": true}
+
 // UploadFile 文件上传
 func UploadFile(cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -28,12 +32,17 @@ func UploadFile(cfg *config.Config) http.HandlerFunc {
 
 		// 硬性限制请求体大小（防止超大文件打爆磁盘），略留 multipart 开销余量
 		r.Body = http.MaxBytesReader(w, r.Body, int64(cfg.Upload.MaxMB+2)<<20)
-		if err := r.ParseMultipartForm(cfg.Upload.MaxMB << 20); err != nil {
+		// 仅 8MB 驻留内存，超出部分由标准库自动落盘临时文件，防止并发大文件上传打爆内存
+		if err := r.ParseMultipartForm(8 << 20); err != nil {
 			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "文件过大，超过限制"})
 			return
 		}
 		ownerType := r.FormValue("owner_type")
 		ownerID := r.FormValue("owner_id")
+		if ownerType != "" && !allowedOwnerTypes[ownerType] {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "不支持的业务类型"})
+			return
+		}
 		file, header, err := r.FormFile("file")
 		if err != nil {
 			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "未选择文件"})
@@ -52,7 +61,11 @@ func UploadFile(cfg *config.Config) http.HandlerFunc {
 
 		// 保密安全校验：严禁上传国家秘密（秘密/机密/绝密）、工作秘密及内部级文件（支持正文/页眉内容深度解构）
 		var fileReader io.Reader = file
-		if res, restoredReader := secrecy.CheckFileSecrecy(header.Filename, file); res.Violated {
+		if res, restoredReader := secrecy.CheckFileSecrecy(header.Filename, file); res.Unreadable {
+			// 无法完整检测的 Office 文档一律拒绝（失败即关闭），不能绕过涉密审查
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "文件无法解析或超过检测上限，请用 Office/WPS 另存为标准格式后重新上传"})
+			return
+		} else if res.Violated {
 			logOperation(r, "保密防线", "涉密阻断", fmt.Sprintf("拦截涉密文件上传: %s (密级: %s, 规则: %s, 详情: %s)", header.Filename, res.Category, res.Rule, res.Detail))
 			middleware.JSON(w, http.StatusForbidden, map[string]interface{}{
 				"error":              "【国家保密安全警报】检测到文件带有国家秘密或内部保密标识，严禁在非涉密系统上传传输！",
@@ -81,44 +94,45 @@ func UploadFile(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		fileName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), filepath.Base(header.Filename))
+		fileName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), sanitizeFileName(filepath.Base(header.Filename)))
 		savePath := filepath.Join(saveDir, fileName)
 		dst, err := os.Create(savePath)
 		if err != nil {
 			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "保存失败"})
 			return
 		}
-		defer dst.Close()
 		if _, err := io.Copy(dst, fileReader); err != nil {
+			dst.Close()
+			os.Remove(savePath)
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "写入失败"})
+			return
+		}
+		if err := dst.Close(); err != nil {
+			os.Remove(savePath)
 			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "写入失败"})
 			return
 		}
 
-		// 记录到数据库
+		// 记录到数据库：新上传附件一律处于未关联状态（owner_id=0），由各业务保存时校验归属后再绑定，
+		// 杜绝上传时直接把文件挂到他人业务记录上
 		oType := ownerType
 		if oType == "" {
 			oType = "document"
 		}
+		_ = ownerID
 		var oID int64
-		if ownerID != "" {
-			oID, _ = strconv.ParseInt(ownerID, 10, 64)
-		}
 
-		webPath := "/uploads/" + dateDir + "/" + fileName
-		// 存储路径使用相对 webPath 便于访问
-		dbPath := webPath
-		absSavePath := savePath
-
-		// 保存实际路径信息
+		// 统一存储“相对上传目录”的路径（如 2026/10/xxx.pdf），upload.dir 相对/绝对、数据迁移目录均可正确解析
+		relPath := dateDir + "/" + fileName
 		res, err := database.DB.Exec(
 			"INSERT INTO attachments (owner_type, owner_id, file_name, file_path, file_size, uploader_id) VALUES (?, ?, ?, ?, ?, ?)",
-			oType, oID, header.Filename, absSavePath, header.Size, userID)
+			oType, oID, header.Filename, relPath, header.Size, userID)
 		if err != nil {
+			os.Remove(savePath)
 			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "记录失败"})
 			return
 		}
 		attID, _ := res.LastInsertId()
-		_ = dbPath
 
 		middleware.JSON(w, http.StatusOK, map[string]interface{}{
 			"message":   "上传成功",
@@ -151,31 +165,9 @@ func DownloadAttachment(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		// 鉴权校验：管理员和上传者本人可直接下载；
-		// 非 admin 且非上传者下载时，严格校验记录归属与角色权限，修复 ownerID!=0 鉴权穿透
-		if roleCode != "admin" && uploaderID != userID {
-			if ownerID == 0 {
-				middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "无权下载该未关联附件"})
-				return
-			}
-			allowed := false
-			switch ownerType {
-			case "document":
-				// 收文附件需具备 incoming.view 权限
-				allowed = middleware.HasPermission(roleCode, "incoming.view")
-			case "study":
-				// 学习资料需具备 study.view 权限
-				allowed = middleware.HasPermission(roleCode, "study.view")
-			default:
-				// 其他业务附件，校验用户是否拥有合法业务角色权限
-				if roleCode != "" && (roleCode == "leader" || roleCode == "staff" || middleware.HasPermission(roleCode, "dashboard.view")) {
-					allowed = true
-				}
-			}
-			if !allowed {
-				middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "无权下载该业务附件"})
-				return
-			}
+		if msg := attachmentDenyReason(userID, roleCode, ownerType, uploaderID, ownerID); msg != "" {
+			middleware.JSON(w, http.StatusForbidden, map[string]string{"error": msg})
+			return
 		}
 
 		// 文件路径安全解析（防目录穿越与相对路径逃逸）
@@ -191,6 +183,101 @@ func DownloadAttachment(cfg *config.Config) http.HandlerFunc {
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q; filename*=UTF-8''%s", a.FileName, url.PathEscape(a.FileName)))
 		w.Header().Set("Content-Type", "application/octet-stream")
 		http.ServeFile(w, r, fullPath)
+	}
+}
+
+// attachmentDenyReason 附件下载鉴权：管理员与上传者本人直接放行；其余按附件业务类型校验对应功能权限。
+// 返回空字符串表示放行，否则为拒绝原因。
+func attachmentDenyReason(userID int64, roleCode, ownerType string, uploaderID, ownerID int64) string {
+	if roleCode == "admin" || (uploaderID != 0 && uploaderID == userID) {
+		return ""
+	}
+	if ownerID == 0 {
+		return "无权下载该未关联附件"
+	}
+	perm := ""
+	switch ownerType {
+	case "document":
+		perm = "incoming.view"
+	case "study":
+		perm = "study.view"
+	case "solicit":
+		perm = "solicit.manage"
+	case "dispatch":
+		perm = "dispatch.manage"
+	}
+	if perm == "" || !middleware.HasPermission(roleCode, perm) {
+		return "无权下载该业务附件"
+	}
+	return ""
+}
+
+// ServeUploadFile 受控直读 /uploads/ 下的文件：
+//   - 征求意见各单位回函（solicits/ 目录）需征求意见管理权限（大小写不敏感比对，防 macOS 大小写绕过）；
+//   - 其余文件必须能反查到附件记录，并套用与 /api/uploads/{id} 相同的权限校验；
+//   - 隔离区（.trash）一律禁止访问。
+func ServeUploadFile(cfg *config.Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, _ := r.Context().Value(middleware.ContextUserID).(int64)
+		roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
+		abs := resolveFilePath(cfg.Upload.Dir, r.URL.Path)
+		if abs == "" || !fileExists(abs) {
+			http.NotFound(w, r)
+			return
+		}
+		rel := relToBase(uploadBase(cfg.Upload.Dir), abs)
+		first := strings.ToLower(strings.SplitN(rel, "/", 2)[0])
+		if first == trashDirName {
+			http.NotFound(w, r)
+			return
+		}
+		if first == "solicits" {
+			if roleCode != "admin" && !middleware.HasPermission(roleCode, "solicit.manage") {
+				middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "无权访问此敏感公函附件"})
+				return
+			}
+		} else {
+			var ownerType string
+			var uploaderID, ownerID int64
+			err := database.DB.QueryRow("SELECT owner_type, uploader_id, owner_id FROM attachments WHERE file_path IN (?, ?) LIMIT 1", rel, abs).
+				Scan(&ownerType, &uploaderID, &ownerID)
+			if err != nil && roleCode != "admin" {
+				middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "无权访问该文件"})
+				return
+			}
+			if err == nil {
+				if msg := attachmentDenyReason(userID, roleCode, ownerType, uploaderID, ownerID); msg != "" {
+					middleware.JSON(w, http.StatusForbidden, map[string]string{"error": msg})
+					return
+				}
+			}
+		}
+
+		fileName := filepath.Base(abs)
+		if idx := strings.Index(fileName, "_"); idx > 0 && idx < len(fileName)-1 {
+			fileName = fileName[idx+1:]
+		}
+		disp := "attachment"
+		switch strings.ToLower(filepath.Ext(abs)) {
+		case ".pdf":
+			w.Header().Set("Content-Type", "application/pdf")
+			disp = "inline"
+		case ".jpg", ".jpeg":
+			w.Header().Set("Content-Type", "image/jpeg")
+			disp = "inline"
+		case ".png":
+			w.Header().Set("Content-Type", "image/png")
+			disp = "inline"
+		case ".docx":
+			w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+		case ".doc":
+			w.Header().Set("Content-Type", "application/msword")
+		default:
+			w.Header().Set("Content-Type", "application/octet-stream")
+		}
+		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("%s; filename=%q; filename*=UTF-8''%s", disp, fileName, url.PathEscape(fileName)))
+		http.ServeFile(w, r, abs)
 	}
 }
 
@@ -211,8 +298,19 @@ func LinkAttachment(w http.ResponseWriter, r *http.Request) {
 	userID, _ := r.Context().Value(middleware.ContextUserID).(int64)
 	roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
 	var uploaderID, currentOwner int64
-	if err := database.DB.QueryRow("SELECT uploader_id, owner_id FROM attachments WHERE id=?", req.ID).Scan(&uploaderID, &currentOwner); err != nil {
+	var ownerType string
+	if err := database.DB.QueryRow("SELECT uploader_id, owner_id, owner_type FROM attachments WHERE id=?", req.ID).Scan(&uploaderID, &currentOwner, &ownerType); err != nil {
 		middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "附件不存在"})
+		return
+	}
+	// 本接口仅用于公共资料附件关联；征求意见、材料下发由各自保存接口校验并绑定
+	if ownerType != "study" {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "该附件不支持此关联方式"})
+		return
+	}
+	var exists int
+	if err := database.DB.QueryRow("SELECT COUNT(*) FROM study_materials WHERE id=?", req.OwnerID).Scan(&exists); err != nil || exists == 0 {
+		middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "资料不存在"})
 		return
 	}
 	// 权限：管理员可关联任意附件；普通用户只能关联自己上传、且未被他人占用的附件
@@ -263,6 +361,9 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 				dutyDaWangYuan = 1
 			}
 		}
+		if err := dutyRows.Err(); err != nil {
+			log.Printf("[查询] 遍历结果失败: %v", err)
+		}
 	}
 	result["today_duty"] = strings.Join(dutyNames, "、")
 	result["today_duty_dawangyuan"] = dutyDaWangYuan
@@ -280,8 +381,8 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 
 	// 本月考勤汇总（当前用户）
 	var monthPresent, monthLeave int
-	database.DB.QueryRow("SELECT COUNT(*) FROM attendances WHERE user_id=? AND attend_date LIKE ? AND status=1", userID, month+"%").Scan(&monthPresent)
-	database.DB.QueryRow("SELECT COUNT(*) FROM attendances WHERE user_id=? AND attend_date LIKE ? AND status=2", userID, month+"%").Scan(&monthLeave)
+	database.DB.QueryRow("SELECT COUNT(*) FROM attendances WHERE user_id=? AND attend_date GLOB ? AND status=1", userID, month+"*").Scan(&monthPresent)
+	database.DB.QueryRow("SELECT COUNT(*) FROM attendances WHERE user_id=? AND attend_date GLOB ? AND status=2", userID, month+"*").Scan(&monthLeave)
 	result["month_present"] = monthPresent
 	result["month_leave"] = monthLeave
 
@@ -316,8 +417,8 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 	}
 	result["pending_incoming"] = pendingIncoming
 
-	// 最新收文列表（工作台展示）
-	rows, err := database.DB.Query(
+	// 最新收文列表（工作台展示，仅具备收文查看权限者可见）
+	rows, err := permQuery(roleCode, "incoming.view",
 		`SELECT id, receive_no, received_date, from_unit, from_doc_no, title, status
 		 FROM incoming_docs ORDER BY id DESC LIMIT 6`)
 	if err == nil {
@@ -354,7 +455,7 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 	weekRows, err := database.DB.Query(
 		`SELECT s.duty_date, u.real_name, s.is_dawangyuan FROM duty_schedules s
 		 JOIN users u ON s.user_id=u.id
-		 WHERE s.duty_date >= date('now','weekday 0','-6 days') AND s.duty_date <= date('now','weekday 0')
+		 WHERE s.duty_date >= date('now','localtime','weekday 0','-6 days') AND s.duty_date <= date('now','localtime','weekday 0')
 		 ORDER BY s.duty_date`)
 	if err == nil {
 		defer weekRows.Close()
@@ -427,6 +528,9 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		if err := rows.Err(); err != nil {
+			log.Printf("[查询] 遍历结果失败: %v", err)
+		}
 		return counts
 	}
 	result["trend"] = map[string]interface{}{
@@ -460,192 +564,249 @@ func pathID(r *http.Request) int64 {
 
 // SafeRemoveUploadedFile 安全删除上传目录下的物理文件并同步清理 attachments 关联记录
 func SafeRemoveUploadedFile(cfg *config.Config, fileURLOrPath string) {
+	fileURLOrPath = strings.TrimSpace(fileURLOrPath)
 	if fileURLOrPath == "" || cfg == nil {
 		return
 	}
+	base := uploadBase(cfg.Upload.Dir)
 
-	// 1. 如果是 /api/uploads/123 形式的附件引用
+	// 1. /api/uploads/{id} 形式：删除该附件的物理文件与记录
 	if strings.HasPrefix(fileURLOrPath, "/api/uploads/") {
 		idStr := strings.TrimPrefix(fileURLOrPath, "/api/uploads/")
 		if id, err := strconv.ParseInt(idStr, 10, 64); err == nil && id > 0 {
-			var physicalPath string
-			if err := database.DB.QueryRow("SELECT file_path FROM attachments WHERE id=?", id).Scan(&physicalPath); err == nil {
-				deletePhysicalPath(cfg, physicalPath)
-			}
+			deletePhysicalPath(cfg, resolveFilePath(cfg.Upload.Dir, fileURLOrPath))
 			database.DB.Exec("DELETE FROM attachments WHERE id=?", id)
-			return
 		}
-	}
-
-	// 2. 如果是 web 访问路径，如 /uploads/2026/10/xxx 或 /uploads/solicits/2026/10/xxx
-	cleanURL := strings.TrimPrefix(fileURLOrPath, "/")
-	if strings.HasPrefix(cleanURL, "uploads/") {
-		rel := strings.TrimPrefix(cleanURL, "uploads/")
-		realPath := filepath.Join(cfg.Upload.Dir, rel)
-		deletePhysicalPath(cfg, realPath)
-		database.DB.Exec("DELETE FROM attachments WHERE file_path=? OR file_path=?", realPath, fileURLOrPath)
 		return
 	}
 
-	// 3. 其它路径（如直接存的物理相对或绝对路径）
-	deletePhysicalPath(cfg, fileURLOrPath)
-	database.DB.Exec("DELETE FROM attachments WHERE file_path=?", fileURLOrPath)
+	// 2. Web 路径或存储路径：解析为上传目录内的真实文件后删除，并清理指向同一文件的附件记录
+	abs := resolveFilePath(cfg.Upload.Dir, fileURLOrPath)
+	if abs == "" {
+		return
+	}
+	deletePhysicalPath(cfg, abs)
+	database.DB.Exec("DELETE FROM attachments WHERE file_path IN (?, ?, ?)", fileURLOrPath, abs, relToBase(base, abs))
 }
 
+// deletePhysicalPath 删除上传目录内的文件；p 必须为已解析的绝对路径，越界一律拒绝
 func deletePhysicalPath(cfg *config.Config, p string) {
 	if p == "" || cfg == nil {
 		return
 	}
-	cleanP := filepath.Clean(p)
-	absUploadDir, err1 := filepath.Abs(cfg.Upload.Dir)
-	absTarget, err2 := filepath.Abs(cleanP)
-	if err1 != nil || err2 != nil {
+	base := uploadBase(cfg.Upload.Dir)
+	target := filepath.Clean(p)
+	if !filepath.IsAbs(target) || !withinBase(base, target) {
 		return
 	}
-
-	// 安全边界校验：必须严格在 cfg.Upload.Dir 目录下，防止路径穿越删除系统关键文件
-	rel, err := filepath.Rel(absUploadDir, absTarget)
-	if err != nil || strings.HasPrefix(rel, "..") || rel == "." {
-		return
-	}
-
-	if fi, err := os.Stat(absTarget); err == nil && !fi.IsDir() {
-		if err := os.Remove(absTarget); err == nil {
-			log.Printf("[文件清理] 成功物理清理磁盘文件: %s", absTarget)
+	if fileExists(target) {
+		if err := os.Remove(target); err == nil {
+			log.Printf("[文件清理] 成功物理清理磁盘文件: %s", target)
 		}
 	}
 }
 
-// CleanupOrphanFiles 扫描并清理磁盘上超过24小时且无任何数据库引用的孤儿残留文件
+// 孤儿清扫熔断阈值：候选文件较多且超过一半时，判定为路径解析异常，整轮放弃
+const (
+	orphanBreakerMinCount = 10
+	trashDirName          = ".trash"
+	trashKeepDays         = 30
+)
+
+// CleanupOrphanFiles 扫描超过 24 小时且无任何数据库引用的孤儿文件，移入 .trash/日期/ 隔离区（保留 30 天后才物理删除）
 func CleanupOrphanFiles(cfg *config.Config) {
 	if cfg == nil || cfg.Upload.Dir == "" {
 		return
 	}
-
-	absUploadDir, err := filepath.Abs(cfg.Upload.Dir)
-	if err != nil {
-		return
-	}
-	if fi, err := os.Stat(absUploadDir); err != nil || !fi.IsDir() {
+	base := uploadBase(cfg.Upload.Dir)
+	if fi, err := os.Stat(base); err != nil || !fi.IsDir() {
 		return
 	}
 
 	activeFiles := make(map[string]bool)
-
+	totalRefs, danglingRefs := 0, 0
 	addActivePath := func(p string) {
 		p = strings.TrimSpace(p)
 		if p == "" {
 			return
 		}
-		if filepath.IsAbs(p) {
-			if absP, err := filepath.Abs(p); err == nil {
-				activeFiles[absP] = true
-			}
-		}
-		clean := strings.TrimPrefix(p, "/")
-		clean = strings.TrimPrefix(clean, "uploads/")
-		realP := filepath.Join(absUploadDir, clean)
-		if absRealP, err := filepath.Abs(realP); err == nil {
-			activeFiles[absRealP] = true
-		}
-		activeFiles[realP] = true
-	}
-
-	// 1. 收集 attachments 表活跃文件
-	rows, err := database.DB.Query("SELECT file_path FROM attachments WHERE file_path != ''")
-	if err != nil {
-		log.Printf("[孤儿文件清理] 熔断防护触发：查询 attachments 表失败: %v，已终止清理以保护数据安全", err)
-		return
-	}
-	for rows.Next() {
-		var p string
-		if err := rows.Scan(&p); err != nil {
-			rows.Close()
-			log.Printf("[孤儿文件清理] 熔断防护触发：扫描 attachments 数据失败: %v，已终止清理", err)
+		totalRefs++
+		abs := resolveFilePath(cfg.Upload.Dir, p)
+		if abs == "" || !fileExists(abs) {
+			danglingRefs++
 			return
 		}
-		addActivePath(p)
+		activeFiles[abs] = true
 	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		log.Printf("[孤儿文件清理] 熔断防护触发：遍历 attachments 发生错误: %v，已终止清理", err)
-		return
-	}
-	rows.Close()
 
-	// 2. 收集征求意见 solicits / solicit_feedbacks 活跃文件
-	// 修正字段名：solicits 为 pdf_path, word_path；solicit_feedbacks 为 reply_doc_path, attachment_path
-	sRows, err := database.DB.Query(`
+	// 白名单：attachments 及各业务表引用的全部文件；任一查询失败即熔断
+	queries := []struct{ name, sql string }{
+		{"attachments", "SELECT file_path FROM attachments WHERE file_path != ''"},
+		// solicits 为 pdf_path, word_path；solicit_feedbacks 为 reply_doc_path, attachment_path
+		{"solicits/solicit_feedbacks", `
 		SELECT pdf_path FROM solicits WHERE pdf_path != ''
 		UNION SELECT word_path FROM solicits WHERE word_path != ''
 		UNION SELECT reply_doc_path FROM solicit_feedbacks WHERE reply_doc_path != ''
-		UNION SELECT attachment_path FROM solicit_feedbacks WHERE attachment_path != ''`)
-	if err != nil {
-		log.Printf("[孤儿文件清理] 熔断防护触发：查询 solicits/solicit_feedbacks 表失败: %v，已终止清理以保护数据安全", err)
-		return
-	}
-	for sRows.Next() {
-		var p string
-		if err := sRows.Scan(&p); err != nil {
-			sRows.Close()
-			log.Printf("[孤儿文件清理] 熔断防护触发：扫描 solicits/solicit_feedbacks 数据失败: %v，已终止清理", err)
-			return
-		}
-		addActivePath(p)
-	}
-	if err := sRows.Err(); err != nil {
-		sRows.Close()
-		log.Printf("[孤儿文件清理] 熔断防护触发：遍历 solicits/solicit_feedbacks 发生错误: %v，已终止清理", err)
-		return
-	}
-	sRows.Close()
-
-	// 3. 收集材料下发 dispatches 活跃文件
-	// 修正字段名：dispatches 为 pdf_path, attachment_path
-	dRows, err := database.DB.Query(`
+		UNION SELECT attachment_path FROM solicit_feedbacks WHERE attachment_path != ''`},
+		// dispatches 为 pdf_path, attachment_path
+		{"dispatches", `
 		SELECT pdf_path FROM dispatches WHERE pdf_path != ''
-		UNION SELECT attachment_path FROM dispatches WHERE attachment_path != ''`)
-	if err != nil {
-		log.Printf("[孤儿文件清理] 熔断防护触发：查询 dispatches 表失败: %v，已终止清理以保护数据安全", err)
-		return
+		UNION SELECT attachment_path FROM dispatches WHERE attachment_path != ''`},
 	}
-	for dRows.Next() {
-		var p string
-		if err := dRows.Scan(&p); err != nil {
-			dRows.Close()
-			log.Printf("[孤儿文件清理] 熔断防护触发：扫描 dispatches 数据失败: %v，已终止清理", err)
+	for _, q := range queries {
+		rows, err := database.DB.Query(q.sql)
+		if err != nil {
+			log.Printf("[孤儿文件清理] 熔断防护触发：查询 %s 表失败: %v，已终止清理以保护数据安全", q.name, err)
 			return
 		}
-		addActivePath(p)
+		for rows.Next() {
+			var p sql.NullString
+			if err := rows.Scan(&p); err != nil {
+				rows.Close()
+				log.Printf("[孤儿文件清理] 熔断防护触发：扫描 %s 数据失败: %v，已终止清理", q.name, err)
+				return
+			}
+			addActivePath(p.String)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			log.Printf("[孤儿文件清理] 熔断防护触发：遍历 %s 发生错误: %v，已终止清理", q.name, err)
+			return
+		}
+		rows.Close()
 	}
-	if err := dRows.Err(); err != nil {
-		dRows.Close()
-		log.Printf("[孤儿文件清理] 熔断防护触发：遍历 dispatches 发生错误: %v，已终止清理", err)
+
+	// 大量引用解析不到真实文件，说明路径口径异常（如上传目录配置变更），整轮放弃以免误删
+	if danglingRefs >= orphanBreakerMinCount && danglingRefs*2 > totalRefs {
+		log.Printf("[孤儿文件清理] 熔断防护触发：%d/%d 条文件引用无法解析到真实文件，疑似上传目录配置异常，已终止清理", danglingRefs, totalRefs)
 		return
 	}
-	dRows.Close()
 
-	cleanedCount := 0
+	trashRoot := filepath.Join(base, trashDirName)
 	cutoff := time.Now().Add(-24 * time.Hour)
-
-	filepath.Walk(absUploadDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info == nil || info.IsDir() {
+	totalFiles := 0
+	var candidates []string
+	filepath.Walk(base, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info == nil {
 			return nil
 		}
-		// 仅清理修改时间在 24 小时之前的孤儿文件（防止误删当前正在并发上传的临时文件）
-		if info.ModTime().Before(cutoff) {
-			absP, _ := filepath.Abs(path)
-			if !activeFiles[absP] && !activeFiles[path] {
-				if err := os.Remove(absP); err == nil {
-					cleanedCount++
-					log.Printf("[孤儿文件清理] 清理无引用历史残留文件: %s", absP)
-				}
+		if info.IsDir() {
+			if path == trashRoot {
+				return filepath.SkipDir
 			}
+			return nil
+		}
+		totalFiles++
+		// 仅清理修改时间在 24 小时之前的孤儿文件（防止误删当前正在并发上传的临时文件）
+		if info.ModTime().Before(cutoff) && !activeFiles[filepath.Clean(path)] {
+			candidates = append(candidates, filepath.Clean(path))
 		}
 		return nil
 	})
 
-	if cleanedCount > 0 {
-		log.Printf("[孤儿文件清理] 完成历史残留文件大扫除，共物理释放 %d 个孤儿文件", cleanedCount)
+	if len(candidates) >= orphanBreakerMinCount && len(candidates)*2 > totalFiles {
+		log.Printf("[孤儿文件清理] 熔断防护触发：待清理 %d 个 / 共 %d 个文件，比例异常，已终止清理以保护数据安全", len(candidates), totalFiles)
+		return
 	}
+
+	moved := 0
+	dayDir := filepath.Join(trashRoot, time.Now().Format("20060102"))
+	for _, p := range candidates {
+		dst := filepath.Join(dayDir, relToBase(base, p))
+		if err := os.MkdirAll(filepath.Dir(dst), 0750); err != nil {
+			continue
+		}
+		if err := os.Rename(p, dst); err == nil {
+			moved++
+			log.Printf("[孤儿文件清理] 无引用历史残留文件已移入隔离区: %s", dst)
+		}
+	}
+	if moved > 0 {
+		log.Printf("[孤儿文件清理] 完成历史残留文件大扫除，共隔离 %d 个孤儿文件（%d 天后物理删除）", moved, trashKeepDays)
+	}
+
+	purgeOldTrash(trashRoot)
+}
+
+// purgeOldTrash 物理删除隔离区中超过保留期的日期目录
+func purgeOldTrash(trashRoot string) {
+	entries, err := os.ReadDir(trashRoot)
+	if err != nil {
+		return
+	}
+	limit := time.Now().AddDate(0, 0, -trashKeepDays)
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		day, err := time.ParseInLocation("20060102", e.Name(), time.Local)
+		if err != nil || !day.Before(limit) {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(trashRoot, e.Name())); err == nil {
+			log.Printf("[孤儿文件清理] 隔离区过期目录已物理删除: %s", e.Name())
+		}
+	}
+}
+
+// incomingSummary 收文列表顶部统计（全量口径，不随分页与筛选变化）
+func incomingSummary() map[string]int {
+	var total, pending, done, needReturn sql.NullInt64
+	database.DB.QueryRow(`SELECT COUNT(*),
+		SUM(CASE WHEN status < 5 THEN 1 ELSE 0 END),
+		SUM(CASE WHEN status = 5 THEN 1 ELSE 0 END),
+		SUM(CASE WHEN need_return = 1 AND IFNULL(returned, 0) != 1 THEN 1 ELSE 0 END)
+		FROM incoming_docs`).Scan(&total, &pending, &done, &needReturn)
+	return map[string]int{"total": int(total.Int64), "pending": int(pending.Int64), "done": int(done.Int64), "need_return": int(needReturn.Int64)}
+}
+
+// deadlineSummary 征求意见/材料下发列表顶部统计：进行中与已截止数量（按截止时间实时判断）
+func deadlineSummary(table string) map[string]int {
+	q := "SELECT IFNULL(deadline, '') FROM solicits"
+	if table == "dispatches" {
+		q = "SELECT IFNULL(deadline, '') FROM dispatches"
+	}
+	out := map[string]int{"total": 0, "active": 0, "expired": 0}
+	rows, err := database.DB.Query(q)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var d string
+		if rows.Scan(&d) != nil {
+			continue
+		}
+		out["total"]++
+		if d != "" && isDeadlineExpired(d) {
+			out["expired"]++
+		} else {
+			out["active"]++
+		}
+	}
+	return out
+}
+
+// meetingSummary 会务列表顶部统计：待召开与已召开数量
+func meetingSummary() map[string]int {
+	out := map[string]int{"total": 0, "upcoming": 0, "finished": 0}
+	rows, err := database.DB.Query("SELECT IFNULL(meeting_date, ''), IFNULL(meeting_time, '') FROM meetings")
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	now := time.Now()
+	for rows.Next() {
+		var d, t string
+		if rows.Scan(&d, &t) != nil {
+			continue
+		}
+		out["total"]++
+		if mt, ok := parseMeetingTime(d, t); ok && now.Before(mt) {
+			out["upcoming"]++
+		} else {
+			out["finished"]++
+		}
+	}
+	return out
 }

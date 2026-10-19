@@ -176,6 +176,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../store/auth'
 import request from '../utils/request'
+import { fetchDashboardStats } from '../utils/dashboardStats'
 import GlobalSearchModal from '../components/GlobalSearchModal.vue'
 
 const route = useRoute()
@@ -275,20 +276,28 @@ const todayStr = computed(() => {
 
 const unread = ref(0)
 
-const loadUnread = async () => {
+const loadUnread = async (force = false) => {
+  // 无工作台权限时不请求，避免每次进入页面都弹出无权限提示
+  if (!authStore.hasPerm('dashboard.view')) return
   try {
-    const res = await request.get('/dashboard-stats')
+    const res = await fetchDashboardStats({ force })
     unread.value = res.pending_incoming || 0
   } catch (e) { console.error(e) }
 }
 
 const refreshUnread = () => {
-  loadUnread()
+  loadUnread(true)
 }
 
 let watermarkObserver = null
+let watermarkTimer = null
 
 const initWatermark = () => {
+  // 防止重复初始化产生多个互相“自愈”的监听器
+  if (watermarkObserver) {
+    watermarkObserver.disconnect()
+    watermarkObserver = null
+  }
   const userStr = localStorage.getItem('user')
   let real_name = '用户'
   let phone = ''
@@ -371,11 +380,18 @@ const initWatermark = () => {
       const oldDiv = document.getElementById('sys-watermark')
       if (oldDiv) oldDiv.remove()
       watermarkDiv = createDiv()
-      if (watermarkObserver) watermarkObserver.observe(document.body, { childList: true, subtree: true, attributes: true })
+      if (watermarkObserver) observeWatermark(watermarkDiv)
     }
   })
-  
-  watermarkObserver.observe(document.body, { childList: true, subtree: true, attributes: true })
+
+  observeWatermark(watermarkDiv)
+}
+
+// 只监听 body 直接子节点增删 + 水印元素自身属性，避免监听整棵 DOM 树的属性变化拖慢页面
+const observeWatermark = (div) => {
+  if (!watermarkObserver) return
+  watermarkObserver.observe(document.body, { childList: true })
+  watermarkObserver.observe(div, { attributes: true, attributeFilter: ['style', 'class', 'id', 'hidden'] })
 }
 
 onMounted(() => {
@@ -384,10 +400,18 @@ onMounted(() => {
   checkMobile()
   window.addEventListener('resize', checkMobile)
   window.addEventListener('incoming-changed', refreshUnread)
-  setTimeout(() => initWatermark(), 500)
+  watermarkTimer = setTimeout(() => {
+    watermarkTimer = null
+    initWatermark()
+  }, 500)
 })
 
 onUnmounted(() => {
+  // 布局已卸载（如令牌失效跳回登录页）时，取消尚未执行的水印初始化，防止水印与监听器泄漏到登录页
+  if (watermarkTimer) {
+    clearTimeout(watermarkTimer)
+    watermarkTimer = null
+  }
   if (watermarkObserver) {
     watermarkObserver.disconnect()
     watermarkObserver = null
@@ -562,7 +586,7 @@ const handleCommand = (cmd) => {
   width: 3.5px;
   height: 22px;
   border-radius: 0 3px 3px 0;
-  background: linear-gradient(180deg, #e53935, #9e1b1e);
+  background: linear-gradient(180deg, #e53935, var(--yx-brand));
 }
 
 .sidebar-menu :deep(.el-sub-menu__title) {
@@ -691,7 +715,7 @@ const handleCommand = (cmd) => {
   align-items: center;
   gap: 8px;
   background: #f5f6f8;
-  border: 1px solid #dcdfe5;
+  border: 1px solid var(--yx-border);
   border-radius: 20px;
   padding: 5px 12px;
   cursor: pointer;
@@ -736,7 +760,7 @@ const handleCommand = (cmd) => {
   font-family: var(--yx-font-mono, monospace);
   color: var(--yx-text-3);
   background: #ffffff;
-  border: 1px solid #dcdfe5;
+  border: 1px solid var(--yx-border);
   border-radius: 4px;
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.06);
 }
@@ -825,6 +849,13 @@ const handleCommand = (cmd) => {
   padding: 20px;
   overflow-y: auto;
   min-height: calc(100vh - 60px);
+}
+@media (max-width: 768px) {
+  .main {
+    padding: 12px;
+    /* 为固定在底部的操作栏留出空间 */
+    padding-bottom: calc(76px + env(safe-area-inset-bottom));
+  }
 }
 
 /* 响应式适配 */

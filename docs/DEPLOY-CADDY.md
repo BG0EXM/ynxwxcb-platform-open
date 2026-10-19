@@ -1,6 +1,6 @@
 # 伊宁县委宣传部部务工作平台 - 部署文档（Caddy）
 
-> 适用版本：**V1.7.1** · 更新日期：**2026-10-11**  
+> 适用版本：**V1.8.0** · 更新日期：**2026-10-19**  
 > 运行环境：Debian / Ubuntu · Caddy Web 服务器（自动 HTTPS / IPv6 双栈）· 可与 WordPress 共存
 
 ## 〇、系统组成与服务端可选增强组件
@@ -34,9 +34,11 @@ sudo apt install -y tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-chi-tra po
 /opt/ynxwxcb/
 ├── ynxwxcb-server          # 主程序（可执行文件）
 ├── static/               # 前端页面文件夹（与主程序同级）
-├── config.json           # 配置文件
-├── backup.sh             # 备份脚本
-└── data/                 # 运行时自动生成
+├── config.json           # 配置文件（由 config.json.example 复制修改，root:ynxwxcb 640）
+├── config.json.example   # 配置模板
+├── backup.sh             # 备份脚本（也可放在 deploy/backup.sh，脚本自动识别应用目录）
+├── restore.sh            # 恢复脚本（同上）
+└── data/                 # 运行时自动生成，唯一允许服务写入的目录
 ```
 
 ## 二、两种部署方式
@@ -52,11 +54,11 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ynxwxcb-server ./cmd/server
 
 （Windows 装 Go：https://go.dev/dl ；Linux：`sudo apt install golang`；不想装 Go 可用别人编译好的文件）
 
-**第 2 步：上传两个东西到服务器同一目录**
+**第 2 步：上传到服务器同一目录**
 
 ```bash
 sudo mkdir -p /opt/ynxwxcb
-# 上传 ynxwxcb-server 和 static/（用仓库 backend/static/）到 /opt/ynxwxcb/
+# 上传 ynxwxcb-server、static/（用仓库 backend/static/）和 config.json.example 到 /opt/ynxwxcb/
 cd /opt/ynxwxcb
 sudo chmod +x ynxwxcb-server
 ```
@@ -65,10 +67,21 @@ sudo chmod +x ynxwxcb-server
 
 ```bash
 sudo useradd -r -s /usr/sbin/nologin ynxwxcb
-sudo chown -R ynxwxcb:ynxwxcb /opt/ynxwxcb
+# 主程序、static/ 归 root（服务只读）；只有 data/ 归运行用户可写
+# （不要对整个 /opt/ynxwxcb 递归 chown，否则已有的 data/ 会变成 root 所有，服务无法写库）
+sudo chown root:root /opt/ynxwxcb /opt/ynxwxcb/ynxwxcb-server
+sudo chown -R root:root /opt/ynxwxcb/static
+sudo install -d -o ynxwxcb -g ynxwxcb -m 750 /opt/ynxwxcb/data
 sudo cp config.json.example config.json
+# config.json 含 JWT 密钥和管理员密码：归 root、组 ynxwxcb 只读，其他用户不可读
+sudo chown root:ynxwxcb config.json
+sudo chmod 640 config.json
 sudo nano config.json   # 改 jwt.secret 和 admin.password
 ```
+
+> 模板中 `server.host` 为 `"127.0.0.1"`（后端只接受本机 Caddy 转发，外部无法直连 8080），`server.trust_proxy` 为 `true`（信任 Caddy 传来的 `X-Real-IP` 作为客户端真实 IP，用于登录限流与操作日志）。两者需配合使用；若不经 Caddy 直接对外暴露 8080，请改为 `"0.0.0.0"` 与 `false`。
+>
+> systemd 服务启用了 `ProtectSystem=strict` 等沙箱加固，**仅 `/opt/ynxwxcb/data` 可写**，因此 `config.json` 必须事先创建好。
 
 **第 4 步：systemd 自启**
 
@@ -122,19 +135,23 @@ sudo ufw allow 443/tcp
 
 ### 1. 手动备份与定时调度
 ```bash
-# 手动立即备份
+# 前置依赖（必装，备份脚本用它生成一致性快照并做完整性自检）
+sudo apt install -y sqlite3
+
+# 手动立即备份（脚本在应用根目录时用 /opt/ynxwxcb/backup.sh）
 sudo /opt/ynxwxcb/deploy/backup.sh
 
 # crontab 每日凌晨 2:00 自动执行：
 0 2 * * * /opt/ynxwxcb/deploy/backup.sh >> /var/log/ynxwxcb-backup.log 2>&1
 ```
 
-备份包保存在独立的 `/opt/ynxwxcb-backup/`，自动保留 14 天并带有 SHA256 校验和。建议定期同步到异机或对象存储。
+备份包保存在独立的 `/opt/ynxwxcb-backup/`（目录 700、备份包 600，仅 root 可读），自动保留 14 天并带有 SHA256 校验和。建议定期同步到异机或对象存储。
 
 ### 2. 灾难恢复
 ```bash
 sudo /opt/ynxwxcb/deploy/restore.sh /opt/ynxwxcb-backup/ynxwxcb_xxx.tar.gz
 ```
+> 脚本先校验 SHA256 并自检数据库，再停服恢复；停服后任一步骤失败会自动回滚到 `data.pre_restore_bak_*` 并重新拉起服务。详见 [DEPLOY.md](DEPLOY.md) 第六节。
 
 ## 六、默认账号
 

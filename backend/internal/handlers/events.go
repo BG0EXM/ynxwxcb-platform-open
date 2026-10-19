@@ -25,12 +25,12 @@ func ListMajorEvents(w http.ResponseWriter, r *http.Request) {
 	where := ` WHERE 1=1`
 	args := []interface{}{}
 	if year != "" {
-		where += ` AND e.period LIKE ?`
-		args = append(args, year+"%")
+		where += ` AND e.period GLOB ?`
+		args = append(args, year+"*")
 	}
 	if month != "" {
-		where += ` AND e.period LIKE ?`
-		args = append(args, month+"%")
+		where += ` AND e.period GLOB ?`
+		args = append(args, month+"*")
 	}
 	if departmentID != "" {
 		where += ` AND e.department_id = ?`
@@ -46,7 +46,7 @@ func ListMajorEvents(w http.ResponseWriter, r *http.Request) {
 			e.created_by, u.real_name, e.created_at, e.updated_at
 		FROM major_events e
 		LEFT JOIN departments d ON e.department_id = d.id
-		LEFT JOIN users u ON e.created_by = u.id` + where + ` ORDER BY e.period DESC, e.department_id, e.id DESC`
+		LEFT JOIN users u ON e.created_by = u.id` + where + ` ORDER BY e.period DESC, e.department_id, e.id DESC LIMIT 2000`
 	rows, err := database.DB.Query(query, args...)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
@@ -217,8 +217,8 @@ func ExportMajorEvents(w http.ResponseWriter, r *http.Request) {
 
 	query := `SELECT e.period, e.title
 		FROM major_events e
-		WHERE e.period LIKE ? ORDER BY e.period LIMIT 10000`
-	rows, err := database.DB.Query(query, year+"%")
+		WHERE e.period GLOB ? ORDER BY e.period LIMIT 10000`
+	rows, err := database.DB.Query(query, year+"*")
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return

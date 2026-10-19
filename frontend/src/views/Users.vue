@@ -36,6 +36,7 @@
           </div>
 
           <el-table size="large" :data="list" stripe v-loading="loading" empty-text="暂无用户">
+            <template #empty><EmptyState description="暂无用户" /></template>
             <el-table-column prop="id" label="ID" width="60" />
             <el-table-column prop="username" label="用户名" width="130" />
             <el-table-column prop="real_name" label="姓名" width="120">
@@ -97,7 +98,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="save">保存</el-button>
+        <el-button type="primary" :loading="saveLoading" @click="save">保存</el-button>
       </template>
     </el-drawer>
 
@@ -109,6 +110,7 @@
         <el-button type="primary" :icon="'Plus'" @click="addDept">添加部门</el-button>
       </div>
       <el-table size="large" :data="depts" stripe empty-text="暂无部门">
+        <template #empty><EmptyState description="暂无部门" /></template>
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column prop="name" label="部门名称" min-width="200" />
         <el-table-column label="操作" width="180" fixed="right">
@@ -135,6 +137,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '../utils/request'
 import { useAuthStore } from '../store/auth'
 import PageHeader from '../components/PageHeader.vue'
+import EmptyState from '../components/EmptyState.vue'
 import AttendanceProfileDrawer from '../components/AttendanceProfileDrawer.vue'
 
 const authStore = useAuthStore()
@@ -205,7 +208,19 @@ const openEdit = (row) => {
   dialogVisible.value = true
 }
 
-const save = async () => {
+// 防重复提交：保存请求进行中时禁用按钮并忽略重复点击
+const saveLoading = ref(false)
+const save = async (...args) => {
+  if (saveLoading.value) return
+  saveLoading.value = true
+  try {
+    await saveImpl(...args)
+  } finally {
+    saveLoading.value = false
+  }
+}
+
+const saveImpl = async () => {
   if (!form.username || !form.real_name) return ElMessage.warning('用户名和姓名必填')
   try {
     if (editId.value) {

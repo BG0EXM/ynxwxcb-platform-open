@@ -36,7 +36,7 @@ func TestUploads_RouterProtection(t *testing.T) {
 
 	hash, _ := database.HashPassword("123456")
 	database.DB.Exec(`INSERT OR REPLACE INTO users (id, username, password_hash, real_name, department_id, role_id, status, token_version)
-		VALUES (1, 'admin', ?, '系统管理员', 1, 1, 1, 0)`, hash)
+		VALUES (1, 'admin', ?, '系统管理员', 1, (SELECT id FROM roles WHERE code='admin'), 1, 0)`, hash)
 
 	filePath := filepath.Join(cfg.Upload.Dir, "secret.pdf")
 	os.WriteFile(filePath, []byte("confidential content"), 0644)
@@ -65,14 +65,14 @@ func TestUploads_RouterProtection(t *testing.T) {
 		}
 	}
 
-	// 测试 C: 带 query token 访问 -> 允许 200
+	// 测试 C: 网址参数 ?token= 已取消支持（令牌会泄露到日志与浏览器历史）-> 必须 401
 	{
 		token, _ := auth.GenerateToken(1, "admin", "系统管理员", "admin", 0)
 		req := httptest.NewRequest("GET", "/uploads/secret.pdf?token="+token, nil)
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("带 query token 访问应当返回 200，实际: %d", rec.Code)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("网址参数令牌应被拒绝（401），实际: %d", rec.Code)
 		}
 	}
 }

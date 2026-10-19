@@ -2,7 +2,7 @@ import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { showWafAlert } from './wafAlert'
 import { showSecrecyAlert } from './secrecyGuard'
-import router from '../router'
+import router, { isPublicPath } from '../router'
 import { useAuthStore } from '../store/auth'
 
 const request = axios.create({
@@ -12,28 +12,24 @@ const request = axios.create({
 
 let isRedirectingToLogin = false
 
-const isPublicPage = (path = '') => {
-  return ['/meeting', '/solicit', '/dispatch'].some(prefix => path.startsWith(prefix))
-}
-
 const handleUnauthorized = (error) => {
   const currentPath = router.currentRoute.value?.path || ''
-  if (isPublicPage(currentPath)) {
-    // 公开填报页面（以 /meeting, /solicit, /dispatch 等开头），严禁跳转 /login，仅返回 Promise.reject
+  if (isPublicPath(currentPath)) {
+    // 登录页与公开填报页面（/meeting/、/solicit/、/dispatch/ 等），严禁跳转 /login，仅返回 Promise.reject
     return
   }
 
   if (!isRedirectingToLogin) {
     isRedirectingToLogin = true
+    // 令牌已失效：只清空本地登录态，不再携带失效令牌调用退出接口
     try {
-      const authStore = useAuthStore()
-      authStore.logout()
+      useAuthStore().clearLocal()
     } catch (_) {
       localStorage.removeItem('token')
       localStorage.removeItem('user')
       localStorage.removeItem('must_change')
     }
-    ElMessage.error('登录已过期，请重新登录')
+    ElMessage.error(error?.response?.data?.error || '登录已过期，请重新登录')
     if (currentPath !== '/login') {
       router.push('/login').finally(() => {
         setTimeout(() => {
@@ -93,9 +89,25 @@ request.interceptors.response.use(
       return Promise.reject(error)
     }
 
-    // 3. 401 认证失效处理
+    // 3. 登录接口的 401 是“用户名或密码错误/账号锁定”等，直接展示后端提示，不按会话过期处理
+    if (status === 401 && error.config?.url === '/auth/login') {
+      ElMessage.error(msg || '用户名或密码错误')
+      return Promise.reject(error)
+    }
+
+    // 4. 401 认证失效处理
     if (status === 401) {
       handleUnauthorized(error)
+      return Promise.reject(error)
+    }
+
+    // 5. 服务端强制修改默认密码
+    if (status === 403 && code === 'MUST_CHANGE_PASSWORD') {
+      try { useAuthStore().setMustChange(true) } catch (_) { localStorage.setItem('must_change', '1') }
+      if (router.currentRoute.value?.path !== '/profile') {
+        ElMessage.warning(msg || '请先修改默认密码')
+        router.push('/profile')
+      }
       return Promise.reject(error)
     }
 
@@ -117,7 +129,7 @@ export async function exportFile(url, params = {}, defaultName = '导出.xlsx') 
       timeout: 60000
     })
     // 检查是否为 JSON 错误响应（如 401 时后端返回 {"error":...}）
-    if (res.data && res.data.type === 'application/json') {
+    if (res.data && (res.data.type || '').startsWith('application/json')) {
       const err = await parseBlobResponseData(res)
       if (err) {
         if (err.security_violation === 'SECRECY_LEAK_PREVENTED' || err.code === 'SECRECY_BLOCK') {
@@ -149,7 +161,8 @@ export async function exportFile(url, params = {}, defaultName = '导出.xlsx') 
       }
     }
     // 用 FileReader 兼容方式触发下载（更稳）
-    const blob = new Blob([res.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    // 按服务端返回的真实类型保存（Excel 与 Word 导出共用本函数）
+    const blob = new Blob([res.data], { type: res.headers['content-type'] || 'application/octet-stream' })
     const link = document.createElement('a')
     link.href = URL.createObjectURL(blob)
     link.download = fileName
@@ -206,7 +219,7 @@ export async function downloadFile(url, defaultName = '下载文件') {
       headers: { Authorization: `Bearer ${token}` },
       timeout: 60000
     })
-    if (res.data && res.data.type === 'application/json') {
+    if (res.data && (res.data.type || '').startsWith('application/json')) {
       const err = await parseBlobResponseData(res)
       if (err) {
         if (err.security_violation === 'SECRECY_LEAK_PREVENTED' || err.code === 'SECRECY_BLOCK') {
@@ -277,5 +290,39 @@ export async function downloadFile(url, defaultName = '下载文件') {
 
     const msg = errData?.error || e.message || '下载失败，请重试'
     ElMessage.error(msg)
+  }
+}
+
+// 带鉴权在新窗口预览附件（/api/uploads/{id} 或 /uploads/...）：window.open 不会携带令牌，必须先取回再以本地地址打开
+export async function openAuthFile(path) {
+  if (!path) return
+  // 先同步打开空白窗口，避免异步回调中 window.open 被浏览器拦截
+  const win = window.open('', '_blank')
+  const token = localStorage.getItem('token')
+  try {
+    const res = await axios.get(path, {
+      responseType: 'blob',
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: 60000
+    })
+    const blob = new Blob([res.data], { type: res.headers['content-type'] || 'application/octet-stream' })
+    const objUrl = URL.createObjectURL(blob)
+    if (win) {
+      win.location.href = objUrl
+    } else {
+      window.open(objUrl, '_blank')
+    }
+    setTimeout(() => URL.revokeObjectURL(objUrl), 60000)
+  } catch (e) {
+    if (win) win.close()
+    let errData = null
+    if (e.response?.data instanceof Blob) {
+      errData = await parseBlobResponseData(e)
+    }
+    if (e.response?.status === 401) {
+      handleUnauthorized(e)
+      return
+    }
+    ElMessage.error(errData?.error || '文件打开失败')
   }
 }

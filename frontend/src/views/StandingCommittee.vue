@@ -20,7 +20,8 @@
       </div>
 
       <el-table :data="list" stripe v-loading="loading" empty-text="暂无常委大事记">
-        <el-table-column prop="event_date" label="日期" width="120" />
+        <template #empty><EmptyState description="暂无常委大事记" /></template>
+        <el-table-column prop="event_date" label="日期" width="128" />
         <el-table-column prop="title" label="事项" min-width="280" show-overflow-tooltip />
         <el-table-column prop="created_name" label="录入人" width="100" />
         <el-table-column label="操作" width="140" fixed="right">
@@ -43,7 +44,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="save">保存</el-button>
+        <el-button type="primary" :loading="saveLoading" @click="save">保存</el-button>
       </template>
     </el-drawer>
   </div>
@@ -55,6 +56,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import request, { exportFile } from '../utils/request'
 import dayjs from 'dayjs'
 import PageHeader from '../components/PageHeader.vue'
+import EmptyState from '../components/EmptyState.vue'
 
 const list = ref([])
 const loading = ref(false)
@@ -88,7 +90,19 @@ const openEdit = (row) => {
   dialogVisible.value = true
 }
 
-const save = async () => {
+// 防重复提交：保存请求进行中时禁用按钮并忽略重复点击
+const saveLoading = ref(false)
+const save = async (...args) => {
+  if (saveLoading.value) return
+  saveLoading.value = true
+  try {
+    await saveImpl(...args)
+  } finally {
+    saveLoading.value = false
+  }
+}
+
+const saveImpl = async () => {
   if (!form.value.event_date) return ElMessage.warning('请选择日期')
   if (!form.value.title) return ElMessage.warning('请输入事项')
   try {
@@ -118,7 +132,7 @@ const removeEvent = async (row) => {
 const exportData = () => {
   const params = { year: year.value }
   if (month.value) params.month = month.value
-  exportFile('/export/standing-events', params)
+  exportFile('/export/standing-events', params, '常委大事记.docx')
 }
 
 onMounted(loadData)

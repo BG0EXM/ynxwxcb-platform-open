@@ -22,6 +22,7 @@
       <!-- 加班统计表 -->
       <div class="section-title">{{ periodLabel }}加班与补休统计</div>
       <el-table :data="statsList" stripe v-loading="loading" empty-text="暂无统计数据">
+        <template #empty><EmptyState description="暂无统计数据" /></template>
         <el-table-column prop="user_name" label="姓名" width="120" />
         <el-table-column prop="department" label="部门" width="140" />
         <el-table-column label="加班小时" width="100">
@@ -50,7 +51,8 @@
       <!-- 加班记录列表（当年全部，可按年/月筛选） -->
       <div class="section-title mt-16">{{ periodLabel }}加班记录</div>
       <el-table :data="records" stripe size="small" v-loading="recLoading" empty-text="暂无加班记录">
-        <el-table-column prop="overtime_date" label="日期" width="110" />
+        <template #empty><EmptyState description="暂无加班记录" /></template>
+        <el-table-column prop="overtime_date" label="日期" width="128" />
         <el-table-column prop="user_name" label="姓名" width="100" />
         <el-table-column prop="hours" label="加班小时" width="90" />
         <el-table-column prop="reason" label="事由" min-width="200" show-overflow-tooltip />
@@ -83,7 +85,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="save">保存</el-button>
+        <el-button type="primary" :loading="saveLoading" @click="save">保存</el-button>
       </template>
     </el-drawer>
   </div>
@@ -97,6 +99,7 @@ import dayjs from 'dayjs'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../store/auth'
 import PageHeader from '../components/PageHeader.vue'
+import EmptyState from '../components/EmptyState.vue'
 
 const authStore = useAuthStore()
 const router = useRouter()
@@ -164,7 +167,19 @@ const openCreate = () => {
   dialogVisible.value = true
 }
 
-const save = async () => {
+// 防重复提交：保存请求进行中时禁用按钮并忽略重复点击
+const saveLoading = ref(false)
+const save = async (...args) => {
+  if (saveLoading.value) return
+  saveLoading.value = true
+  try {
+    await saveImpl(...args)
+  } finally {
+    saveLoading.value = false
+  }
+}
+
+const saveImpl = async () => {
   if (!form.value.user_id) return ElMessage.warning('请选择人员')
   if (!form.value.overtime_date) return ElMessage.warning('请选择日期')
   if (!form.value.hours || form.value.hours <= 0) return ElMessage.warning('请填写加班时长')

@@ -166,8 +166,8 @@ func ListDutySchedules(w http.ResponseWriter, r *http.Request) {
 		query += ` AND s.duty_date >= ? AND s.duty_date <= ?`
 		args = append(args, startDate, endDate)
 	} else if month != "" {
-		query += ` AND s.duty_date LIKE ?`
-		args = append(args, month+"%")
+		query += ` AND s.duty_date GLOB ?`
+		args = append(args, month+"*")
 	}
 	if userID != "" {
 		query += ` AND s.user_id = ?`

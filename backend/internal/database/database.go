@@ -19,7 +19,8 @@ func Init(dbPath string) error {
 		return fmt.Errorf("创建数据库目录失败: %v", err)
 	}
 
-	dsn := fmt.Sprintf("%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)", dbPath)
+	// _txlock=immediate：事务开启即取得写锁，避免“先读后写”事务在并发下升级写锁失败而报错
+	dsn := fmt.Sprintf("%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)&_txlock=immediate", dbPath)
 	var err error
 	DB, err = sql.Open("sqlite", dsn)
 	if err != nil {
@@ -107,6 +108,7 @@ var migrations = []migration{
 	{17, "新增征求意见模块表（征求任务与单位反馈）", migrateV17},
 	{18, "新增材料下发模块表（下发通知与单位查收记录）", migrateV18},
 	{19, "追加缺失的高频索引", migrateV19},
+	{20, "公开链接随机令牌、默认密码强制修改标记、会务报名编辑凭证、收回通讯员征求意见/材料下发权限、存量附件绑定归属", migrateV20},
 }
 
 // migrateV2 版本2：用车报备支持科室人开车（增加 driver_name 字段）

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"time"
@@ -33,7 +34,8 @@ func formatDateTime(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
-	return t.Format("2006/1/2 15:04")
+	// 库内时间按 UTC 瞬时值读出，导出前统一换算为服务器本地时间（北京时间），避免少 8 小时
+	return t.In(time.Local).Format("2006/1/2 15:04")
 }
 
 // exportExcel 生成 Excel 并写入响应
@@ -96,7 +98,7 @@ func ExportVehicleApplies(w http.ResponseWriter, r *http.Request) {
 	roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
 
 	query := `SELECT a.id, a.use_date, a.use_time, v.plate_no, v.brand, a.user_name,
-			a.destination, a.purpose, a.passengers, u.real_name, a.created_at
+			a.destination, a.purpose, IFNULL(a.passengers, 0), u.real_name, a.created_at
 		FROM vehicle_applies a
 		LEFT JOIN vehicles v ON a.vehicle_id = v.id
 		LEFT JOIN users u ON a.reporter_id = u.id
@@ -129,6 +131,7 @@ func ExportVehicleApplies(w http.ResponseWriter, r *http.Request) {
 		var reporter sqlStr
 		var createdAt sql.NullTime
 		if err := rows.Scan(&id, &useDate, &useTime, &plateNo, &brand, &userName, &destination, &purpose, &passengers, &reporter, &createdAt); err != nil {
+			log.Printf("[导出] 读取数据行失败，已跳过: %v", err)
 			continue
 		}
 		data = append(data, []interface{}{
@@ -152,7 +155,7 @@ func ExportLeaveRecords(w http.ResponseWriter, r *http.Request) {
 	userID, _ := r.Context().Value(middleware.ContextUserID).(int64)
 	roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
 
-	query := `SELECT l.id, u.real_name, l.leave_type, l.start_date, l.end_date, l.days, l.reason, l.created_at
+	query := `SELECT l.id, u.real_name, l.leave_type, l.start_date, l.end_date, IFNULL(l.days, 0), l.reason, l.created_at
 		FROM leave_records l LEFT JOIN users u ON l.user_id = u.id WHERE 1=1`
 	args := []interface{}{}
 	if roleCode != "admin" {
@@ -167,8 +170,8 @@ func ExportLeaveRecords(w http.ResponseWriter, r *http.Request) {
 		args = append(args, t)
 	}
 	if m := r.URL.Query().Get("month"); m != "" {
-		query += ` AND l.start_date LIKE ?`
-		args = append(args, m+"%")
+		query += ` AND l.start_date GLOB ?`
+		args = append(args, m+"*")
 	}
 	query += ` ORDER BY l.id DESC LIMIT 10000`
 
@@ -194,6 +197,7 @@ func ExportLeaveRecords(w http.ResponseWriter, r *http.Request) {
 		var days float64
 		var createdAt sql.NullTime
 		if err := rows.Scan(&id, &userName, &leaveType, &startDate, &endDate, &days, &reason, &createdAt); err != nil {
+			log.Printf("[导出] 读取数据行失败，已跳过: %v", err)
 			continue
 		}
 		data = append(data, []interface{}{
@@ -219,7 +223,7 @@ func ExportAttendances(w http.ResponseWriter, r *http.Request) {
 	date := r.URL.Query().Get("date")
 	month := r.URL.Query().Get("month")
 
-	query := `SELECT a.id, u.real_name, a.attend_date, a.status, a.leave_type, a.remark, a.created_at
+	query := `SELECT a.id, u.real_name, a.attend_date, IFNULL(a.status, 0), a.leave_type, a.remark, a.created_at
 		FROM attendances a LEFT JOIN users u ON a.user_id = u.id WHERE 1=1`
 	args := []interface{}{}
 	if date != "" {
@@ -227,8 +231,8 @@ func ExportAttendances(w http.ResponseWriter, r *http.Request) {
 		args = append(args, date)
 	}
 	if month != "" {
-		query += ` AND a.attend_date LIKE ?`
-		args = append(args, month+"%")
+		query += ` AND a.attend_date GLOB ?`
+		args = append(args, month+"*")
 	}
 	if roleCode != "admin" {
 		query += ` AND a.user_id = ?`
@@ -259,6 +263,7 @@ func ExportAttendances(w http.ResponseWriter, r *http.Request) {
 		var status int
 		var createdAt sql.NullTime
 		if err := rows.Scan(&id, &userName, &attendDate, &status, &leaveType, &remark, &createdAt); err != nil {
+			log.Printf("[导出] 读取数据行失败，已跳过: %v", err)
 			continue
 		}
 		statusText := statusNames[status]
@@ -283,12 +288,12 @@ func ExportAttendances(w http.ResponseWriter, r *http.Request) {
 func ExportDutySchedules(w http.ResponseWriter, r *http.Request) {
 	month := r.URL.Query().Get("month")
 
-	query := `SELECT s.duty_date, u.real_name, s.is_dawangyuan, s.note, s.created_at
+	query := `SELECT s.duty_date, u.real_name, IFNULL(s.is_dawangyuan, 0), s.note, s.created_at
 		FROM duty_schedules s LEFT JOIN users u ON s.user_id = u.id WHERE 1=1`
 	args := []interface{}{}
 	if month != "" {
-		query += ` AND s.duty_date LIKE ?`
-		args = append(args, month+"%")
+		query += ` AND s.duty_date GLOB ?`
+		args = append(args, month+"*")
 	}
 	query += ` ORDER BY s.duty_date LIMIT 10000`
 
@@ -307,6 +312,7 @@ func ExportDutySchedules(w http.ResponseWriter, r *http.Request) {
 		var isDaWangYuan int
 		var createdAt sql.NullTime
 		if err := rows.Scan(&dutyDate, &userName, &isDaWangYuan, &note, &createdAt); err != nil {
+			log.Printf("[导出] 读取数据行失败，已跳过: %v", err)
 			continue
 		}
 		dwy := ""
@@ -330,7 +336,7 @@ func ExportDutySchedules(w http.ResponseWriter, r *http.Request) {
 // ExportIncomingDocs 导出收文登记 Excel
 func ExportIncomingDocs(w http.ResponseWriter, r *http.Request) {
 	query := `SELECT d.id, d.receive_no, d.received_date, d.from_unit, d.from_doc_no, d.title,
-		d.secret_level, d.urgency, d.copies, d.status,
+		d.secret_level, d.urgency, IFNULL(d.copies, 0), IFNULL(d.status, 0),
 		COALESCE(d.assigned_department, ''), COALESCE(d.handling_remarks, ''), COALESCE(d.archive_box_no, ''),
 		u.real_name, d.created_at
 		FROM incoming_docs d LEFT JOIN users u ON d.registrar_id = u.id WHERE 1=1`
@@ -394,6 +400,7 @@ func ExportIncomingDocs(w http.ResponseWriter, r *http.Request) {
 		var createdAt sql.NullTime
 		if err := rows.Scan(&id, &receiveNo, &receivedDate, &fromUnit, &fromDocNo, &title,
 			&secretLevel, &urgency, &copies, &status, &assignedDept, &remarks, &archiveBoxNo, &realName, &createdAt); err != nil {
+			log.Printf("[导出] 读取数据行失败，已跳过: %v", err)
 			continue
 		}
 		data = append(data, []interface{}{

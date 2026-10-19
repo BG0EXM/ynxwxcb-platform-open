@@ -95,6 +95,10 @@ func SavePermissionMatrix(w http.ResponseWriter, r *http.Request) {
 			roleCodeByID[id] = code
 		}
 	}
+	if err := rrows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
 
 	tx, err := database.DB.Begin()
 	if err != nil {

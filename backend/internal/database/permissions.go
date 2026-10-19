@@ -97,12 +97,23 @@ var businessDefault = []string{
 	"dispatch.manage",
 }
 
+// reporterDefault 乡镇通讯员默认权限：不含征求意见/材料下发管理（v20 起收回）
+var reporterDefault = func() []string {
+	out := make([]string, 0, len(businessDefault))
+	for _, c := range businessDefault {
+		if c != "solicit.manage" && c != "dispatch.manage" {
+			out = append(out, c)
+		}
+	}
+	return out
+}()
+
 // DefaultRolePermissions 各角色默认权限（admin 由代码旁路，始终全权限）
 var DefaultRolePermissions = map[string][]string{
 	"admin":    allPermissionCodes(),
 	"leader":   businessDefault,
 	"staff":    businessDefault,
-	"reporter": businessDefault,
+	"reporter": reporterDefault,
 }
 
 // allPermissionCodes 返回全部权限点标识

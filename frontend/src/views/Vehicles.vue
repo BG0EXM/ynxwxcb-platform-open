@@ -53,12 +53,28 @@
             </div>
           </div>
 
-          <el-table :data="applies" v-loading="loading" class="mt-12">
+          <MobileCardList v-if="isMobile" class="mt-12" :data="applies" :loading="loading" empty-text="暂无用车报备">
+            <template #title="{ row }">{{ row.vehicle_no }} · {{ row.user_name }}</template>
+            <template #tag="{ row }"><el-tag size="small" effect="plain">{{ row.use_time || '全天' }}</el-tag></template>
+            <template #meta="{ row }">
+              <span>{{ row.use_date }}</span>
+              <span v-if="row.destination">去 {{ row.destination }}</span>
+              <span v-if="row.purpose">{{ row.purpose }}</span>
+            </template>
+            <template #actions="{ row }">
+              <el-button link type="primary" @click="openPrint(row)">打印派车单</el-button>
+              <template v-if="authStore.isAdmin || row.reporter_id === authStore.user?.id">
+                <el-button link type="primary" @click="handleApplyRowCommand('edit', row)">修改</el-button>
+                <el-button link type="danger" @click="handleApplyRowCommand('delete', row)">删除</el-button>
+              </template>
+            </template>
+          </MobileCardList>
+          <el-table v-else :data="applies" v-loading="loading" class="mt-12">
             <template #empty>
               <empty-state description="暂无公车报备记录" />
             </template>
 
-            <el-table-column prop="use_date" label="用车日期" width="115" />
+            <el-table-column prop="use_date" label="用车日期" width="128" />
             <el-table-column prop="vehicle_no" label="车牌号" width="120" />
             <el-table-column prop="user_name" label="用车人" width="95" />
             <el-table-column prop="driver_name" label="开车人" width="95" />
@@ -154,7 +170,7 @@
             <el-table-column prop="seats" label="座位数" width="80" align="center" />
             <el-table-column prop="driver" label="责任司机" width="100" />
             <el-table-column prop="vin" label="车架号(VIN)" width="160" show-overflow-tooltip />
-            <el-table-column prop="insurance_date" label="保险到期日" width="120" />
+            <el-table-column prop="insurance_date" label="保险到期日" width="128" />
 
             <el-table-column label="操作" width="140" fixed="right" align="right">
               <template #default="{ row }">
@@ -291,7 +307,7 @@
       <template #footer>
         <div class="drawer-footer-wrap">
           <el-button @click="vDialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="saveVehicle">保存车辆</el-button>
+          <el-button type="primary" :loading="saveVehicleLoading" @click="saveVehicle">保存车辆</el-button>
         </div>
       </template>
     </el-drawer>
@@ -302,14 +318,17 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request, { exportFile } from '../utils/request'
+import { useMobile } from '../utils/useMobile'
 import dayjs from 'dayjs'
 import { useAuthStore } from '../store/auth'
 import PageHeader from '../components/PageHeader.vue'
+import MobileCardList from '../components/MobileCardList.vue'
 import StatCard from '../components/StatCard.vue'
 import StatusDot from '../components/StatusDot.vue'
 import EmptyState from '../components/EmptyState.vue'
 
 const authStore = useAuthStore()
+const { isMobile } = useMobile()
 const activeTab = ref('apply')
 const loading = ref(false)
 
@@ -360,7 +379,8 @@ const vStatusNames = { 1: '可用', 2: '使用中', 3: '维修中', 4: '报废' 
 const statCards = computed(() => {
   const totalV = vehicles.value.length
   const availableV = vehicles.value.filter(v => v.status === 1).length
-  const todayApplies = applies.value.filter(a => a.use_date === dayjs().format('YYYY-MM-DD')).length
+  // 今日派车取后端全量统计（此前只统计当前分页的 20 条）
+  const todayApplies = todayUseCount.value
   return [
     { label: '车辆总数', value: totalV, unit: '辆', icon: 'Van', color: 'var(--yx-ink-2)' },
     { label: '可用车辆', value: availableV, unit: '辆', icon: 'CircleCheck', color: 'var(--el-color-success)' },
@@ -392,7 +412,19 @@ const openVehicleEdit = (row) => {
   vDialogVisible.value = true
 }
 
-const saveVehicle = async () => {
+// 防重复提交：保存请求进行中时禁用按钮并忽略重复点击
+const saveVehicleLoading = ref(false)
+const saveVehicle = async (...args) => {
+  if (saveVehicleLoading.value) return
+  saveVehicleLoading.value = true
+  try {
+    await saveVehicleImpl(...args)
+  } finally {
+    saveVehicleLoading.value = false
+  }
+}
+
+const saveVehicleImpl = async () => {
   if (!vFormRef.value) return
   await vFormRef.value.validate(async (valid) => {
     if (!valid) return
@@ -423,7 +455,16 @@ const removeVehicle = async (row) => {
   } catch (e) { console.error(e) }
 }
 
+const todayUseCount = ref(0)
+const loadTodayStats = async () => {
+  try {
+    const res = await request.get('/vehicle-stats')
+    todayUseCount.value = res?.today_use || 0
+  } catch (e) { console.error(e) }
+}
+
 const loadApplies = async () => {
+  loadTodayStats()
   loading.value = true
   try {
     const params = { page: page.value, page_size: pageSize }

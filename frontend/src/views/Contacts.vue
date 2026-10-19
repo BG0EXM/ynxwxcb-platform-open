@@ -36,7 +36,20 @@
             </div>
           </div>
 
-          <el-table size="large" :data="list" stripe v-loading="loading" empty-text="暂无联系人">
+          <MobileCardList v-if="isMobile" class="mt-12" :data="list" :loading="loading" empty-text="暂无联系人">
+            <template #title="{ row }">{{ row.name }}<span style="font-weight: 400; color: var(--yx-text-3); font-size: 13px; margin-left: 8px">{{ row.position }}</span></template>
+            <template #meta="{ row }">
+              <span>{{ row.department_name }}</span>
+              <a v-if="row.phone" :href="'tel:' + row.phone" style="color: var(--yx-ink-2)">{{ row.phone }}</a>
+            </template>
+            <template #actions="{ row }">
+              <el-button v-if="getContactUserId(row)" link type="primary" @click="openProfile(row)">考勤档案</el-button>
+              <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+              <el-button link type="danger" @click="remove(row)">删除</el-button>
+            </template>
+          </MobileCardList>
+          <el-table v-else size="large" :data="list" stripe v-loading="loading" empty-text="暂无联系人">
+            <template #empty><EmptyState description="暂无联系人" /></template>
             <el-table-column prop="name" label="姓名" width="130">
               <template #default="{ row }">
                 <el-button
@@ -94,7 +107,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="save">保存</el-button>
+        <el-button type="primary" :loading="saveLoading" @click="save">保存</el-button>
       </template>
     </el-drawer>
 
@@ -112,10 +125,14 @@ import { ref, reactive, watch, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '../utils/request'
+import { useMobile } from '../utils/useMobile'
 import PageHeader from '../components/PageHeader.vue'
+import EmptyState from '../components/EmptyState.vue'
+import MobileCardList from '../components/MobileCardList.vue'
 import AttendanceProfileDrawer from '../components/AttendanceProfileDrawer.vue'
 
 const route = useRoute()
+const { isMobile } = useMobile()
 const list = ref([])
 const loading = ref(false)
 const page = ref(1)
@@ -207,7 +224,19 @@ const openEdit = (row) => {
   dialogVisible.value = true
 }
 
-const save = async () => {
+// 防重复提交：保存请求进行中时禁用按钮并忽略重复点击
+const saveLoading = ref(false)
+const save = async (...args) => {
+  if (saveLoading.value) return
+  saveLoading.value = true
+  try {
+    await saveImpl(...args)
+  } finally {
+    saveLoading.value = false
+  }
+}
+
+const saveImpl = async () => {
   if (!form.name) return ElMessage.warning('请输入姓名')
   try {
     if (editId.value) {

@@ -65,6 +65,7 @@
       <div class="sched-section">
         <div class="sched-title">已排班人员（{{ daySchedules.length }}人）</div>
         <el-table :data="daySchedules" size="small" empty-text="当日暂无排班">
+          <template #empty><EmptyState description="当日暂无排班" /></template>
           <el-table-column prop="user_name" label="值守人员" width="120" />
           <el-table-column label="县委大院" width="110">
             <template #default="{ row }">
@@ -178,6 +179,7 @@ import request, { exportFile } from '../utils/request'
 import dayjs from 'dayjs'
 import { useAuthStore } from '../store/auth'
 import PageHeader from '../components/PageHeader.vue'
+import EmptyState from '../components/EmptyState.vue'
 import { getWeekRangeInfo, generateDutyPosterCanvas } from '../utils/dutyPoster'
 
 const authStore = useAuthStore()

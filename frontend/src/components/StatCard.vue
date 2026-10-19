@@ -1,6 +1,6 @@
 <template>
   <div 
-    class="stat-card yx-card-gold" 
+    class="stat-card" 
     :class="{ 'is-clickable': clickable }"
     @click="handleClick"
   >

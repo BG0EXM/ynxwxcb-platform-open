@@ -1,4 +1,4 @@
-/* ===== 设计变量（V1.5 方向 B：墨蓝主导 + 红金点缀）=====
+/* ===== 设计变量（墨蓝主导 + 红金点缀；UI 升级后：主色只用墨蓝，红色仅用于党徽、标题竖线与危险操作）=====
    所有颜色、字号、圆角、阴影都从这里取，页面里不要再写死色值。
    同时整套覆盖 Element Plus 的颜色变量，现有 Element 组件会自动换肤。
    纯本地 CSS，无外部依赖，离线可用。 */
@@ -23,6 +23,10 @@
   --yx-text-3: #6b7785;           /* 辅助说明（白底对比度约 4.6:1，满足 AA） */
   --yx-text-4: #8a94a0;           /* 占位符 */
   --yx-border: #dcdfe5;
+  --yx-border-soft: #e6e8ec;        /* 卡片/表格外框细线 */
+  --yx-surface-muted: #fafbfc;      /* 表单分组、筛选区等次级底色 */
+  --yx-ink-2-bg: #e9ecf0;           /* 墨蓝浅底：选中、悬停 */
+  --yx-ink-2-hover: #2f538e;
 
   /* ---------- 字号阶梯（正文不小于 14px，辅助不小于 12px）---------- */
   --yx-fs-xs: 12px;
@@ -48,7 +52,8 @@
 
   /* ---------- 字体栈 ---------- */
   --yx-font-serif: "YX Serif SC", "Source Han Serif SC", "Noto Serif SC", "Songti SC", "STSong", "SimSun", serif;
-  --yx-font-sans: "SimHei", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
+  /* 正文无衬线：苹方 / 微软雅黑优先（黑体在屏幕上笔画粗笨，仅作最后兜底），标题仍用宋体 */
+  --yx-font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", "SimHei", sans-serif;
   --yx-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
 
@@ -133,14 +138,14 @@
 
 /* ===== Element Plus 色板映射 ===== */
 :root {
-  /* 主色：政务红 */
-  --el-color-primary: #a62122;
-  --el-color-primary-light-3: #c16364;
-  --el-color-primary-light-5: #d39091;
-  --el-color-primary-light-7: #e4bcbd;
-  --el-color-primary-light-8: #ecd2d3;
-  --el-color-primary-light-9: #f6e9e9;
-  --el-color-primary-dark-2: #851a1b;
+  /* 主色：墨蓝（按钮、链接、分页、选中态统一一套；此前组件主色为红、主按钮为蓝，两套混用） */
+  --el-color-primary: #24406e;
+  --el-color-primary-light-3: #66799a;
+  --el-color-primary-light-5: #92a0b6;
+  --el-color-primary-light-7: #bdc6d4;
+  --el-color-primary-light-8: #d3d9e2;
+  --el-color-primary-light-9: #e9ecf0;
+  --el-color-primary-dark-2: #1d3358;
 
   /* 成功：松绿 */
   --el-color-success: #2e7d5b;

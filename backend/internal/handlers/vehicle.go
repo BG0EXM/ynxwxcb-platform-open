@@ -86,6 +86,10 @@ func CreateVehicle(w http.ResponseWriter, r *http.Request) {
 	if req.Status == 0 {
 		req.Status = 1
 	}
+	if req.Status < 1 || req.Status > 4 {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "车辆状态不合法"})
+		return
+	}
 	_, err := database.DB.Exec(
 		`INSERT INTO vehicles (plate_no, brand, seats, driver, status, vin, engine_no, insurance_date, inspect_date, register_date, purchase_at, note)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -108,6 +112,16 @@ func UpdateVehicle(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.ID == 0 {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少ID"})
+		return
+	}
+	req.PlateNo = strings.TrimSpace(req.PlateNo)
+	if req.PlateNo == "" {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "车牌号必填"})
+		return
+	}
+	// 车辆状态：1可用 2使用中 3维修中 4已报废
+	if req.Status < 1 || req.Status > 4 {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "车辆状态不合法"})
 		return
 	}
 	_, err := database.DB.Exec(
@@ -254,40 +268,39 @@ func CreateVehicleApply(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "所选车辆不存在"})
 		return
 	}
-	if vehicleStatus != 1 {
-		statusText := "不可用"
-		if vehicleStatus == 2 {
-			statusText = "维修中"
-		} else if vehicleStatus == 3 {
-			statusText = "已停用"
+	// 状态口径：1可用 2使用中 3维修中 4已报废；“使用中”是实时状态，不影响其他日期/时段报备
+	if vehicleStatus == 3 || vehicleStatus == 4 {
+		statusText := "维修中"
+		if vehicleStatus == 4 {
+			statusText = "已报废"
 		}
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("车辆「%s」当前为%s状态，禁止报备", plateNo, statusText)})
 		return
 	}
 
-	// 2. 时段重叠冲突校验：同一车辆在同日期的所选时段已被占用时直接拦截
-	conflictQuery := `SELECT user_name, use_time FROM vehicle_applies WHERE vehicle_id = ? AND use_date = ? AND id != ?`
-	conflictRows, err := database.DB.Query(conflictQuery, req.VehicleID, req.UseDate, req.ID)
-	if err == nil {
-		defer conflictRows.Close()
-		for conflictRows.Next() {
-			var occUser, occTime sql.NullString
-			if err := conflictRows.Scan(&occUser, &occTime); err == nil {
-				if isVehicleTimeOverlap(req.UseTime, occTime.String) {
-					middleware.JSON(w, http.StatusBadRequest, map[string]string{
-						"error": fmt.Sprintf("车辆「%s」在 %s 的时段（%s）已被「%s」报备占用，请更换车辆或调整用车时段", plateNo, req.UseDate, occTime.String, occUser.String),
-					})
-					return
-				}
-			}
-		}
+	// 2. 时段重叠冲突校验与写入放在同一事务（开启即持写锁）内完成，杜绝并发报备撞车
+	tx, err := database.DB.Begin()
+	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "报备失败"})
+		return
 	}
-
-	res, err := database.DB.Exec(
+	defer tx.Rollback()
+	if msg, err := vehicleConflict(tx, req.VehicleID, req.UseDate, req.UseTime, 0, plateNo); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "冲突校验失败，请重试"})
+		return
+	} else if msg != "" {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+		return
+	}
+	res, err := tx.Exec(
 		`INSERT INTO vehicle_applies (vehicle_id, reporter_id, user_name, driver_name, purpose, destination, use_date, use_time, passengers)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		req.VehicleID, reporterID, req.UserName, req.DriverName, req.Purpose, req.Destination, req.UseDate, req.UseTime, req.Passengers)
 	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "报备失败"})
+		return
+	}
+	if err := tx.Commit(); err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "报备失败"})
 		return
 	}
@@ -338,39 +351,37 @@ func UpdateVehicleApply(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "所选车辆不存在"})
 		return
 	}
-	if vehicleStatus != 1 {
-		statusText := "不可用"
-		if vehicleStatus == 2 {
-			statusText = "维修中"
-		} else if vehicleStatus == 3 {
-			statusText = "已停用"
+	// 状态口径：1可用 2使用中 3维修中 4已报废；“使用中”是实时状态，不影响其他日期/时段报备
+	if vehicleStatus == 3 || vehicleStatus == 4 {
+		statusText := "维修中"
+		if vehicleStatus == 4 {
+			statusText = "已报废"
 		}
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("车辆「%s」当前为%s状态，禁止报备", plateNo, statusText)})
 		return
 	}
 
-	// 2. 时段重叠冲突校验：同一车辆在同日期的所选时段已被占用时直接拦截（排除本条报备）
-	conflictQuery := `SELECT user_name, use_time FROM vehicle_applies WHERE vehicle_id = ? AND use_date = ? AND id != ?`
-	conflictRows, err := database.DB.Query(conflictQuery, req.VehicleID, req.UseDate, req.ID)
-	if err == nil {
-		defer conflictRows.Close()
-		for conflictRows.Next() {
-			var occUser, occTime sql.NullString
-			if err := conflictRows.Scan(&occUser, &occTime); err == nil {
-				if isVehicleTimeOverlap(req.UseTime, occTime.String) {
-					middleware.JSON(w, http.StatusBadRequest, map[string]string{
-						"error": fmt.Sprintf("车辆「%s」在 %s 的时段（%s）已被「%s」报备占用，请更换车辆或调整用车时段", plateNo, req.UseDate, occTime.String, occUser.String),
-					})
-					return
-				}
-			}
-		}
-	}
-
-	_, err = database.DB.Exec(
-		`UPDATE vehicle_applies SET vehicle_id=?, user_name=?, driver_name=?, purpose=?, destination=?, use_date=?, use_time=?, passengers=? WHERE id=?`,
-		req.VehicleID, req.UserName, req.DriverName, req.Purpose, req.Destination, req.UseDate, req.UseTime, req.Passengers, req.ID)
+	// 2. 时段重叠冲突校验（排除本条报备）与更新在同一事务内完成
+	tx, err := database.DB.Begin()
 	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "修改失败"})
+		return
+	}
+	defer tx.Rollback()
+	if msg, err := vehicleConflict(tx, req.VehicleID, req.UseDate, req.UseTime, req.ID, plateNo); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "冲突校验失败，请重试"})
+		return
+	} else if msg != "" {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+		return
+	}
+	if _, err := tx.Exec(
+		`UPDATE vehicle_applies SET vehicle_id=?, user_name=?, driver_name=?, purpose=?, destination=?, use_date=?, use_time=?, passengers=? WHERE id=?`,
+		req.VehicleID, req.UserName, req.DriverName, req.Purpose, req.Destination, req.UseDate, req.UseTime, req.Passengers, req.ID); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "修改失败"})
+		return
+	}
+	if err := tx.Commit(); err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "修改失败"})
 		return
 	}
@@ -561,4 +572,25 @@ func VehicleStats(w http.ResponseWriter, r *http.Request) {
 	database.DB.QueryRow("SELECT COUNT(*) FROM vehicle_applies WHERE use_date=?", today).Scan(&todayUse)
 	stats["today_use"] = todayUse
 	middleware.JSON(w, http.StatusOK, stats)
+}
+
+// vehicleConflict 在事务内检查同一车辆同日时段是否已被占用（excludeID 为编辑时排除的本条记录，新建传 0）。
+// 查询出错时返回 error，调用方必须拒绝报备（失败即关闭）。
+func vehicleConflict(tx *sql.Tx, vehicleID int64, useDate, useTime string, excludeID int64, plateNo string) (string, error) {
+	rows, err := tx.Query(`SELECT user_name, use_time FROM vehicle_applies WHERE vehicle_id = ? AND use_date = ? AND id != ?`,
+		vehicleID, useDate, excludeID)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var occUser, occTime sql.NullString
+		if err := rows.Scan(&occUser, &occTime); err != nil {
+			return "", err
+		}
+		if isVehicleTimeOverlap(useTime, occTime.String) {
+			return fmt.Sprintf("车辆「%s」在 %s 的时段（%s）已被「%s」报备占用，请更换车辆或调整用车时段", plateNo, useDate, occTime.String, occUser.String), nil
+		}
+	}
+	return "", rows.Err()
 }

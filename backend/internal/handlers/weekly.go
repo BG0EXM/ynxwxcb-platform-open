@@ -45,7 +45,7 @@ func ListWeeklySummaries(w http.ResponseWriter, r *http.Request) {
 			s.created_by, u.real_name, s.created_at, s.updated_at
 		FROM weekly_summaries s
 		LEFT JOIN departments d ON s.department_id = d.id
-		LEFT JOIN users u ON s.created_by = u.id` + where + ` ORDER BY s.week_start DESC, s.department_id`
+		LEFT JOIN users u ON s.created_by = u.id` + where + ` ORDER BY s.week_start DESC, s.department_id LIMIT 2000`
 	rows, err := database.DB.Query(query, args...)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})

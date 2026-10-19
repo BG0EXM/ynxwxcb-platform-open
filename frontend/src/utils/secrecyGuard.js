@@ -34,8 +34,18 @@ const SECRECY_PATTERNS = [
  * @param {string} textSample 
  * @returns {{ violated: boolean, level: string, keyword: string }}
  */
+// 文件名白名单词组（与后端 filenameWhitelistPhrases 保持一致）：保密法学习、保密教育等宣传学习类材料名称剔除后再匹配
+const FILENAME_WHITELIST = [
+  '保守国家秘密法', '保守國家秘密法', '保守国家秘密', '保守國家秘密', '国家秘密法', '國家秘密法', '保密法',
+  '保密知识', '保密知識', '保密教育', '保密宣传', '保密宣傳', '保密培训', '保密培訓', '保密工作', '保密常识', '保密常識'
+]
+
 export const checkSecrecyViolation = (fileName = '', textSample = '') => {
-  const target = `${fileName} ${textSample}`.replace(/[\s\-_]/g, '')
+  let name = String(fileName || '').replace(/[\s\-_]/g, '')
+  for (const phrase of FILENAME_WHITELIST) {
+    name = name.split(phrase).join('')
+  }
+  const target = `${name} ${textSample}`.replace(/[\s\-_]/g, '')
   for (const item of SECRECY_PATTERNS) {
     if (item.regex.test(target)) {
       const match = target.match(item.regex)
@@ -89,10 +99,19 @@ export const showSecrecyAlert = (options = {}) => {
             // 公开端：清空表单并锁定会话状态
             console.warn('[SecrecyGuard] 公开端涉密阻断，锁定当前会话')
           } else {
-            // 管理后台：直接清除认证凭证，使现有 JWT 立即失效
+            // 管理后台：通知后端递增令牌版本使现有 JWT 立即失效，并清空本地全部登录态
             console.warn('[SecrecyGuard] 管理后台涉密阻断，会话强制锁定并清空令牌')
+            const oldToken = localStorage.getItem('token')
+            if (oldToken) {
+              fetch('/api/auth/logout', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${oldToken}` },
+                keepalive: true
+              }).catch(e => console.error(e))
+            }
             localStorage.removeItem('token')
             localStorage.removeItem('user')
+            localStorage.removeItem('must_change')
           }
         },
         () => {

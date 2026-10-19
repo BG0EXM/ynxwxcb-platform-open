@@ -12,8 +12,34 @@
       </template>
     </page-header>
 
+    <StatStrip :items="statItems" />
+
     <el-card shadow="never" class="gov-card">
-      <el-table :data="list" v-loading="loading" size="large">
+      <MobileCardList v-if="isMobile" :data="list" :loading="loading" empty-text="暂无下发材料" @row-click="openDetail">
+        <template #title="{ row }">{{ row.title }}</template>
+        <template #tag="{ row }"><el-tag v-if="row.deadline" size="small" :type="isExpired(row.deadline) ? 'info' : 'success'" effect="light">{{ isExpired(row.deadline) ? '已截止' : '下发中' }}</el-tag></template>
+        <template #meta="{ row }">
+          <span v-if="row.doc_no">{{ row.doc_no }}</span>
+          <span v-if="row.deadline">时限 {{ row.deadline }}</span>
+          <span>已查收 {{ row.receipt_count || 0 }} / {{ row.total_units || 0 }}</span>
+        </template>
+        <template #actions="{ row }">
+          <el-button link type="primary" @click="openDetail(row)">查收台账</el-button>
+          <el-button link type="primary" @click="notifyDispatch(row)">一键通知</el-button>
+          <el-dropdown @command="(cmd) => handleRowCommand(cmd, row)" trigger="click">
+            <el-button link type="primary">更多</el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="copy_url">复制链接</el-dropdown-item>
+                <el-dropdown-item command="export">导出查收台账</el-dropdown-item>
+                <el-dropdown-item command="edit">编辑</el-dropdown-item>
+                <el-dropdown-item command="delete" class="text-danger-item">删除</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </template>
+      </MobileCardList>
+      <el-table v-else :data="list" v-loading="loading" size="large">
         <template #empty>
           <empty-state description="暂无下发的材料或文件" />
         </template>
@@ -54,7 +80,7 @@
                 :percentage="calcPct(row.receipt_count, row.total_units)" 
                 :stroke-width="6" 
                 :show-text="false"
-                :color="isExpired(row.deadline) ? '#909399' : '#b22222'"
+                :color="isExpired(row.deadline) ? '#909399' : '#24406e'"
               />
             </div>
           </template>
@@ -270,7 +296,7 @@
             :percentage="calcPct(detailReceipts.length, detailTotalUnits)" 
             :stroke-width="7" 
             :show-text="false"
-            :color="isExpired(detailDispatch.deadline) ? '#909399' : '#b22222'"
+            :color="isExpired(detailDispatch.deadline) ? '#909399' : '#24406e'"
           />
         </div>
 
@@ -350,9 +376,11 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CopyDocument, ArrowDown } from '@element-plus/icons-vue'
-import request, { exportFile } from '../utils/request'
+import request, { exportFile, openAuthFile } from '../utils/request'
 import dayjs from 'dayjs'
 import PageHeader from '../components/PageHeader.vue'
+import MobileCardList from '../components/MobileCardList.vue'
+import StatStrip from '../components/StatStrip.vue'
 import EmptyState from '../components/EmptyState.vue'
 import { useMobile } from '../utils/useMobile'
 import { validateUploadFileSecrecy, handleSecrecyUploadError } from '../utils/secrecyGuard'
@@ -361,6 +389,13 @@ const { isMobile } = useMobile()
 
 const list = ref([])
 const total = ref(0)
+// 顶部统计（后端按全量口径返回，不随分页变化）
+const summary = ref({})
+const statItems = computed(() => [
+  { label: '下发材料', value: summary.value.total, unit: '份' },
+  { label: '下发中', value: summary.value.active, unit: '份', tone: 'primary' },
+  { label: '已截止', value: summary.value.expired, unit: '份' }
+])
 const page = ref(1)
 const pageSize = ref(10)
 const loading = ref(false)
@@ -453,6 +488,7 @@ const loadData = async () => {
     })
     list.value = res.list || []
     total.value = res.total || 0
+    summary.value = res.summary || {}
   } catch (e) {
     console.error(e)
   } finally {
@@ -540,7 +576,8 @@ const uploadPdfFile = async (options) => {
   } catch (err) {
     if (!handleSecrecyUploadError(err, file, { isPublic: false })) {
       const errMsg = err.response?.data?.error || err.message || '上传失败，请检查文件大小或网络后重试'
-      ElMessage.error(errMsg)
+      // 请求类错误已由拦截器统一提示，仅非请求异常才在此提示，避免同一错误弹两次
+      if (!err?.isAxiosError) ElMessage.error(errMsg)
     }
   } finally {
     uploadPdfLoading.value = false
@@ -576,7 +613,8 @@ const uploadAttachmentFile = async (options) => {
   } catch (err) {
     if (!handleSecrecyUploadError(err, file, { isPublic: false })) {
       const errMsg = err.response?.data?.error || err.message || '上传失败，请检查文件大小或网络后重试'
-      ElMessage.error(errMsg)
+      // 请求类错误已由拦截器统一提示，仅非请求异常才在此提示，避免同一错误弹两次
+      if (!err?.isAxiosError) ElMessage.error(errMsg)
     }
   } finally {
     uploadAttachmentLoading.value = false
@@ -593,9 +631,7 @@ const removeAttachment = () => {
   form.value.attachment_name = ''
 }
 
-const previewPdf = (path) => {
-  window.open(path, '_blank')
-}
+const previewPdf = (path) => openAuthFile(path)
 
 const save = async () => {
   if (!form.value.title) return ElMessage.warning('请填写材料标题')
@@ -637,7 +673,7 @@ const removeDispatch = (row) => {
 }
 
 const copyLink = (row) => {
-  const url = `${window.location.origin}/dispatch/${row.id}`
+  const url = `${window.location.origin}/dispatch/${row.public_token}`
   navigator.clipboard.writeText(url).then(() => {
     ElMessage.success('材料查收纯链接已复制到剪贴板')
   }).catch(() => {
@@ -647,7 +683,7 @@ const copyLink = (row) => {
 
 // 一键通知材料：生成微信工作群规范格式
 const notifyDispatch = (row) => {
-  const url = `${window.location.origin}/dispatch/${row.id}`
+  const url = `${window.location.origin}/dispatch/${row.public_token}`
   const docNoText = row.doc_no ? `（${row.doc_no}）` : ''
   const deadlineText = row.deadline ? `请于 ${row.deadline} 前` : '请'
 
@@ -679,6 +715,8 @@ const openDetail = async (row) => {
     detailDispatch.value = row
     detailTitle.value = `查收台账 - ${row.title}`
     const res = await request.get(`/dispatches/${row.id}`)
+    // 以详情接口返回为准（含公开链接令牌；从全局搜索打开时 row 仅有 id）
+    if (res.dispatch) detailDispatch.value = { ...row, ...res.dispatch }
     detailReceipts.value = res.receipts || []
     detailUnreceipted.value = res.unreceipted_units || []
     detailTotalUnits.value = res.total_units || 0
@@ -710,7 +748,7 @@ const resetUnitReceipt = (unit) => {
 const copyUrgeList = () => {
   if (!detailUnreceipted.value.length) return
   const d = detailDispatch.value
-  const url = `${window.location.origin}/dispatch/${d.id}`
+  const url = `${window.location.origin}/dispatch/${d.public_token}`
   const deadlineText = d.deadline ? `查收截止时间：${d.deadline}\n` : ''
   const unitList = detailUnreceipted.value.map((u, i) => `${i + 1}. ${u}`).join('\n')
 

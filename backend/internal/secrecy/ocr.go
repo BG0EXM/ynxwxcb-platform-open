@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -301,10 +302,16 @@ func runTesseractOnFile(filePath string) (string, error) {
 
 // runNativeAppleVision 尝试调用 macOS 原生 Vision 引擎（若存在）
 func runNativeAppleVision(filePath string) string {
+	// 严禁从 /tmp 等公共可写目录加载：只认项目 bin 目录与程序所在目录，且文件不得被他人可写
 	candidates := []string{
 		"bin/doc_vision_ocr",
 		"backend/bin/doc_vision_ocr",
-		"/tmp/doc_vision_ocr",
+	}
+	// 向上逐级查找 bin/doc_vision_ocr（go test 的工作目录是包目录，如 backend/internal/secrecy）
+	if wd, err := os.Getwd(); err == nil {
+		for dir, i := filepath.Dir(wd), 0; i < 3; dir, i = filepath.Dir(dir), i+1 {
+			candidates = append(candidates, filepath.Join(dir, "bin", "doc_vision_ocr"))
+		}
 	}
 	if execPath, err := os.Executable(); err == nil {
 		dir := filepath.Dir(execPath)
@@ -314,7 +321,7 @@ func runNativeAppleVision(filePath string) string {
 		)
 	}
 	for _, c := range candidates {
-		if fi, err := os.Stat(c); err == nil && !fi.IsDir() {
+		if fi, err := os.Stat(c); err == nil && !fi.IsDir() && fi.Mode().Perm()&0o022 == 0 {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			cmd := exec.CommandContext(ctx, c, filePath)
@@ -331,6 +338,14 @@ func runNativeAppleVision(filePath string) string {
 func runOCROnImage(ext string, data []byte) (string, error) {
 	if len(data) == 0 {
 		return "", nil
+	}
+
+	// 解码前先读尺寸：极小文件声明超大分辨率（解压炸弹）会瞬间耗尽内存
+	if cfg, _, err := image.DecodeConfig(bytes.NewReader(data)); err == nil {
+		if int64(cfg.Width)*int64(cfg.Height) > maxImagePixels {
+			log.Printf("[OCR] 图片分辨率过大（%dx%d），跳过 OCR 识别", cfg.Width, cfg.Height)
+			return "", nil
+		}
 	}
 
 	log.Printf("[OCR] 正在执行公文图片 OCR 识别: 格式=%s, 大小=%d 字节", ext, len(data))
@@ -386,6 +401,9 @@ func runOCROnImage(ext string, data []byte) (string, error) {
 
 // autoCropContent 纯 Go 探测图片有效内容边界，消除巨大空白页对 OCR 字符识别的干扰
 func autoCropContent(data []byte) []byte {
+	if cfg, _, err := image.DecodeConfig(bytes.NewReader(data)); err != nil || int64(cfg.Width)*int64(cfg.Height) > maxImagePixels {
+		return nil
+	}
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil
@@ -557,6 +575,12 @@ func renderPdfPagesWithPdftoppm(pdfPath string) []string {
 	cmd := exec.CommandContext(ctx, pdftoppmPath, "-png", "-r", "150", "-f", "1", "-l", "3", pdfPath, prefix)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		log.Printf("[OCR] pdftoppm 渲染执行异常: %v, 输出: %s", err, string(out))
+		// 超时或失败时已渲染出的部分页面同样含公文内容，必须立即清理，严禁残留在临时目录
+		if partial, _ := filepath.Glob(prefix + "*.png"); len(partial) > 0 {
+			for _, p := range partial {
+				os.Remove(p)
+			}
+		}
 		return nil
 	}
 
@@ -662,4 +686,22 @@ func runOCROnBytes(ext string, data []byte) (string, error) {
 		return runOCROnPdf(data)
 	}
 	return runOCROnImage(ext, data)
+}
+
+// maxImagePixels 图片 OCR 允许的最大像素数（约 4000 万像素）
+const maxImagePixels = 40_000_000
+
+// ocrSem 全局 OCR 并发上限：OCR/光栅化极耗 CPU，匿名上传接口不得把服务器打满
+var ocrSem = make(chan struct{}, 2)
+
+// withOCRSlot 获取 OCR 执行名额后运行识别；排队超过 2 分钟则放弃本次 OCR
+func withOCRSlot(f func() (string, error)) (string, error) {
+	select {
+	case ocrSem <- struct{}{}:
+	case <-time.After(2 * time.Minute):
+		log.Printf("[OCR] 识别任务排队超时，跳过本次 OCR")
+		return "", errors.New("OCR 繁忙")
+	}
+	defer func() { <-ocrSem }()
+	return f()
 }

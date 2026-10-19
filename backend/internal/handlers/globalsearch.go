@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"database/sql"
+	"errors"
+	"log"
 	"net/http"
 	"strings"
 
@@ -207,6 +210,8 @@ func GlobalSearch(w http.ResponseWriter, r *http.Request) {
 
 	kw := "%" + q + "%"
 	const limitPerCategory = 8
+	// 各类别按功能权限分别放行，杜绝借全局搜索越权查看收文、通讯录等
+	roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
 
 	contacts := []GlobalSearchResultItem{}
 	incomingList := []GlobalSearchResultItem{}
@@ -249,7 +254,7 @@ func GlobalSearch(w http.ResponseWriter, r *http.Request) {
 		WHERE c.name LIKE ? OR c.position LIKE ? OR c.phone LIKE ?
 		ORDER BY c.sort ASC, c.id ASC
 		LIMIT ?`
-	if rows, err := database.DB.Query(contactQuery, kw, kw, kw, limitPerCategory); err == nil {
+	if rows, err := permQuery(roleCode, "contact.view", contactQuery, kw, kw, kw, limitPerCategory); err == nil {
 		for rows.Next() {
 			var id int64
 			var name, position, dept, phone string
@@ -281,6 +286,9 @@ func GlobalSearch(w http.ResponseWriter, r *http.Request) {
 				})
 			}
 		}
+		if err := rows.Err(); err != nil {
+			log.Printf("[查询] 遍历结果失败: %v", err)
+		}
 		rows.Close()
 	}
 
@@ -290,7 +298,7 @@ func GlobalSearch(w http.ResponseWriter, r *http.Request) {
 		WHERE title LIKE ? OR from_unit LIKE ? OR doc_no LIKE ? OR from_doc_no LIKE ? OR receive_no LIKE ?
 		ORDER BY id DESC
 		LIMIT ?`
-	if rows, err := database.DB.Query(incomingQuery, kw, kw, kw, kw, kw, limitPerCategory); err == nil {
+	if rows, err := permQuery(roleCode, "incoming.view", incomingQuery, kw, kw, kw, kw, kw, limitPerCategory); err == nil {
 		for rows.Next() {
 			var id int64
 			var docNo, title, fromUnit string
@@ -313,6 +321,9 @@ func GlobalSearch(w http.ResponseWriter, r *http.Request) {
 				})
 			}
 		}
+		if err := rows.Err(); err != nil {
+			log.Printf("[查询] 遍历结果失败: %v", err)
+		}
 		rows.Close()
 	}
 
@@ -322,7 +333,7 @@ func GlobalSearch(w http.ResponseWriter, r *http.Request) {
 		WHERE title LIKE ? OR category LIKE ?
 		ORDER BY id DESC
 		LIMIT ?`
-	if rows, err := database.DB.Query(studyQuery, kw, kw, limitPerCategory); err == nil {
+	if rows, err := permQuery(roleCode, "study.view", studyQuery, kw, kw, limitPerCategory); err == nil {
 		for rows.Next() {
 			var id int64
 			var title, category string
@@ -340,6 +351,9 @@ func GlobalSearch(w http.ResponseWriter, r *http.Request) {
 				})
 			}
 		}
+		if err := rows.Err(); err != nil {
+			log.Printf("[查询] 遍历结果失败: %v", err)
+		}
 		rows.Close()
 	}
 
@@ -349,7 +363,7 @@ func GlobalSearch(w http.ResponseWriter, r *http.Request) {
 		WHERE title LIKE ? OR location LIKE ?
 		ORDER BY meeting_date DESC, id DESC
 		LIMIT ?`
-	if rows, err := database.DB.Query(meetingQuery, kw, kw, limitPerCategory); err == nil {
+	if rows, err := permQuery(roleCode, "meeting.manage", meetingQuery, kw, kw, limitPerCategory); err == nil {
 		for rows.Next() {
 			var id int64
 			var title, mDate, mTime, location string
@@ -377,6 +391,9 @@ func GlobalSearch(w http.ResponseWriter, r *http.Request) {
 				})
 			}
 		}
+		if err := rows.Err(); err != nil {
+			log.Printf("[查询] 遍历结果失败: %v", err)
+		}
 		rows.Close()
 	}
 
@@ -402,4 +419,15 @@ func GlobalSearch(w http.ResponseWriter, r *http.Request) {
 
 	// 默认返回数组
 	middleware.JSON(w, http.StatusOK, allResults)
+}
+
+// errSearchForbidden 无该类别查看权限
+var errSearchForbidden = errors.New("无权限")
+
+// permQuery 具备指定功能权限时才执行搜索查询
+func permQuery(roleCode, perm, query string, args ...interface{}) (*sql.Rows, error) {
+	if !middleware.HasPermission(roleCode, perm) {
+		return nil, errSearchForbidden
+	}
+	return database.DB.Query(query, args...)
 }

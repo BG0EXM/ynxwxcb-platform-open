@@ -5,6 +5,7 @@
 body {
   background: var(--yx-bg);
   color: var(--yx-text-1);
+  font-family: var(--yx-font-sans);
   font-size: var(--yx-fs-sm);
   -webkit-font-smoothing: antialiased;
 }
@@ -14,23 +15,14 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* 卡片：圆角 + 柔和阴影 + 官方尊贵三色鎏金顶边 */
+/* 卡片：细边框 + 极轻阴影。三色鎏金顶边不再默认加在每张卡片上（视觉噪音），
+   需要强调时显式加 .yx-card-crest（工作台横幅、登录页等少数位置） */
 .el-card {
   --el-card-border-radius: var(--yx-radius);
-  --el-card-border-color: rgba(220, 223, 229, 0.6);
-  box-shadow: 0 4px 18px rgba(19, 26, 38, 0.05);
+  --el-card-border-color: var(--yx-border-soft);
+  box-shadow: 0 1px 2px rgba(19, 26, 38, 0.04);
   position: relative;
   overflow: hidden;
-}
-.el-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: var(--yx-crest-gradient);
-  z-index: 2;
 }
 .el-card.is-always-shadow,
 .el-card.is-hover-shadow:hover {
@@ -45,17 +37,26 @@ body {
   color: var(--yx-text-1);
 }
 
-/* 主按钮：官方墨蓝微渐变，沉稳大气 */
+/* 主按钮：纯色墨蓝，与链接、分页、选中态同一主色 */
 .el-button--primary:not(.is-link):not(.is-plain):not(.is-text) {
-  background: linear-gradient(135deg, #24406e 0%, #1b2433 100%);
-  border-color: #1b2433;
-  box-shadow: 0 2px 6px rgba(36, 64, 110, 0.22);
-  transition: all 0.2s ease;
+  background: var(--yx-ink-2);
+  border-color: var(--yx-ink-2);
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 .el-button--primary:not(.is-link):not(.is-plain):not(.is-text):hover {
-  background: linear-gradient(135deg, #2f538e 0%, #24406e 100%);
-  border-color: #24406e;
-  box-shadow: 0 4px 12px rgba(36, 64, 110, 0.32);
+  background: var(--yx-ink-2-hover);
+  border-color: var(--yx-ink-2-hover);
+}
+/* 次要操作（导出等）统一描边样式，一屏只保留一个实心主按钮 */
+.el-button--success:not(.is-link):not(.is-text) {
+  --el-button-bg-color: var(--yx-surface);
+  --el-button-text-color: var(--yx-ink-2);
+  --el-button-border-color: var(--el-color-primary-light-7);
+  --el-button-hover-bg-color: var(--yx-ink-2-bg);
+  --el-button-hover-text-color: var(--yx-ink-2);
+  --el-button-hover-border-color: var(--el-color-primary-light-5);
+  --el-button-active-bg-color: var(--el-color-primary-light-8);
+  --el-button-active-border-color: var(--el-color-primary-light-5);
 }
 .el-button {
   border-radius: var(--yx-radius-sm);
@@ -66,13 +67,17 @@ body {
 
 /* 表格：表头浅底，悬停行浅墨蓝 */
 .el-table {
-  --el-table-header-bg-color: var(--el-fill-color-light);
-  --el-table-row-hover-bg-color: var(--el-color-primary-light-9);
-  --el-table-header-text-color: var(--yx-text-1);
+  --el-table-header-bg-color: var(--yx-surface-muted);
+  --el-table-row-hover-bg-color: var(--yx-ink-2-bg);
+  --el-table-header-text-color: var(--yx-text-3);
   border-radius: var(--yx-radius-sm);
 }
 .el-table th.el-table__cell {
-  font-weight: 600;
+  font-weight: 500;
+}
+/* 中文词语不在中间折断；日期列宽度已统一放宽到 128px，保证 2026-10-19 单行显示 */
+.el-table td.el-table__cell .cell {
+  word-break: keep-all;
 }
 
 /* 面包屑 */
@@ -111,16 +116,6 @@ body {
   --el-drawer-bg-color: var(--yx-surface);
   box-shadow: -10px 0 36px rgba(19, 26, 38, 0.14);
   position: relative;
-}
-.el-drawer::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  bottom: 0;
-  width: 3.5px;
-  background: var(--yx-crest-gradient);
-  z-index: 3;
 }
 .el-drawer__header {
   margin-bottom: 0;
@@ -190,8 +185,8 @@ body {
 
 /* 表单逻辑分组卡片 */
 .form-section {
-  background: #fafaf8;
-  border: 1px solid #ebe9e3;
+  background: var(--yx-surface-muted);
+  border: 1px solid var(--yx-border-soft);
   border-radius: var(--yx-radius-sm);
   padding: 16px 18px 6px 18px;
   margin-bottom: 16px;
@@ -215,9 +210,8 @@ body {
 
 /* 高级筛选区展开折叠容器：公文信笺卡质感（米白暖底 + 4px 鎏金竖线） */
 .advanced-filter-panel {
-  background: #fafaf8;
-  border: 1px solid #ebe9e3;
-  border-left: 4px solid var(--yx-gold);
+  background: var(--yx-surface-muted);
+  border: 1px solid var(--yx-border-soft);
   border-radius: var(--yx-radius-sm);
   padding: 14px 18px;
   margin-top: 12px;
@@ -304,11 +298,12 @@ body {
 
 /* 政务字体与卡片样式 */
 .gov-serif {
-  font-family: "SimSun", "STSong", serif;
+  font-family: var(--yx-font-serif);
 }
 
 .gov-card {
-  background-color: #FFFFFF;
-  border-radius: 6px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.05);
+  background-color: var(--yx-surface);
+  border-radius: var(--yx-radius);
+  border: 1px solid var(--yx-border-soft);
+  box-shadow: 0 1px 2px rgba(19, 26, 38, 0.04);
 }

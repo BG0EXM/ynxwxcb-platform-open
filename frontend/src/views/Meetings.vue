@@ -12,8 +12,34 @@
       </template>
     </page-header>
 
+    <StatStrip :items="statItems" />
+
     <el-card shadow="never" class="gov-card">
-      <el-table :data="list" v-loading="loading" size="large">
+      <MobileCardList v-if="isMobile" :data="list" :loading="loading" empty-text="暂无会议" @row-click="openDetail">
+        <template #title="{ row }">{{ row.title }}</template>
+        <template #tag="{ row }"><el-tag size="small" :type="isMeetingExpired(row.meeting_date, row.meeting_time) ? 'info' : 'success'" effect="light">{{ isMeetingExpired(row.meeting_date, row.meeting_time) ? '已召开' : '报名中' }}</el-tag></template>
+        <template #meta="{ row }">
+          <span>{{ row.meeting_date }} {{ row.meeting_time }}</span>
+          <span v-if="row.location">{{ row.location }}</span>
+          <span>已确认 {{ calcConfirmedUnits(row) }} / {{ getUnitsCount(row.units) }} 单位</span>
+        </template>
+        <template #actions="{ row }">
+          <el-button link type="primary" @click="openDetail(row)">报名台账</el-button>
+          <el-button link type="primary" @click="notifyMeeting(row)">一键通知</el-button>
+          <el-dropdown @command="(cmd) => handleRowCommand(cmd, row)" trigger="click">
+            <el-button link type="primary">更多</el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="copy_url">复制链接</el-dropdown-item>
+                <el-dropdown-item command="export">导出签到单</el-dropdown-item>
+                <el-dropdown-item command="edit">编辑</el-dropdown-item>
+                <el-dropdown-item command="delete" class="text-danger-item">删除</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </template>
+      </MobileCardList>
+      <el-table v-else :data="list" v-loading="loading" size="large">
         <template #empty>
           <empty-state description="暂无召开或安排的会议" />
         </template>
@@ -24,7 +50,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column prop="meeting_date" label="会议日期" width="115" />
+        <el-table-column prop="meeting_date" label="会议日期" width="128" />
         <el-table-column prop="meeting_time" label="具体时间" width="95" />
         <el-table-column prop="location" label="召开地点" width="140" show-overflow-tooltip />
 
@@ -39,7 +65,7 @@
                 :percentage="calcUnitPct(row)" 
                 :stroke-width="6" 
                 :show-text="false"
-                :color="isMeetingExpired(row.meeting_date, row.meeting_time) ? '#909399' : '#b22222'"
+                :color="isMeetingExpired(row.meeting_date, row.meeting_time) ? '#909399' : '#24406e'"
               />
               <div class="progress-sub-text">
                 共 {{ row.reg_count || 0 }} 人参会
@@ -207,7 +233,7 @@
             :percentage="drawerProgressPct" 
             :stroke-width="7" 
             :show-text="false"
-            :color="isMeetingExpired(detailMeeting.meeting_date, detailMeeting.meeting_time) ? '#909399' : '#b22222'"
+            :color="isMeetingExpired(detailMeeting.meeting_date, detailMeeting.meeting_time) ? '#909399' : '#24406e'"
           />
         </div>
 
@@ -303,6 +329,8 @@ import { CopyDocument } from '@element-plus/icons-vue'
 import request, { exportFile } from '../utils/request'
 import dayjs from 'dayjs'
 import PageHeader from '../components/PageHeader.vue'
+import MobileCardList from '../components/MobileCardList.vue'
+import StatStrip from '../components/StatStrip.vue'
 import EmptyState from '../components/EmptyState.vue'
 import { useMobile } from '../utils/useMobile'
 
@@ -311,6 +339,13 @@ const route = useRoute()
 
 const list = ref([])
 const total = ref(0)
+// 顶部统计（后端按全量口径返回，不随分页变化）
+const summary = ref({})
+const statItems = computed(() => [
+  { label: '会议总数', value: summary.value.total, unit: '场' },
+  { label: '待召开', value: summary.value.upcoming, unit: '场', tone: 'primary' },
+  { label: '已召开', value: summary.value.finished, unit: '场' }
+])
 const page = ref(1)
 const pageSize = ref(10)
 const loading = ref(false)
@@ -407,6 +442,7 @@ const loadData = async () => {
     const res = await request.get('/meetings', { params: { page: page.value, page_size: pageSize.value } })
     list.value = res.list || []
     total.value = res.total || 0
+    summary.value = res.summary || {}
   } catch (e) { console.error(e) } finally {
     loading.value = false
   }
@@ -476,7 +512,7 @@ const handleRowCommand = (cmd, row) => {
 }
 
 const notifyMeeting = (row) => {
-  const url = `${window.location.origin}/meeting/${row.id}`
+  const url = `${window.location.origin}/meeting/${row.public_token}`
   const timeDesc = row.meeting_time ? `${row.meeting_date} ${row.meeting_time}` : row.meeting_date
   const unitsArr = (row.units || '').split('\n').map(s => s.trim()).filter(Boolean)
   const unitsText = unitsArr.join('、')
@@ -500,7 +536,7 @@ const notifyMeeting = (row) => {
 }
 
 const copyLink = (row) => {
-  const url = `${window.location.origin}/meeting/${row.id}`
+  const url = `${window.location.origin}/meeting/${row.public_token}`
   navigator.clipboard.writeText(url).then(() => {
     ElMessage.success('公开参会报名纯链接已复制到剪贴板')
   }).catch(() => {
@@ -513,6 +549,11 @@ const openDetail = async (row) => {
     detailMeeting.value = row
     detailTitle.value = `会务报名统计 - ${row.title}`
     const res = await request.get(`/meetings/${row.id}`)
+    // 以详情接口返回为准（含公开链接令牌；从全局搜索打开时 row 仅有 id）
+    if (res.meeting) {
+      detailMeeting.value = { ...row, ...res.meeting }
+      detailTitle.value = `会务报名统计 - ${res.meeting.title}`
+    }
     const regs = res.registrations || res.list || []
     attendRegs.value = regs.filter(r => Number(r.not_attend) === 0)
     notAttendRegs.value = regs.filter(r => Number(r.not_attend) === 1)
@@ -592,7 +633,7 @@ const copyUrgeList = () => {
     text += `${i + 1}. ${u}\n`
   })
   text += `\n请上述单位主要负责同志高度重视，尽快点击以下专属链接填报参会人员：\n`
-  text += `${window.location.origin}/meeting/${m.id}`
+  text += `${window.location.origin}/meeting/${m.public_token}`
 
   navigator.clipboard.writeText(text)
     .then(() => ElMessage.success('已复制微信催报名单至剪贴板，可直接发送工作群'))

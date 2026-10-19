@@ -31,12 +31,19 @@ func ListCalendarTasks(w http.ResponseWriter, r *http.Request) {
 		where += ` AND t.department_id = ?`
 		args = append(args, departmentID)
 	}
+	// 各科室只能看本科室日历（管理员看全部）
+	userID, _ := r.Context().Value(middleware.ContextUserID).(int64)
+	roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
+	if roleCode != "admin" {
+		where += ` AND t.department_id = (SELECT department_id FROM users WHERE id = ?)`
+		args = append(args, userID)
+	}
 
 	query := `SELECT t.id, t.department_id, d.name, t.title, t.content, t.start_date, t.end_date,
 			t.created_by, u.real_name, t.created_at, t.updated_at
 		FROM calendar_tasks t
 		LEFT JOIN departments d ON t.department_id = d.id
-		LEFT JOIN users u ON t.created_by = u.id` + where + ` ORDER BY t.start_date, t.id`
+		LEFT JOIN users u ON t.created_by = u.id` + where + ` ORDER BY t.start_date, t.id LIMIT 2000`
 	rows, err := database.DB.Query(query, args...)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
@@ -221,6 +228,13 @@ func ExportCalendarTasks(w http.ResponseWriter, r *http.Request) {
 	if end != "" {
 		query += ` AND t.start_date <= ?`
 		args = append(args, end)
+	}
+	// 各科室只能导出本科室日历（管理员导出全部）
+	userID, _ := r.Context().Value(middleware.ContextUserID).(int64)
+	roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
+	if roleCode != "admin" {
+		query += ` AND t.department_id = (SELECT department_id FROM users WHERE id = ?)`
+		args = append(args, userID)
 	}
 	query += ` ORDER BY t.start_date, t.id LIMIT 10000`
 

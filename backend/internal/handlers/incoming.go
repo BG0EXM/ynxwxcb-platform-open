@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -132,7 +133,9 @@ func ListIncomingDocs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	middleware.JSON(w, http.StatusOK, paginateResult(docs, total, p.Page, p.PageSize))
+	res := paginateResult(docs, total, p.Page, p.PageSize)
+	res["summary"] = incomingSummary()
+	middleware.JSON(w, http.StatusOK, res)
 }
 
 // GetIncomingDoc 收文详情（含传阅记录）
@@ -397,6 +400,9 @@ func DeleteIncomingDoc(cfg *config.Config) http.HandlerFunc {
 					attPaths = append(attPaths, p.String)
 				}
 			}
+			if err := attRows.Err(); err != nil {
+				log.Printf("[查询] 遍历结果失败: %v", err)
+			}
 			attRows.Close()
 		}
 
@@ -481,21 +487,18 @@ func AddCirculation(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "参数不完整"})
 		return
 	}
-	var maxOrder int
-	database.DB.QueryRow("SELECT COALESCE(MAX(order_no),0) FROM circulation_records WHERE doc_id=?", req.DocID).Scan(&maxOrder)
-
-	var exists int
-	database.DB.QueryRow("SELECT COUNT(*) FROM circulation_records WHERE doc_id=? AND user_id=?", req.DocID, req.UserID).Scan(&exists)
-	if exists > 0 {
-		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "该人员已在传阅名单中"})
-		return
-	}
-
-	_, err := database.DB.Exec(
-		"INSERT INTO circulation_records (doc_id, user_id, order_no) VALUES (?, ?, ?)",
-		req.DocID, req.UserID, maxOrder+1)
+	// 查重、取序号与插入合并为单条语句原子执行，防止连点两次产生重复传阅记录
+	res, err := database.DB.Exec(
+		`INSERT INTO circulation_records (doc_id, user_id, order_no)
+		 SELECT ?, ?, COALESCE(MAX(order_no), 0) + 1 FROM circulation_records WHERE doc_id = ?
+		 AND NOT EXISTS (SELECT 1 FROM circulation_records WHERE doc_id = ? AND user_id = ?)`,
+		req.DocID, req.UserID, req.DocID, req.DocID, req.UserID)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "添加失败"})
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "该人员已在传阅名单中"})
 		return
 	}
 	var docTitle, personName string

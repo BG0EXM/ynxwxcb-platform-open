@@ -1,13 +1,11 @@
 <template>
   <div>
-    <el-card shadow="never" v-loading="loading">
-      <div class="toolbar">
-        <div>
-          <div class="title">角色-功能权限</div>
-          <div class="tip">勾选即授权；管理员（admin）始终拥有全部权限，不可取消。保存后立即生效。</div>
-        </div>
+    <page-header title="权限管理" subtitle="勾选即授权；管理员（admin）始终拥有全部权限，不可取消。保存后立即生效。">
+      <template #actions>
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
-      </div>
+      </template>
+    </page-header>
+    <el-card shadow="never" v-loading="loading">
 
       <el-table :data="permissions" border size="small" :span-method="spanMethod">
         <el-table-column prop="module" label="模块" width="110" />
@@ -27,6 +25,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '../utils/request'
+import PageHeader from '../components/PageHeader.vue'
 
 const loading = ref(false)
 const saving = ref(false)

@@ -403,7 +403,7 @@
 
         <div class="print-footer-info">
           <span>单位：中共伊宁县委宣传部办公室</span>
-          <span>系统依据：伊宁县委宣传部部务工作平台V1.7.1</span>
+          <span>系统依据：伊宁县委宣传部部务工作平台V1.8.0</span>
           <span>打印存档专用</span>
         </div>
       </div>
@@ -728,6 +728,8 @@ const handlePrint = () => {
     win.onafterprint = cleanup
     win.focus()
     win.print()
+    // 部分浏览器（如部分移动端/国产浏览器）不触发 afterprint：打印对话框关闭后兜底清理隐藏打印框
+    setTimeout(cleanup, 60000)
   }, 150)
 }
 </script>
@@ -750,7 +752,7 @@ const handlePrint = () => {
 .header-title {
   font-size: 16px;
   font-weight: 600;
-  color: var(--yx-text-1, #1f2329);
+  color: var(--yx-text-1, var(--yx-text-1));
 }
 
 .header-badge {
@@ -764,7 +766,7 @@ const handlePrint = () => {
 
 .year-label {
   font-size: 13px;
-  color: var(--yx-text-2, #4e5969);
+  color: var(--yx-text-2, var(--yx-text-2));
   margin-right: 4px;
 }
 
@@ -795,8 +797,8 @@ const handlePrint = () => {
   width: 58px;
   height: 58px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #9e1b1e 0%, #7a1417 100%);
-  border: 2px solid #e3cfa6;
+  background: linear-gradient(135deg, var(--yx-brand) 0%, var(--yx-brand-dark) 100%);
+  border: 2px solid var(--yx-gold-light);
   color: #fff;
   font-size: 19px;
   font-weight: 700;
@@ -822,7 +824,7 @@ const handlePrint = () => {
 .cadre-name {
   font-size: 22px;
   font-weight: 700;
-  color: #1b2433;
+  color: var(--yx-ink);
   letter-spacing: 1px;
 }
 
@@ -839,13 +841,13 @@ const handlePrint = () => {
 }
 
 .detail-item .label {
-  color: #6b7785;
+  color: var(--yx-text-3);
   width: 70px;
   flex-shrink: 0;
 }
 
 .detail-item .value {
-  color: #1f2329;
+  color: var(--yx-text-1);
   font-weight: 500;
 }
 
@@ -868,7 +870,7 @@ const handlePrint = () => {
 }
 
 .metric-card.gold-border {
-  border-top: 3px solid #b8925a;
+  border-top: 3px solid var(--yx-gold);
 }
 
 .metric-card:hover {
@@ -886,7 +888,7 @@ const handlePrint = () => {
 .metric-title {
   font-size: 13px;
   font-weight: 600;
-  color: #4e5969;
+  color: var(--yx-text-2);
 }
 
 .metric-highlight {
@@ -900,25 +902,25 @@ const handlePrint = () => {
   font-size: 26px;
   font-weight: 700;
   line-height: 1;
-  color: #1b2433;
+  color: var(--yx-ink);
   font-family: var(--yx-font-mono, monospace);
 }
 
 .metric-highlight .unit {
   font-size: 12px;
-  color: #8a94a0;
+  color: var(--yx-text-4);
 }
 
 .metric-desc {
   font-size: 12px;
-  color: #4e5969;
+  color: var(--yx-text-2);
   margin-bottom: 4px;
   line-height: 1.4;
 }
 
 .metric-sub-desc {
   font-size: 11px;
-  color: #8a94a0;
+  color: var(--yx-text-4);
   line-height: 1.3;
 }
 
@@ -947,8 +949,8 @@ const handlePrint = () => {
 .att-leave { background: #ffebee; color: #c62828; }
 
 .text-warning { color: #d97706 !important; }
-.text-primary { color: #24406e !important; }
-.text-danger { color: #9e1b1e !important; }
+.text-primary { color: var(--yx-ink-2) !important; }
+.text-danger { color: var(--yx-brand) !important; }
 
 /* 3 & 4. 章节容器卡片 */
 .section-card {
@@ -969,14 +971,14 @@ const handlePrint = () => {
 .section-title {
   font-size: 14px;
   font-weight: 700;
-  color: #1f2329;
+  color: var(--yx-text-1);
   display: flex;
   align-items: center;
 }
 
 .section-tip {
   font-size: 12px;
-  color: #8a94a0;
+  color: var(--yx-text-4);
 }
 
 /* 3. 各类法定假明细网格 (11类) */
@@ -997,29 +999,29 @@ const handlePrint = () => {
 
 .leave-type-chip.has-days {
   background: #fbf6ec;
-  border-color: #e3cfa6;
+  border-color: var(--yx-gold-light);
   box-shadow: 0 1px 4px rgba(184, 146, 90, 0.12);
 }
 
 .leave-type-chip.has-days .chip-name {
-  color: #8c6a3a;
+  color: var(--yx-gold-dark);
   font-weight: 600;
 }
 
 .leave-type-chip.has-days .chip-days b {
-  color: #9e1b1e;
+  color: var(--yx-brand);
   font-size: 16px;
 }
 
 .chip-name {
   font-size: 12px;
-  color: #6b7785;
+  color: var(--yx-text-3);
   margin-bottom: 4px;
 }
 
 .chip-days {
   font-size: 14px;
-  color: #1f2329;
+  color: var(--yx-text-1);
 }
 
 .chip-days b {
@@ -1029,7 +1031,7 @@ const handlePrint = () => {
 
 .chip-unit {
   font-size: 11px;
-  color: #8a94a0;
+  color: var(--yx-text-4);
   margin-left: 2px;
 }
 
@@ -1040,24 +1042,24 @@ const handlePrint = () => {
 
 .days-pill {
   font-weight: 600;
-  color: #24406e;
+  color: var(--yx-ink-2);
 }
 
 .print-preview-card {
   background: #faf8f5;
-  border-color: #e3cfa6;
+  border-color: var(--yx-gold-light);
 }
 
 .print-instruction {
   font-size: 12px;
-  color: #6b7785;
+  color: var(--yx-text-3);
   line-height: 1.5;
 }
 
 /* 5. 打印专用公文排版模版 */
 .attendance-profile-print-sheet {
   background: #ffffff;
-  border: 1px solid #dcdfe5;
+  border: 1px solid var(--yx-border);
   border-radius: 6px;
   padding: 24px 28px;
   margin-top: 8px;
@@ -1209,7 +1211,7 @@ const handlePrint = () => {
 .mr-4 { margin-right: 4px; }
 .text-xs { font-size: 12px; }
 .text-sm { font-size: 13px; }
-.text-secondary { color: #8a94a0; }
+.text-secondary { color: var(--yx-text-4); }
 .text-muted { color: #909399; }
 
 /* 移动端响应式适配 */

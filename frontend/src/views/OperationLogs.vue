@@ -1,5 +1,11 @@
 <template>
   <div>
+    <page-header title="操作日志" subtitle="记录系统内全部写操作、导出、登录与安全拦截，留存一年备查">
+      <template #actions>
+        <el-button type="danger" plain :icon="'Delete'" @click="handleClearLogs">清空日志</el-button>
+        <el-button :icon="'Refresh'" circle @click="loadData" />
+      </template>
+    </page-header>
     <el-card shadow="never">
       <div class="toolbar">
         <div>
@@ -17,13 +23,10 @@
             <template #append><el-button :icon="'Search'" @click="reloadFirstPage" /></template>
           </el-input>
         </div>
-        <div class="toolbar-right">
-          <el-button type="danger" plain :icon="'Delete'" @click="handleClearLogs">清空日志</el-button>
-          <el-button :icon="'Refresh'" @click="loadData">刷新</el-button>
-        </div>
       </div>
 
       <el-table :data="list" stripe v-loading="loading" empty-text="暂无操作日志">
+        <template #empty><EmptyState description="暂无操作日志" /></template>
         <el-table-column prop="created_at" label="时间" width="170" />
         <el-table-column label="操作人" width="150">
           <template #default="{ row }">
@@ -56,6 +59,8 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import request from '../utils/request'
+import PageHeader from '../components/PageHeader.vue'
+import EmptyState from '../components/EmptyState.vue'
 
 const modules = [
   '系统安全', '保密防线', '征求意见', '材料下发', '会务管理', '登录', '认证',

@@ -5,10 +5,28 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
+import { isPublicPath } from './router'
 
 const locale = ref(zhCn)
+const router = useRouter()
+
+// 多标签页登录状态同步：在任一标签页退出或令牌被清除后，其余标签页同步跳回登录页；
+// 在其他标签页切换了账号时刷新当前页，避免以旧身份继续操作
+const onStorage = (e) => {
+  if (e.key !== 'token') return
+  const path = router.currentRoute.value?.path || ''
+  if (isPublicPath(path)) return
+  if (!e.newValue) {
+    router.replace('/login')
+  } else if (e.oldValue && e.newValue !== e.oldValue) {
+    window.location.reload()
+  }
+}
+onMounted(() => window.addEventListener('storage', onStorage))
+onUnmounted(() => window.removeEventListener('storage', onStorage))
 </script>
 
 <style>

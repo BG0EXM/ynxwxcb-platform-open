@@ -340,7 +340,8 @@
                       <el-upload
                         v-else
                         class="doc-upload-btn"
-                        :action="`/api/public/solicits/${solicit.id}/upload`"
+                        :action="`/api/public/solicits/${solicitId}/upload`"
+                        :data="{ unit: currentUnit }"
                         :show-file-list="false"
                         :before-upload="beforeUploadDoc"
                         :on-success="handleUploadDocSuccess"
@@ -391,7 +392,8 @@
                       v-else
                       class="reply-upload-dropzone"
                       drag
-                      :action="`/api/public/solicits/${solicit.id}/upload`"
+                      :action="`/api/public/solicits/${solicitId}/upload`"
+                        :data="{ unit: currentUnit }"
                       :show-file-list="false"
                       :before-upload="beforeUploadReply"
                       :on-success="handleUploadReplySuccess"
@@ -471,7 +473,7 @@
           <span class="footer-org font-serif">中共伊宁县委宣传部</span>
           <span class="crest-dot"></span>
         </div>
-        <div class="footer-system">部务工作平台 · 数字化协同政务服务终端 V1.7.1</div>
+        <div class="footer-system">部务工作平台 · 数字化协同政务服务终端 V1.8.0</div>
         <div class="footer-beian">
           <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">[滇ICP备XXXXXXXX号-X]</a>
           <span class="sep">|</span>
@@ -512,7 +514,7 @@ const submitted = ref(false)
 const submittedFeedback = ref(null)
 const submitting = ref(false)
 
-const form = ref({
+const emptyForm = () => ({
   has_opinion: 0,
   opinion_detail: '',
   attachment_path: '',
@@ -523,9 +525,11 @@ const form = ref({
   contact_phone: ''
 })
 
+const form = ref(emptyForm())
+
 const pdfEmbedUrl = computed(() => {
   if (!solicit.value?.id) return ''
-  return `/api/public/solicits/${solicit.value.id}/file?type=pdf&mode=inline`
+  return `/api/public/solicits/${solicitId}/file?type=pdf&mode=inline`
 })
 
 const countdownText = computed(() => {
@@ -574,12 +578,14 @@ const loadSolicit = async (unitParam = '') => {
         contact_phone: res.current_feedback.contact_phone || ''
       }
     } else if (unitParam) {
+      // 新选择的单位尚未反馈：清空表单，严禁沿用上一单位的回函、意见与联系人
       submitted.value = false
       submittedFeedback.value = null
+      form.value = emptyForm()
     }
   } catch (e) {
+    // 错误原因（如“链接无效或已失效”）已由请求拦截器统一提示，此处不再重复弹出
     console.error(e)
-    ElMessage.error('无法加载该征求意见文件，可能不存在或已下线')
   }
 }
 
@@ -593,6 +599,7 @@ const changeUnit = () => {
   pendingUnit.value = ''
   submitted.value = false
   submittedFeedback.value = null
+  form.value = emptyForm()
 }
 
 const openPdfWindow = () => {
@@ -600,11 +607,11 @@ const openPdfWindow = () => {
 }
 
 const downloadPdf = () => {
-  window.open(`/api/public/solicits/${solicit.value.id}/file?type=pdf&mode=download`, '_blank')
+  window.open(`/api/public/solicits/${solicitId}/file?type=pdf&mode=download`, '_blank')
 }
 
 const downloadWord = () => {
-  window.open(`/api/public/solicits/${solicit.value.id}/file?type=word&mode=download`, '_blank')
+  window.open(`/api/public/solicits/${solicitId}/file?type=word&mode=download`, '_blank')
 }
 
 // 标红修改稿附件
@@ -709,7 +716,7 @@ const handleSubmitFeedback = async () => {
       contact_name: form.value.contact_name,
       contact_phone: form.value.contact_phone
     }
-    const res = await request.post(`/public/solicits/${solicit.value.id}/feedback`, payload)
+    const res = await request.post(`/public/solicits/${solicitId}/feedback`, payload)
     ElMessage.success('回函与意见已成功提交并归档')
     submittedFeedback.value = {
       ...payload,
@@ -718,8 +725,8 @@ const handleSubmitFeedback = async () => {
     submitted.value = true
     window.scrollTo({ top: 400, behavior: 'smooth' })
   } catch (e) {
+    // 错误原因已由请求拦截器统一提示，此处不再重复弹出
     console.error(e)
-    ElMessage.error(e.response?.data?.error || '提交失败，请重试')
   } finally {
     submitting.value = false
   }
@@ -747,7 +754,7 @@ onMounted(() => {
 /* 顶部天际线背景区 - 与会议填报页 100% 对齐 */
 .skyline-bg {
   position: relative;
-  background: linear-gradient(135deg, #131a26 0%, #1b2433 45%, #7a1417 100%);
+  background: linear-gradient(135deg, var(--yx-ink-dark) 0%, var(--yx-ink) 45%, var(--yx-brand-dark) 100%);
   padding: 32px 20px 110px;
   color: #fff;
   overflow: hidden;
@@ -800,7 +807,7 @@ onMounted(() => {
   font-size: 17px;
   font-weight: 600;
   letter-spacing: 1.2px;
-  color: #f7ecec;
+  color: var(--yx-brand-bg);
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
@@ -838,7 +845,7 @@ onMounted(() => {
   left: 0;
   right: 0;
   height: 4px;
-  background: linear-gradient(90deg, #9e1b1e 0%, #f5d499 50%, #9e1b1e 100%);
+  background: linear-gradient(90deg, var(--yx-brand) 0%, #f5d499 50%, var(--yx-brand) 100%);
   border-radius: 14px 14px 0 0;
 }
 
@@ -1018,7 +1025,7 @@ onMounted(() => {
 
 .lead-icon {
   font-size: 18px;
-  color: #9e1b1e;
+  color: var(--yx-brand);
 }
 
 .lead-text {
@@ -1083,7 +1090,7 @@ onMounted(() => {
   padding: 0 16px;
   font-size: 16px;
   font-weight: 700;
-  color: #9e1b1e;
+  color: var(--yx-brand);
   letter-spacing: 2px;
 }
 
@@ -1102,7 +1109,7 @@ onMounted(() => {
 
 .lead-badge {
   display: inline-block;
-  background: #9e1b1e;
+  background: var(--yx-brand);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
@@ -1155,7 +1162,7 @@ onMounted(() => {
 
 .honor-tag {
   font-size: 11px;
-  color: #9e1b1e;
+  color: var(--yx-brand);
   background: #fbebeb;
   padding: 2px 6px;
   border-radius: 4px;
@@ -1220,7 +1227,7 @@ onMounted(() => {
 }
 
 .receipt-badge {
-  background: #9e1b1e;
+  background: var(--yx-brand);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
@@ -1352,7 +1359,7 @@ onMounted(() => {
 }
 
 .lock-desc strong {
-  color: #9e1b1e;
+  color: var(--yx-brand);
 }
 
 .receipt-quick-actions {
@@ -1432,7 +1439,7 @@ onMounted(() => {
 .header-mark {
   width: 4px;
   height: 16px;
-  background: #9e1b1e;
+  background: var(--yx-brand);
   border-radius: 2px;
 }
 
@@ -1497,7 +1504,7 @@ onMounted(() => {
 
 .header-badge-tag {
   display: inline-block;
-  background: #9e1b1e;
+  background: var(--yx-brand);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
@@ -1508,7 +1515,7 @@ onMounted(() => {
 
 .reply-card-header h4 {
   font-size: 17px;
-  color: #9e1b1e;
+  color: var(--yx-brand);
   margin: 0 0 6px 0;
 }
 
@@ -1594,7 +1601,7 @@ onMounted(() => {
   font-size: 17px;
   font-weight: 700;
   border-radius: 25px;
-  background: linear-gradient(135deg, #9e1b1e 0%, #b22222 100%);
+  background: linear-gradient(135deg, var(--yx-brand) 0%, #b22222 100%);
   border: none;
   box-shadow: 0 6px 18px rgba(158, 27, 30, 0.3);
   transition: transform 0.2s, box-shadow 0.2s;
@@ -1631,7 +1638,7 @@ onMounted(() => {
 .crest-dot {
   width: 4px;
   height: 4px;
-  background-color: #9e1b1e;
+  background-color: var(--yx-brand);
   border-radius: 50%;
   opacity: 0.6;
 }
@@ -1643,17 +1650,17 @@ onMounted(() => {
 }
 
 .footer-system {
-  color: #8a94a0;
+  color: var(--yx-text-4);
   margin-bottom: 8px;
 }
 
 .footer-beian {
-  color: #8a94a0;
+  color: var(--yx-text-4);
   line-height: 1.8;
 }
 
 .footer-beian a {
-  color: #6b7785;
+  color: var(--yx-text-3);
   text-decoration: none;
 }
 
@@ -1663,7 +1670,7 @@ onMounted(() => {
 }
 
 .ipv6-tag {
-  color: #6b7785;
+  color: var(--yx-text-3);
 }
 
 /* 响应式适配 */

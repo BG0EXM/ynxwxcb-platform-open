@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -43,14 +44,14 @@ func ListOvertimeRecords(w http.ResponseWriter, r *http.Request) {
 		args = append(args, end)
 	}
 	if year != "" {
-		where += ` AND o.overtime_date LIKE ?`
-		args = append(args, year+"%")
+		where += ` AND o.overtime_date GLOB ?`
+		args = append(args, year+"*")
 	}
 
 	query := `SELECT o.id, o.user_id, u.real_name, o.overtime_date, o.hours, o.reason,
 			o.created_by, o.created_at
 		FROM overtime_records o
-		LEFT JOIN users u ON o.user_id = u.id` + where + ` ORDER BY o.overtime_date DESC, o.id DESC`
+		LEFT JOIN users u ON o.user_id = u.id` + where + ` ORDER BY o.overtime_date DESC, o.id DESC LIMIT 2000`
 	rows, err := database.DB.Query(query, args...)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
@@ -134,8 +135,14 @@ func DeleteOvertimeRecord(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 删除前核验：若删除后会导致调休余额变成负数，禁止删除并友好提示
-	currentRemain := getCompRemainDays(userID)
+	// 删除前核验与删除放在同一事务（开启即持写锁）：防止并发补休登记与删除交错导致调休余额变成负数
+	tx, err := database.DB.Begin()
+	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+		return
+	}
+	defer tx.Rollback()
+	currentRemain := getCompRemainDaysTx(tx, userID)
 	reduceDays := hours / OvertimeHoursPerDay
 	if currentRemain-reduceDays < -0.0001 {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{
@@ -143,9 +150,11 @@ func DeleteOvertimeRecord(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-
-	_, err = database.DB.Exec("DELETE FROM overtime_records WHERE id=?", id)
-	if err != nil {
+	if _, err := tx.Exec("DELETE FROM overtime_records WHERE id=?", id); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+		return
+	}
+	if err := tx.Commit(); err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
 		return
 	}
@@ -162,11 +171,11 @@ func ExportOvertimeRecords(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN users u ON o.user_id = u.id WHERE 1=1`
 	args := []interface{}{}
 	if month != "" {
-		query += ` AND o.overtime_date LIKE ?`
-		args = append(args, month+"%")
+		query += ` AND o.overtime_date GLOB ?`
+		args = append(args, month+"*")
 	} else if year != "" {
-		query += ` AND o.overtime_date LIKE ?`
-		args = append(args, year+"%")
+		query += ` AND o.overtime_date GLOB ?`
+		args = append(args, year+"*")
 	}
 	query += ` ORDER BY o.overtime_date DESC, o.id DESC LIMIT 10000`
 
@@ -242,13 +251,13 @@ func OvertimeStats(w http.ResponseWriter, r *http.Request) {
 	dateLike := ""
 	datePrefix := ""
 	if month != "" {
-		dateLike = month + "%"
+		dateLike = month + "*"
 		datePrefix = month
 	} else {
 		if year == "" {
 			year = time.Now().Format("2006")
 		}
-		dateLike = year + "%"
+		dateLike = year + "*"
 		datePrefix = year
 	}
 
@@ -258,7 +267,7 @@ func OvertimeStats(w http.ResponseWriter, r *http.Request) {
 			COALESCE(SUM(o.hours), 0)
 		FROM users u
 		LEFT JOIN departments d ON u.department_id = d.id
-		LEFT JOIN overtime_records o ON o.user_id = u.id AND o.overtime_date LIKE ?
+		LEFT JOIN overtime_records o ON o.user_id = u.id AND o.overtime_date GLOB ?
 		WHERE u.status = 1`
 	otArgs := []interface{}{dateLike}
 	if roleCode != "admin" {
@@ -354,6 +363,9 @@ func OvertimeStats(w http.ResponseWriter, r *http.Request) {
 				allHours[uid] = h
 			}
 		}
+		if err := hr.Err(); err != nil {
+			log.Printf("[查询] 遍历结果失败: %v", err)
+		}
 	}
 	allUsed := map[int64]float64{}
 	if ur, err := database.DB.Query(
@@ -368,6 +380,9 @@ func OvertimeStats(w http.ResponseWriter, r *http.Request) {
 			if ur.Scan(&uid, &d) == nil {
 				allUsed[uid] = d
 			}
+		}
+		if err := ur.Err(); err != nil {
+			log.Printf("[查询] 遍历结果失败: %v", err)
 		}
 	}
 

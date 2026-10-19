@@ -38,6 +38,7 @@ func TestGlobalSearch(t *testing.T) {
 	// 1. 测试空搜索词返回空数组 []
 	{
 		req := httptest.NewRequest("GET", "/api/global-search?q=", nil)
+		req = reqWithContext(req, 1, "admin", "admin", "系统管理员")
 		rec := httptest.NewRecorder()
 		GlobalSearch(rec, req)
 
@@ -56,6 +57,7 @@ func TestGlobalSearch(t *testing.T) {
 	// 2. 测试页面导航检索（如“收文”）
 	{
 		req := httptest.NewRequest("GET", "/api/global-search?q=收文", nil)
+		req = reqWithContext(req, 1, "admin", "admin", "系统管理员")
 		rec := httptest.NewRecorder()
 		GlobalSearch(rec, req)
 
@@ -81,6 +83,7 @@ func TestGlobalSearch(t *testing.T) {
 	// 3. 测试通讯录检索（如“张三”）
 	{
 		req := httptest.NewRequest("GET", "/api/global-search?q=张三", nil)
+		req = reqWithContext(req, 1, "admin", "admin", "系统管理员")
 		rec := httptest.NewRecorder()
 		GlobalSearch(rec, req)
 
@@ -103,6 +106,7 @@ func TestGlobalSearch(t *testing.T) {
 	// 4. 测试收文检索（如“理论学习”）
 	{
 		req := httptest.NewRequest("GET", "/api/global-search?q=理论学习", nil)
+		req = reqWithContext(req, 1, "admin", "admin", "系统管理员")
 		rec := httptest.NewRecorder()
 		GlobalSearch(rec, req)
 
@@ -131,6 +135,7 @@ func TestGlobalSearch(t *testing.T) {
 	// 5. 测试会议检索（如“部务会”）
 	{
 		req := httptest.NewRequest("GET", "/api/global-search?q=部务会", nil)
+		req = reqWithContext(req, 1, "admin", "admin", "系统管理员")
 		rec := httptest.NewRecorder()
 		GlobalSearch(rec, req)
 

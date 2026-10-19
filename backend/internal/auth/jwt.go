@@ -49,7 +49,7 @@ func ParseToken(tokenString string) (*Claims, error) {
 			return nil, errors.New("签名算法错误")
 		}
 		return jwtSecret, nil
-	})
+	}, jwt.WithValidMethods([]string{"HS256"}), jwt.WithExpirationRequired(), jwt.WithIssuer("ynxwxcb-platform"))
 	if err != nil {
 		return nil, err
 	}

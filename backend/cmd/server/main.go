@@ -1,12 +1,17 @@
 package main
 
 import (
+	// 内嵌时区数据库：即使服务器未安装 tzdata，TZ=Asia/Shanghai 也能正确生效
+	"database/sql"
 	"flag"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
+	_ "time/tzdata"
 
 	"ynxwxcb-platform/internal/auth"
 	"ynxwxcb-platform/internal/config"
@@ -59,8 +64,16 @@ func main() {
 	// 启动自检保密安全与 OCR 审查引擎
 	secrecy.InitOCR()
 
-	// 确保上传目录存在
-	os.MkdirAll(cfg.Upload.Dir, 0755)
+	// 上传目录统一转为绝对路径（相对路径按启动工作目录解析），并确保目录存在
+	if absDir, err := filepath.Abs(cfg.Upload.Dir); err == nil {
+		cfg.Upload.Dir = absDir
+	}
+	if err := os.MkdirAll(cfg.Upload.Dir, 0755); err != nil {
+		log.Fatalf("创建上传目录失败: %v", err)
+	}
+	log.Printf("上传目录: %s", cfg.Upload.Dir)
+	// 附件路径统一规范化为“相对上传目录”格式（必须在孤儿文件清扫之前执行）
+	handlers.NormalizeAttachmentPaths(cfg)
 
 	// 操作日志：启动清理一次，之后每天清理超过 1 年的记录
 	func() {
@@ -110,9 +123,9 @@ func main() {
 
 	// 构建路由，并套上安全响应头 + 请求体大小限制（上传接口自行限制，故跳过）
 	r := router.NewRouter(cfg)
-	handler := middleware.SecurityHeaders(middleware.WAF(middleware.LimitBody(10<<20, "/api/uploads", "/api/public/solicits/")(r)))
+	handler := middleware.SecurityHeaders(middleware.WAF(middleware.LimitBody(10<<20, middleware.IsUploadRequest)(r)))
 
-	addr := ":" + cfg.Server.Port
+	addr := net.JoinHostPort(cfg.Server.Host, cfg.Server.Port)
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           handler,
@@ -130,8 +143,9 @@ func main() {
 	}
 }
 
-// applyAdmin 用配置的管理员信息创建/更新管理员账号
-// 密码非空即生效，用户名缺省时使用默认 admin，方便通过 config.json 修改管理员密码
+// applyAdmin 用配置的管理员信息创建管理员账号：
+//   - 账号不存在时按配置创建（角色按 code='admin' 查询，不写死 ID）；
+//   - 账号已存在时默认不覆盖界面上修改过的密码，仅当 force_reset=true 时重置并使旧令牌失效。
 func applyAdmin(cfg *config.Config) {
 	if cfg.Admin.Password == "" {
 		return
@@ -140,17 +154,45 @@ func applyAdmin(cfg *config.Config) {
 	if username == "" {
 		username = "admin"
 	}
+	if len(cfg.Admin.Password) > 72 {
+		log.Printf("配置的管理员密码超过 72 字节，已忽略")
+		return
+	}
+	var adminRoleID int64
+	if err := database.DB.QueryRow("SELECT id FROM roles WHERE code='admin'").Scan(&adminRoleID); err != nil {
+		log.Printf("未找到管理员角色，跳过配置管理员账号: %v", err)
+		return
+	}
+	var userID int64
+	err := database.DB.QueryRow("SELECT id FROM users WHERE username=?", username).Scan(&userID)
+	if err != nil && err != sql.ErrNoRows {
+		log.Printf("查询管理员账号失败: %v", err)
+		return
+	}
+	if err == nil && !cfg.Admin.ForceReset {
+		return
+	}
 	hash, err := database.HashPassword(cfg.Admin.Password)
 	if err != nil {
 		log.Printf("加密管理员密码失败: %v", err)
 		return
 	}
-	_, err = database.DB.Exec(
-		`INSERT INTO users (username, password_hash, real_name, phone, department_id, role_id, status)
-		 VALUES (?, ?, '系统管理员', '', 1, 1, 1)
-		 ON CONFLICT(username) DO UPDATE SET password_hash = ?`,
-		username, hash, hash)
-	if err != nil {
-		log.Printf("配置管理员账号失败: %v", err)
+	if userID == 0 {
+		var deptID int64
+		database.DB.QueryRow("SELECT id FROM departments ORDER BY id LIMIT 1").Scan(&deptID)
+		if _, err := database.DB.Exec(
+			`INSERT INTO users (username, password_hash, real_name, phone, department_id, role_id, status)
+			 VALUES (?, ?, '系统管理员', '', ?, ?, 1)`, username, hash, deptID, adminRoleID); err != nil {
+			log.Printf("创建配置管理员账号失败: %v", err)
+		}
+		return
 	}
+	if _, err := database.DB.Exec(
+		"UPDATE users SET password_hash=?, role_id=?, status=1, token_version=token_version+1 WHERE id=?",
+		hash, adminRoleID, userID); err != nil {
+		log.Printf("重置管理员密码失败: %v", err)
+		return
+	}
+	middleware.InvalidateTokenVersion(userID)
+	log.Printf("已按 config.json（force_reset=true）重置管理员 %s 的密码，请尽快将 force_reset 改回 false", username)
 }

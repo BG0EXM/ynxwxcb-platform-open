@@ -3,19 +3,45 @@ Description=伊宁县委宣传部部务工作平台
 After=network.target
 
 [Service]
+# 固定北京时间：截止时间判断、导出时间换算均依赖服务器本地时区，防止服务器系统时区为 UTC 时相差 8 小时
+Environment=TZ=Asia/Shanghai
 Type=simple
 User=ynxwxcb
 Group=ynxwxcb
 WorkingDirectory=/opt/ynxwxcb
-ExecStartPre=/bin/mkdir -p /opt/ynxwxcb/data
+# “+” 前缀：以 root 身份且不受下方沙箱限制执行，确保 data/ 在建立只读挂载命名空间前已存在且归属正确
+ExecStartPre=+/usr/bin/install -d -o ynxwxcb -g ynxwxcb -m 0750 /opt/ynxwxcb/data
 ExecStart=/opt/ynxwxcb/ynxwxcb-server -config /opt/ynxwxcb/config.json
 Restart=always
 RestartSec=5
-# 安全加固
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=full
+# 新建的数据库与上传附件权限为 640 / 目录 750，其他用户不可读
+UMask=0027
+
+# ---- 安全加固 ----
+# 整个文件系统只读，仅 data/ 可写（主程序、static/、config.json 均不可被服务进程篡改）
+ProtectSystem=strict
 ReadWritePaths=/opt/ynxwxcb/data
+# 临时文件（OCR / PDF 光栅化中间件）写入服务私有 /tmp
+PrivateTmp=true
+ProtectHome=true
+PrivateDevices=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+# 监听 8080 非特权端口，不需要任何 Linux capability
+CapabilityBoundingSet=
+AmbientCapabilities=
+
 # 资源限制（2C2G 服务器）
 MemoryMax=1G
 MemoryHigh=768M

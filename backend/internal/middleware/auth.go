@@ -31,9 +31,7 @@ func Auth(next http.Handler) http.Handler {
 			}
 			tokenStr = parts[1]
 		}
-		if tokenStr == "" {
-			tokenStr = r.URL.Query().Get("token")
-		}
+		// 不再接受网址参数 ?token=：令牌会被写进访问日志、浏览器历史与 Referer，只允许 Authorization 请求头
 		if tokenStr == "" {
 			JSON(w, http.StatusUnauthorized, map[string]string{"error": "未登录"})
 			return
@@ -43,19 +41,39 @@ func Auth(next http.Handler) http.Handler {
 			JSON(w, http.StatusUnauthorized, map[string]string{"error": "登录已过期，请重新登录"})
 			return
 		}
-		// 令牌版本校验：改密/禁用/登出后旧令牌立即失效
-		if ver, ok := currentTokenVersion(claims.UserID); !ok || ver != claims.TokenVersion {
+		// 令牌版本校验：改密/禁用/登出后旧令牌立即失效；用户名必须与库内一致，防止 ID 复用后旧令牌复活
+		u, ok := loadSessionUser(claims.UserID)
+		if !ok || u.TokenVersion != claims.TokenVersion || u.Username != claims.Username {
 			JSON(w, http.StatusUnauthorized, map[string]string{"error": "登录已失效，请重新登录"})
 			return
 		}
+		if u.Status != 1 {
+			JSON(w, http.StatusUnauthorized, map[string]string{"error": "账号已被禁用，请联系管理员"})
+			return
+		}
+		// 仍在使用默认密码：服务端强制先改密，仅放行个人信息、修改密码与退出登录
+		if u.MustChange && !mustChangeAllowed(r.URL.Path) {
+			JSON(w, http.StatusForbidden, map[string]string{"error": "当前仍在使用默认密码，请先修改密码", "code": "MUST_CHANGE_PASSWORD"})
+			return
+		}
 
+		// 身份与角色一律以数据库实时状态为准，不信任令牌中携带的角色与姓名
 		ctx := context.WithValue(r.Context(), ContextUserID, claims.UserID)
-		ctx = context.WithValue(ctx, ContextUsername, claims.Username)
-		ctx = context.WithValue(ctx, ContextRealName, claims.RealName)
-		ctx = context.WithValue(ctx, ContextRoleCode, claims.RoleCode)
+		ctx = context.WithValue(ctx, ContextUsername, u.Username)
+		ctx = context.WithValue(ctx, ContextRealName, u.RealName)
+		ctx = context.WithValue(ctx, ContextRoleCode, u.RoleCode)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// mustChangeAllowed 默认密码用户在改密前允许访问的接口
+func mustChangeAllowed(path string) bool {
+	switch path {
+	case "/api/auth/profile", "/api/auth/change-password", "/api/auth/logout":
+		return true
+	}
+	return false
 }
 
 // RequireRole 角色校验中间件

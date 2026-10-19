@@ -24,7 +24,21 @@
         </div>
       </div>
 
-      <el-table :data="list" stripe v-loading="loading" empty-text="暂无资料" size="large">
+      <MobileCardList v-if="isMobile" :data="list" :loading="loading" empty-text="暂无资料" @row-click="openDetail">
+        <template #title="{ row }">{{ row.title }}</template>
+        <template #tag="{ row }"><el-tag size="small" :type="categoryTag(row.category)">{{ categoryName(row.category) }}</el-tag></template>
+        <template #meta="{ row }">
+          <span>{{ row.publisher }}</span>
+          <span>{{ formatDate(row.created_at) }}</span>
+          <span>阅读 {{ row.read_count || 0 }}</span>
+        </template>
+        <template #actions="{ row }">
+          <el-button link type="primary" @click="openDetail(row)">阅读</el-button>
+          <el-button v-if="authStore.hasPerm('study.delete')" link type="danger" @click="removeMaterial(row)">删除</el-button>
+        </template>
+      </MobileCardList>
+      <el-table v-else :data="list" stripe v-loading="loading" empty-text="暂无资料" size="large">
+        <template #empty><EmptyState description="暂无资料" /></template>
         <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip>
           <template #default="{ row }">
             <a class="title-link" @click="openDetail(row)">{{ row.title }}</a>
@@ -75,7 +89,7 @@
           <el-input v-model="form.content" type="textarea" :rows="8" placeholder="公共资料内容" />
         </el-form-item>
         <el-form-item label="附件">
-          <el-upload :http-request="uploadFile" :file-list="fileList">
+          <el-upload :http-request="uploadFile" :file-list="fileList" :before-upload="beforeUpload" :on-remove="onRemoveFile">
             <el-button :icon="'Upload'">选择文件</el-button>
             <template #tip>
               <div class="el-upload__tip">支持 doc/docx/pdf/xlsx/图片等</div>
@@ -85,7 +99,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="save">发布</el-button>
+        <el-button type="primary" :loading="saving" @click="save">发布</el-button>
       </template>
     </el-drawer>
 
@@ -97,6 +111,7 @@
         <el-button type="primary" :icon="'Plus'" @click="addCategory">添加</el-button>
       </div>
       <el-table :data="categories" stripe empty-text="暂无分类" size="large">
+        <template #empty><EmptyState description="暂无分类" /></template>
         <el-table-column prop="name" label="名称" min-width="120" />
         <el-table-column prop="code" label="标识" width="110" />
         <el-table-column label="操作" width="120" fixed="right">
@@ -134,9 +149,12 @@ import { ref, reactive, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request, { downloadFile } from '../utils/request'
+import { validateUploadFileSecrecy, handleSecrecyUploadError } from '../utils/secrecyGuard'
 import dayjs from 'dayjs'
 import { useAuthStore } from '../store/auth'
 import PageHeader from '../components/PageHeader.vue'
+import EmptyState from '../components/EmptyState.vue'
+import MobileCardList from '../components/MobileCardList.vue'
 import { useMobile } from '../utils/useMobile'
 
 const { isMobile } = useMobile()
@@ -161,6 +179,7 @@ const form = reactive({ title: '', content: '', category: '' })
 const detail = ref({})
 const fileList = ref([])
 const uploadedAttachments = ref([])
+const saving = ref(false)
 
 const categoryName = (c) => {
   const found = categories.value.find(x => x.code === c)
@@ -191,8 +210,6 @@ const loadData = async () => {
   }
 }
 
-// 分类管理
-const openCategory = () => {
 const handlePageChange = (val) => {
   page.value = val
   loadData()
@@ -208,6 +225,9 @@ const onSearch = () => {
   page.value = 1
   loadData()
 }
+
+// 分类管理
+const openCategory = () => {
   editCatId.value = 0
   newCatName.value = ''
   newCatCode.value = ''
@@ -262,6 +282,22 @@ const removeMaterial = async (row) => {
   } catch (e) { console.error(e) }
 }
 
+// 与后端白名单保持一致；单文件不超过 50MB；上传前先做文件名涉密预检
+const allowedExts = ['doc', 'docx', 'xls', 'xlsx', 'pdf', 'jpg', 'jpeg', 'png', 'gif', 'txt', 'zip', 'rar', 'ppt', 'pptx']
+const beforeUpload = (file) => {
+  if (!validateUploadFileSecrecy(file, { isPublic: false })) return false
+  const ext = (file.name.split('.').pop() || '').toLowerCase()
+  if (!allowedExts.includes(ext)) {
+    ElMessage.warning('不支持的文件类型')
+    return false
+  }
+  if (file.size > 50 * 1024 * 1024) {
+    ElMessage.warning('单个附件不得超过 50MB')
+    return false
+  }
+  return true
+}
+
 const uploadFile = async (options) => {
   const fd = new FormData()
   fd.append('file', options.file)
@@ -269,11 +305,17 @@ const uploadFile = async (options) => {
   fd.append('owner_id', '0')
   try {
     const res = await request.post('/uploads', fd)
-    uploadedAttachments.value.push({ id: res.id, name: res.file_name })
+    uploadedAttachments.value.push({ id: res.id, name: res.file_name, uid: options.file.uid })
     ElMessage.success(`附件「${res.file_name}」上传成功`)
   } catch (e) {
+    handleSecrecyUploadError(e, options.file, { isPublic: false })
     options.onError(e)
   }
+}
+
+// 从列表移除的附件不再随资料一起发布
+const onRemoveFile = (file) => {
+  uploadedAttachments.value = uploadedAttachments.value.filter(a => a.uid !== file.uid)
 }
 
 // 打开发布框：重置表单与附件，避免残留上次内容
@@ -287,6 +329,8 @@ const openCreate = () => {
 const save = async () => {
   if (!form.title) return ElMessage.warning('请输入标题')
   if (!form.content) return ElMessage.warning('请输入内容')
+  if (saving.value) return
+  saving.value = true
   try {
     const res = await request.post('/study-materials', form)
     const matId = res.id
@@ -301,7 +345,11 @@ const save = async () => {
     fileList.value = []
     uploadedAttachments.value = []
     loadData()
-  } catch (e) { console.error(e) }
+  } catch (e) {
+    console.error(e)
+  } finally {
+    saving.value = false
+  }
 }
 
 const openDetail = async (row) => {

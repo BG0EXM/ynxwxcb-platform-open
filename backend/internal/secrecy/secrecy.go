@@ -77,19 +77,20 @@ var (
 		ruleSecret,
 	}
 
-	xmlTagRegex  = regexp.MustCompile(`<[^>]+>`)
-	pdfHexRegex  = regexp.MustCompile(`<([0-9a-fA-F]+)>`)
-	pdfBfChar    = regexp.MustCompile(`<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>`)
-	pdfBfRange   = regexp.MustCompile(`<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>`)
-	pdfStreamRe  = regexp.MustCompile(`(?s)stream\r?\n(.*?)\r?\nendstream`)
+	xmlTagRegex = regexp.MustCompile(`<[^>]+>`)
+	pdfHexRegex = regexp.MustCompile(`<([0-9a-fA-F]+)>`)
+	pdfBfChar   = regexp.MustCompile(`<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>`)
+	pdfBfRange  = regexp.MustCompile(`<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>`)
+	pdfStreamRe = regexp.MustCompile(`(?s)stream\r?\n(.*?)\r?\nendstream`)
 )
 
 // ViolationResult 涉密检测结果
 type ViolationResult struct {
-	Violated bool   // 是否命中
-	Rule     string // 命中的规则名称
-	Category string // 涉密类别（国家秘密/工作秘密/内部级）
-	Detail   string // 命中上下文详情
+	Unreadable bool   // 文件超出检测上限或 Office 文档无法解析（失败即拒绝，由调用方提示另存后重新上传）
+	Violated   bool   // 是否命中
+	Rule       string // 命中的规则名称
+	Category   string // 涉密类别（国家秘密/工作秘密/内部级）
+	Detail     string // 命中上下文详情
 }
 
 // CheckFileSecrecy 深度检测文件是否包含国家秘密或内部保密标识
@@ -104,10 +105,9 @@ func CheckFileSecrecy(filename string, r io.Reader) (ViolationResult, io.Reader)
 		return ViolationResult{Violated: false}, r
 	}
 
-	// 2. 读取全部字节（最大限制 30MB 深度检测，防止 OOM）
-	maxRead := int64(30 << 20)
+	// 2. 完整读取文件（上限 64MB，覆盖系统允许的最大上传大小）；超出上限的 Office 文档无法完整检测，一律拒绝
 	var buf bytes.Buffer
-	n, err := io.CopyN(&buf, r, maxRead)
+	n, err := io.CopyN(&buf, r, maxCheckBytes+1)
 	if err != nil && err != io.EOF {
 		// 读取错误返回原 reader
 		return ViolationResult{Violated: false}, io.MultiReader(bytes.NewReader(buf.Bytes()), r)
@@ -121,6 +121,18 @@ func CheckFileSecrecy(filename string, r io.Reader) (ViolationResult, io.Reader)
 	}
 
 	ext := strings.ToLower(filepath.Ext(filename))
+	if n > maxCheckBytes {
+		if ext == ".docx" || ext == ".xlsx" || ext == ".doc" {
+			return ViolationResult{Unreadable: true, Detail: "文件超过涉密检测上限"}, restoredReader
+		}
+		fileBytes = fileBytes[:maxCheckBytes]
+	}
+	// Word/Excel 必须能被正常解析，否则正文无法检测（失败即拒绝）
+	if ext == ".docx" || ext == ".xlsx" {
+		if _, zerr := zip.NewReader(bytes.NewReader(fileBytes), int64(len(fileBytes))); zerr != nil {
+			return ViolationResult{Unreadable: true, Detail: "Office 文档无法解析"}, restoredReader
+		}
+	}
 
 	// 3. 针对不同文件类型进行深度内容解构与检测
 	switch ext {
@@ -137,15 +149,15 @@ func CheckFileSecrecy(filename string, r io.Reader) (ViolationResult, io.Reader)
 		if res := checkPdf(fileBytes); res.Violated {
 			return res, restoredReader
 		}
-		// 2. 深度视觉 OCR 识别（涵盖扫描型/图片型 PDF 及含公章扫描件）
-		if ocrText, err := runOCROnPdf(fileBytes); err == nil && ocrText != "" {
+		// 2. 深度视觉 OCR 识别（涵盖扫描型/图片型 PDF 及含公章扫描件），全局限并发防 CPU 打满
+		if ocrText, err := withOCRSlot(func() (string, error) { return runOCROnPdf(fileBytes) }); err == nil && ocrText != "" {
 			if res := matchTextRules(ocrText, "PDF扫描/图像公文OCR识别"); res.Violated {
 				return res, restoredReader
 			}
 		}
 	case ".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff":
 		// 3. 各单位公函照片、盖章件与红头扫描图片 OCR 智能识别
-		if ocrText, err := runOCROnImage(ext, fileBytes); err == nil && ocrText != "" {
+		if ocrText, err := withOCRSlot(func() (string, error) { return runOCROnImage(ext, fileBytes) }); err == nil && ocrText != "" {
 			if res := matchTextRules(ocrText, "公文图片附件OCR智能识别"); res.Violated {
 				return res, restoredReader
 			}
@@ -160,12 +172,23 @@ func CheckFileSecrecy(filename string, r io.Reader) (ViolationResult, io.Reader)
 		}
 	}
 
-	// 4. 通用二进制/编码嗅探兜底（即使后缀名被伪造或特殊混淆）
-	if res := checkRawBytesFallback(fileBytes); res.Violated {
-		return res, restoredReader
+	// 4. 通用二进制/编码嗅探兜底（即使后缀名被伪造或特殊混淆）。
+	//    压缩/图像格式的原始字节近似随机，逐字节匹配双字关键词会产生大量误判（大文件可达数个百分点），
+	//    这些格式已有专门的解构检测，跳过兜底。
+	if !compressedExts[ext] {
+		if res := checkRawBytesFallback(fileBytes); res.Violated {
+			return res, restoredReader
+		}
 	}
 
 	return ViolationResult{Violated: false}, restoredReader
+}
+
+// filenameWhitelistPhrases 文件名白名单词组：保密法学习、保密教育等宣传学习类材料的常见名称，
+// 仅在文件名检测时剔除后再匹配，避免《保守国家秘密法学习.pdf》这类正常文件被误判；正文内容检测不受影响。
+var filenameWhitelistPhrases = []string{
+	"保守国家秘密法", "保守國家秘密法", "保守国家秘密", "保守國家秘密", "国家秘密法", "國家秘密法", "保密法",
+	"保密知识", "保密知識", "保密教育", "保密宣传", "保密宣傳", "保密培训", "保密培訓", "保密工作", "保密常识", "保密常識",
 }
 
 // checkFilename 检查文件名
@@ -173,6 +196,9 @@ func checkFilename(filename string) ViolationResult {
 	cleanName := strings.ReplaceAll(filename, " ", "")
 	cleanName = strings.ReplaceAll(cleanName, "_", "")
 	cleanName = strings.ReplaceAll(cleanName, "-", "")
+	for _, phrase := range filenameWhitelistPhrases {
+		cleanName = strings.ReplaceAll(cleanName, phrase, "")
+	}
 
 	for _, rule := range allRules {
 		for _, kw := range rule.Keywords {
@@ -204,27 +230,11 @@ func checkDocx(data []byte) ViolationResult {
 		return ViolationResult{Violated: false}
 	}
 
-	var sb strings.Builder
-	for _, f := range zr.File {
-		name := strings.ToLower(f.Name)
-		// 重点扫描正文、页眉（密级常标于版头页眉）、页脚、核心属性
-		if strings.HasPrefix(name, "word/") && (strings.HasSuffix(name, ".xml")) ||
-			strings.HasPrefix(name, "docprops/") && strings.HasSuffix(name, ".xml") {
-			rc, err := f.Open()
-			if err != nil {
-				continue
-			}
-			content, _ := io.ReadAll(io.LimitReader(rc, 20<<20))
-			rc.Close()
-
-			// 清洗 XML 标签，提取出纯文本
-			plain := xmlTagRegex.ReplaceAllString(string(content), " ")
-			sb.WriteString(plain)
-			sb.WriteString("\n")
-		}
-	}
-
-	fullText := sb.String()
+	// 重点扫描正文、页眉（密级常标于版头页眉）、页脚、核心属性
+	fullText := readZipXMLText(zr, func(name string) bool {
+		return strings.HasPrefix(name, "word/") && strings.HasSuffix(name, ".xml") ||
+			strings.HasPrefix(name, "docprops/") && strings.HasSuffix(name, ".xml")
+	})
 	return matchTextRules(fullText, "Word文档正文/页眉内容")
 }
 
@@ -256,22 +266,10 @@ func checkXlsx(data []byte) ViolationResult {
 		return ViolationResult{Violated: false}
 	}
 
-	var sb strings.Builder
-	for _, f := range zr.File {
-		name := strings.ToLower(f.Name)
-		if name == "xl/sharedstrings.xml" || strings.HasPrefix(name, "xl/worksheets/") {
-			rc, err := f.Open()
-			if err != nil {
-				continue
-			}
-			content, _ := io.ReadAll(io.LimitReader(rc, 20<<20))
-			rc.Close()
-			plain := xmlTagRegex.ReplaceAllString(string(content), " ")
-			sb.WriteString(plain)
-			sb.WriteString("\n")
-		}
-	}
-	return matchTextRules(sb.String(), "Excel表格文本内容")
+	text := readZipXMLText(zr, func(name string) bool {
+		return name == "xl/sharedstrings.xml" || strings.HasPrefix(name, "xl/worksheets/")
+	})
+	return matchTextRules(text, "Excel表格文本内容")
 }
 
 // checkPdf 深度解构与分析 PDF 文件
@@ -589,4 +587,52 @@ func encodeUTF16BE(s string) []byte {
 		b[i*2+1] = byte(val)
 	}
 	return b
+}
+
+// Office 压缩包解构上限（防 Zip Bomb：总解压量与条目数双重封顶）
+const (
+	zipMaxTotalBytes = 50 << 20
+	zipMaxEntries    = 500
+	zipMaxEntryBytes = 20 << 20
+)
+
+// readZipXMLText 按名称筛选读取 Office 压缩包内的 XML 并清洗为纯文本，受总量与条目数上限约束
+func readZipXMLText(zr *zip.Reader, match func(lowerName string) bool) string {
+	var sb strings.Builder
+	var total int64
+	entries := 0
+	for _, f := range zr.File {
+		name := strings.ToLower(f.Name)
+		if !match(name) {
+			continue
+		}
+		entries++
+		if entries > zipMaxEntries || total >= zipMaxTotalBytes {
+			break
+		}
+		rc, err := f.Open()
+		if err != nil {
+			continue
+		}
+		limit := int64(zipMaxEntryBytes)
+		if remain := zipMaxTotalBytes - total; remain < limit {
+			limit = remain
+		}
+		content, _ := io.ReadAll(io.LimitReader(rc, limit))
+		rc.Close()
+		total += int64(len(content))
+		sb.WriteString(xmlTagRegex.ReplaceAllString(string(content), " "))
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
+
+// maxCheckBytes 涉密检测最大读取字节数
+const maxCheckBytes = int64(64 << 20)
+
+// compressedExts 压缩或图像类格式（原始字节不做关键词兜底匹配）
+var compressedExts = map[string]bool{
+	".docx": true, ".xlsx": true, ".pptx": true, ".zip": true, ".rar": true, ".7z": true, ".gz": true,
+	".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true, ".bmp": true, ".tif": true, ".tiff": true,
+	".pdf": true,
 }

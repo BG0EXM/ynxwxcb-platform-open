@@ -159,6 +159,7 @@ type AnnualLeaveConfig struct {
 // Meeting 会议（会务管理）
 type Meeting struct {
 	ID          int64     `json:"id"`
+	PublicToken string `json:"public_token,omitempty"` // 公开链接令牌（仅后台接口返回）
 	Title       string    `json:"title"`
 	MeetingDate string    `json:"meeting_date"`
 	MeetingTime string    `json:"meeting_time"`
@@ -192,6 +193,7 @@ type MeetingRegistration struct {
 // Solicit 征求文件与材料意见
 type Solicit struct {
 	ID            int64     `json:"id"`
+	PublicToken string `json:"public_token,omitempty"` // 公开链接令牌（仅后台接口返回）
 	Title         string    `json:"title"`
 	DocNo         string    `json:"doc_no"`
 	Deadline      string    `json:"deadline"`      // 截止时间 YYYY-MM-DD HH:mm
@@ -231,6 +233,7 @@ type SolicitFeedback struct {
 // Dispatch 官方文件与学习材料下发任务
 type Dispatch struct {
 	ID             int64     `json:"id"`
+	PublicToken string `json:"public_token,omitempty"` // 公开链接令牌（仅后台接口返回）
 	Title          string    `json:"title"`           // 材料标题
 	DocNo          string    `json:"doc_no"`          // 发文字号
 	Units          string    `json:"units"`           // 下发单位范围（换行分隔）

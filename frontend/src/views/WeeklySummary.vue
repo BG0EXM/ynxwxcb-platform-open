@@ -23,6 +23,7 @@
       </div>
 
       <el-table :data="list" stripe v-loading="loading" empty-text="暂无每周工作总结">
+        <template #empty><EmptyState description="暂无每周工作总结" /></template>
         <el-table-column prop="department_name" label="科室" width="130" />
         <el-table-column label="本周" width="180">
           <template #default="{ row }">
@@ -57,7 +58,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="save">保存</el-button>
+        <el-button type="primary" :loading="saveLoading" @click="save">保存</el-button>
       </template>
     </el-drawer>
   </div>
@@ -70,6 +71,7 @@ import request, { exportFile } from '../utils/request'
 import dayjs from 'dayjs'
 import { useAuthStore } from '../store/auth'
 import PageHeader from '../components/PageHeader.vue'
+import EmptyState from '../components/EmptyState.vue'
 
 const authStore = useAuthStore()
 const list = ref([])
@@ -134,7 +136,19 @@ const openEdit = (row) => {
   dialogVisible.value = true
 }
 
-const save = async () => {
+// 防重复提交：保存请求进行中时禁用按钮并忽略重复点击
+const saveLoading = ref(false)
+const save = async (...args) => {
+  if (saveLoading.value) return
+  saveLoading.value = true
+  try {
+    await saveImpl(...args)
+  } finally {
+    saveLoading.value = false
+  }
+}
+
+const saveImpl = async () => {
   if (!weekRange.value || weekRange.value.length !== 2) return ElMessage.warning('请选择本周日期')
   if (!form.value.content) return ElMessage.warning('请输入重点工作总结')
   try {
@@ -168,7 +182,7 @@ const exportData = () => {
     params.week_start = weekPicker.value[0]
     params.week_end = weekPicker.value[1]
   }
-  exportFile('/export/weekly-summaries', params)
+  exportFile('/export/weekly-summaries', params, '每周工作总结.docx')
 }
 
 onMounted(() => {

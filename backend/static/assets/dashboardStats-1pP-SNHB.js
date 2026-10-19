@@ -1,0 +1,1 @@
+import{r as o}from"./auth-B-DUUg2o.js";let t=null,n=0;function l({force:r=!1}={}){const e=Date.now();return!r&&t&&e-n<2e3||(n=e,t=o.get("/dashboard-stats").catch(a=>{throw t=null,a})),t}export{l as f};

@@ -2,10 +2,13 @@ package handlers
 
 import (
 	"archive/zip"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -33,13 +36,20 @@ func ListSolicits(w http.ResponseWriter, r *http.Request) {
 	if pageSize <= 0 {
 		pageSize = 10
 	}
+	// 每页最多 100 条（与前端分页选项一致），防止一次请求拉取全表
+	if pageSize > 100 {
+		pageSize = 100
+	}
 	offset := (page - 1) * pageSize
 
 	var total int
-	database.DB.QueryRow("SELECT COUNT(*) FROM solicits").Scan(&total)
+	if err := database.DB.QueryRow("SELECT COUNT(*) FROM solicits").Scan(&total); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
 
 	query := `SELECT s.id, s.title, s.doc_no, s.deadline, s.units, s.content,
-			s.pdf_path, s.pdf_name, s.word_path, s.word_name,
+			s.pdf_path, s.pdf_name, s.word_path, s.word_name, IFNULL(s.public_token, ''),
 			s.created_by, u.real_name, s.created_at, s.updated_at,
 			COALESCE(COUNT(f.id), 0) AS feedback_count,
 			COALESCE(SUM(CASE WHEN f.has_opinion = 1 THEN 1 ELSE 0 END), 0) AS opinion_count
@@ -67,7 +77,7 @@ func ListSolicits(w http.ResponseWriter, r *http.Request) {
 
 		if err := rows.Scan(
 			&s.ID, &s.Title, &docNo, &s.Deadline, &s.Units, &content,
-			&s.PdfPath, &s.PdfName, &wordPath, &wordName,
+			&s.PdfPath, &s.PdfName, &wordPath, &wordName, &s.PublicToken,
 			&createdBy, &creator, &createdAt, &updatedAt,
 			&feedbackCount, &opinionCount,
 		); err != nil {
@@ -106,7 +116,7 @@ func ListSolicits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	middleware.JSON(w, http.StatusOK, map[string]interface{}{"list": list, "total": total})
+	middleware.JSON(w, http.StatusOK, map[string]interface{}{"list": list, "total": total, "summary": deadlineSummary("solicits")})
 }
 
 // CreateSolicit 新增征求意见任务
@@ -135,17 +145,32 @@ func CreateSolicit(cfg *config.Config) http.HandlerFunc {
 			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请上传正文 PDF 底稿"})
 			return
 		}
+		if !validDeadline(req.Deadline) {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "截止时间格式错误，应为 YYYY-MM-DD HH:mm"})
+			return
+		}
+		pdfAtt, msg := checkOwnedUploadRef(r, req.PdfPath, "solicit", 0)
+		if msg != "" {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+			return
+		}
+		wordAtt, msg := checkOwnedUploadRef(r, req.WordPath, "solicit", 0)
+		if msg != "" {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+			return
+		}
 
 		res, err := database.DB.Exec(
-			`INSERT INTO solicits (id, title, doc_no, deadline, units, content, pdf_path, pdf_name, word_path, word_name, created_by)
-			 SELECT COALESCE(MAX(id), 0) + 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? FROM solicits`,
-			req.Title, req.DocNo, req.Deadline, req.Units, req.Content, req.PdfPath, req.PdfName, req.WordPath, req.WordName, userID)
+			`INSERT INTO solicits (id, title, doc_no, deadline, units, content, pdf_path, pdf_name, word_path, word_name, created_by, public_token)
+			 SELECT COALESCE(MAX(id), 0) + 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? FROM solicits`,
+			req.Title, req.DocNo, req.Deadline, req.Units, req.Content, req.PdfPath, req.PdfName, req.WordPath, req.WordName, userID, newPublicToken())
 		if err != nil {
 			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "创建失败"})
 			return
 		}
 
 		lastID, _ := res.LastInsertId()
+		bindUploadRefs(lastID, pdfAtt, wordAtt)
 		logOperation(r, "征求意见", "新增", "新增征求意见「"+req.Title+"」")
 		middleware.JSON(w, http.StatusOK, map[string]interface{}{"message": "创建成功", "id": lastID})
 	}
@@ -175,6 +200,29 @@ func UpdateSolicit(cfg *config.Config) http.HandlerFunc {
 			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "征求单位范围必填"})
 			return
 		}
+		if strings.TrimSpace(req.PdfPath) == "" {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请上传正文 PDF 底稿"})
+			return
+		}
+		if !validDeadline(req.Deadline) {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "截止时间格式错误，应为 YYYY-MM-DD HH:mm"})
+			return
+		}
+		var oldPdf, oldWord sql.NullString
+		if err := database.DB.QueryRow("SELECT pdf_path, word_path FROM solicits WHERE id=?", req.ID).Scan(&oldPdf, &oldWord); err != nil {
+			middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "征求意见任务不存在"})
+			return
+		}
+		pdfAtt, msg := checkOwnedUploadRef(r, req.PdfPath, "solicit", req.ID, oldPdf.String, oldWord.String)
+		if msg != "" {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+			return
+		}
+		wordAtt, msg := checkOwnedUploadRef(r, req.WordPath, "solicit", req.ID, oldPdf.String, oldWord.String)
+		if msg != "" {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+			return
+		}
 
 		_, err := database.DB.Exec(
 			`UPDATE solicits SET title=?, doc_no=?, deadline=?, units=?, content=?,
@@ -187,6 +235,13 @@ func UpdateSolicit(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
+		bindUploadRefs(req.ID, pdfAtt, wordAtt)
+		// 被替换下来的旧文件同步物理清理
+		for _, old := range []string{oldPdf.String, oldWord.String} {
+			if old != "" && old != strings.TrimSpace(req.PdfPath) && old != strings.TrimSpace(req.WordPath) {
+				SafeRemoveUploadedFile(cfg, old)
+			}
+		}
 		logOperation(r, "征求意见", "修改", "修改征求意见「"+req.Title+"」")
 		middleware.JSON(w, http.StatusOK, map[string]string{"message": "更新成功"})
 	}
@@ -221,6 +276,9 @@ func DeleteSolicit(cfg *config.Config) http.HandlerFunc {
 						feedbackFiles = append(feedbackFiles, aDoc.String)
 					}
 				}
+			}
+			if err := fbRows.Err(); err != nil {
+				log.Printf("[查询] 遍历结果失败: %v", err)
 			}
 			fbRows.Close()
 		}
@@ -284,14 +342,14 @@ func GetSolicit(w http.ResponseWriter, r *http.Request) {
 
 	err := database.DB.QueryRow(
 		`SELECT s.id, s.title, s.doc_no, s.deadline, s.units, s.content,
-			s.pdf_path, s.pdf_name, s.word_path, s.word_name,
+			s.pdf_path, s.pdf_name, s.word_path, s.word_name, IFNULL(s.public_token, ''),
 			s.created_by, u.real_name, s.created_at, s.updated_at
 		FROM solicits s
 		LEFT JOIN users u ON s.created_by = u.id
 		WHERE s.id = ?`, id).
 		Scan(
 			&s.ID, &s.Title, &docNo, &s.Deadline, &s.Units, &content,
-			&s.PdfPath, &s.PdfName, &wordPath, &wordName,
+			&s.PdfPath, &s.PdfName, &wordPath, &wordName, &s.PublicToken,
 			&createdBy, &creator, &createdAt, &updatedAt,
 		)
 	if err == sql.ErrNoRows {
@@ -358,6 +416,10 @@ func GetSolicit(w http.ResponseWriter, r *http.Request) {
 			if f.Unit != "" {
 				feedbackUnitSet[f.Unit] = true
 			}
+		}
+		if err := rows.Err(); err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+			return
 		}
 	}
 
@@ -465,6 +527,10 @@ func ExportSolicitFeedbacks(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		if err := rows.Err(); err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+			return
+		}
 	}
 
 	headers := []string{"序号", "单位名称", "反馈状态", "修改意见", "意见具体内容", "盖章红头回函", "修改稿附件", "经办人", "联系电话", "反馈时间"}
@@ -483,7 +549,7 @@ func ExportSolicitFeedbacks(w http.ResponseWriter, r *http.Request) {
 			}
 			fbTime := ""
 			if !fb.CreatedAt.IsZero() {
-				fbTime = fb.CreatedAt.Format("2006/01/02 15:04")
+				fbTime = fb.CreatedAt.In(time.Local).Format("2006/01/02 15:04")
 			}
 			data = append(data, []interface{}{
 				idx, unit, "已反馈", opStatus, fb.OpinionDetail, fb.ReplyDocName, fb.AttachmentName, fb.ContactName, fb.ContactPhone, fbTime,
@@ -568,6 +634,9 @@ func DownloadSolicitRepliesZip(cfg *config.Config) http.HandlerFunc {
 				}
 			}
 		}
+		if err := rows.Err(); err != nil {
+			log.Printf("[查询] 遍历结果失败: %v", err)
+		}
 
 		if len(entries) == 0 {
 			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "暂无可下载的单位回函附件"})
@@ -610,7 +679,10 @@ func DownloadSolicitRepliesZip(cfg *config.Config) http.HandlerFunc {
 
 // PublicSolicit 公开征求意见信息加载（匿名免密）
 func PublicSolicit(w http.ResponseWriter, r *http.Request) {
-	id := pathID(r)
+	id, ok := publicID(w, r, "solicits")
+	if !ok {
+		return
+	}
 	if id == 0 {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "参数错误"})
 		return
@@ -635,8 +707,11 @@ func PublicSolicit(w http.ResponseWriter, r *http.Request) {
 
 	s.DocNo = docNo.String
 	s.Content = content.String
-	s.WordPath = wordPath.String
 	s.WordName = wordName.String
+	hasWord := wordPath.String != ""
+	// 公开端不返回任何内部存储路径（含 /api/uploads/{id} 附件编号）
+	s.PdfPath = ""
+	s.WordPath = ""
 	if createdAt.Valid {
 		s.CreatedAt = createdAt.Time
 	}
@@ -678,11 +753,10 @@ func PublicSolicit(w http.ResponseWriter, r *http.Request) {
 				"solicit_id":      id,
 				"unit":            unit,
 				"has_opinion":     hasOp,
-				"opinion_detail":  opDetail.String,
 				"has_reply_doc":   hasReplyDoc,
 				"reply_doc_name":  replyName.String,
 				"attachment_name": attName.String,
-				"contact_name":    cName.String,
+				"contact_name":    maskName(cName.String),
 				"contact_phone":   maskPhoneNumber(cPhone.String),
 				"created_at":      createdAtVal,
 				"updated_at":      updatedAtVal,
@@ -694,7 +768,7 @@ func PublicSolicit(w http.ResponseWriter, r *http.Request) {
 		"solicit":          s,
 		"units":            units,
 		"expired":          expired,
-		"has_word":         s.WordPath != "",
+		"has_word":         hasWord,
 		"current_feedback": currentFeedback,
 	})
 }
@@ -702,7 +776,10 @@ func PublicSolicit(w http.ResponseWriter, r *http.Request) {
 // PublicServeSolicitFile 公开受控读取正文 PDF 或配套 Word（支持在线预览与下载）
 func PublicServeSolicitFile(cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := pathID(r)
+		id, ok := publicID(w, r, "solicits")
+		if !ok {
+			return
+		}
 		fileType := r.URL.Query().Get("type") // "pdf" 或 "word"
 		mode := r.URL.Query().Get("mode")     // "inline" (内嵌查看) 或 "download" (下载)
 
@@ -758,15 +835,18 @@ func PublicServeSolicitFile(cfg *config.Config) http.HandlerFunc {
 // PublicSolicitUpload 公开上传盖章回函或修改稿附件
 func PublicSolicitUpload(cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := pathID(r)
+		id, ok := publicID(w, r, "solicits")
+		if !ok {
+			return
+		}
 		if id == 0 {
 			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "参数错误"})
 			return
 		}
 
 		// 检查任务存在且未截止
-		var deadline string
-		if err := database.DB.QueryRow("SELECT deadline FROM solicits WHERE id=?", id).Scan(&deadline); err != nil {
+		var deadline, unitsRaw string
+		if err := database.DB.QueryRow("SELECT deadline, units FROM solicits WHERE id=?", id).Scan(&deadline, &unitsRaw); err != nil {
 			middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "征求意见任务不存在"})
 			return
 		}
@@ -778,8 +858,23 @@ func PublicSolicitUpload(cfg *config.Config) http.HandlerFunc {
 		// 硬性限制请求体大小（单文件最大 20MB）
 		const maxUploadMB = 20
 		r.Body = http.MaxBytesReader(w, r.Body, int64(maxUploadMB+2)<<20)
-		if err := r.ParseMultipartForm(int64(maxUploadMB) << 20); err != nil {
+		if err := r.ParseMultipartForm(8 << 20); err != nil {
 			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "文件过大，单文件不得超过 20MB"})
+			return
+		}
+		if r.MultipartForm != nil {
+			defer r.MultipartForm.RemoveAll()
+		}
+
+		// 必须声明本次征求范围内的单位：文件按“征求事项/单位”分目录存放并限额，提交时只能引用本单位目录下的文件
+		unit := strings.TrimSpace(r.FormValue("unit"))
+		if !unitInList(unitsRaw, unit) {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请先选择本次征求意见范围内的所属单位"})
+			return
+		}
+		unitDir := solicitUnitDir(id, unit)
+		if n := countFiles(filepath.Join(cfg.Upload.Dir, filepath.FromSlash(unitDir))); n >= maxSolicitUploadsPerUnit {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "本单位上传文件次数已达上限，请联系宣传部办公室"})
 			return
 		}
 
@@ -801,11 +896,12 @@ func PublicSolicitUpload(cfg *config.Config) http.HandlerFunc {
 
 		// 保密安全校验：严禁公开端上传国家秘密（秘密/机密/绝密）、工作秘密及内部级文件资料（含正文与附件深度解析）
 		var fileReader io.Reader = file
-		if res, restoredReader := secrecy.CheckFileSecrecy(header.Filename, file); res.Violated {
-			unitName := r.FormValue("unit_name")
-			if unitName == "" {
-				unitName = "外网填报单位"
-			}
+		if res, restoredReader := secrecy.CheckFileSecrecy(header.Filename, file); res.Unreadable {
+			// 无法完整检测的 Office 文档一律拒绝（失败即关闭），不能绕过涉密审查
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "文件无法解析或超过检测上限，请用 Office/WPS 另存为标准格式后重新上传"})
+			return
+		} else if res.Violated {
+			unitName := unit
 			logWithUserDept(0, "外网填报经办人", unitName, "保密防线", "公开端涉密阻断",
 				fmt.Sprintf("拦截【%s】上传涉密公函: %s (密级: %s, 规则: %s, 详情: %s)", unitName, header.Filename, res.Category, res.Rule, res.Detail),
 				clientIP(r),
@@ -823,28 +919,32 @@ func PublicSolicitUpload(cfg *config.Config) http.HandlerFunc {
 			fileReader = restoredReader
 		}
 
-		dateDir := time.Now().Format("2006/01")
-		saveDir := filepath.Join(cfg.Upload.Dir, "solicits", dateDir)
+		saveDir := filepath.Join(cfg.Upload.Dir, filepath.FromSlash(unitDir))
 		if err := os.MkdirAll(saveDir, 0755); err != nil {
 			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "存储目录创建失败"})
 			return
 		}
 
-		fileName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), filepath.Base(header.Filename))
+		fileName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), sanitizeFileName(filepath.Base(header.Filename)))
 		savePath := filepath.Join(saveDir, fileName)
 		dst, err := os.Create(savePath)
 		if err != nil {
 			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "保存失败"})
 			return
 		}
-		defer dst.Close()
-
 		if _, err := io.Copy(dst, fileReader); err != nil {
+			dst.Close()
+			os.Remove(savePath)
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "写入失败"})
+			return
+		}
+		if err := dst.Close(); err != nil {
+			os.Remove(savePath)
 			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "写入失败"})
 			return
 		}
 
-		webPath := "/uploads/solicits/" + dateDir + "/" + fileName
+		webPath := "/uploads/" + unitDir + "/" + fileName
 		middleware.JSON(w, http.StatusOK, map[string]interface{}{
 			"message":   "上传成功",
 			"file_path": webPath,
@@ -855,8 +955,17 @@ func PublicSolicitUpload(cfg *config.Config) http.HandlerFunc {
 }
 
 // PublicSubmitFeedback 公开提交本单位反馈意见与红头回函
-func PublicSubmitFeedback(w http.ResponseWriter, r *http.Request) {
-	id := pathID(r)
+func PublicSubmitFeedback(cfg *config.Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		publicSubmitFeedback(cfg, w, r)
+	}
+}
+
+func publicSubmitFeedback(cfg *config.Config, w http.ResponseWriter, r *http.Request) {
+	id, ok := publicID(w, r, "solicits")
+	if !ok {
+		return
+	}
 	if id == 0 {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "参数错误"})
 		return
@@ -910,19 +1019,28 @@ func PublicSubmitFeedback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 校验盖章红头回函必须上传
-	if strings.TrimSpace(req.ReplyDocPath) == "" {
+	req.ReplyDocPath = strings.TrimSpace(req.ReplyDocPath)
+	req.AttachmentPath = strings.TrimSpace(req.AttachmentPath)
+	if req.ReplyDocPath == "" {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请上传经单位主要领导审签并加盖公章的红头回函"})
 		return
 	}
-	if !strings.HasPrefix(req.ReplyDocPath, "/uploads/solicits/") || strings.Contains(req.ReplyDocPath, "..") {
-		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "回函文件路径非法"})
+	// 文件只能引用“本征求事项 + 本单位”目录下真实存在的上传文件，杜绝引用或连带删除其他单位的回函
+	if !validSolicitUploadRef(cfg, id, req.Unit, req.ReplyDocPath) {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "回函文件无效，请重新上传"})
 		return
 	}
-	if strings.TrimSpace(req.AttachmentPath) != "" {
-		if !strings.HasPrefix(req.AttachmentPath, "/uploads/solicits/") || strings.Contains(req.AttachmentPath, "..") {
-			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "修改稿附件路径非法"})
-			return
-		}
+	if req.AttachmentPath != "" && !validSolicitUploadRef(cfg, id, req.Unit, req.AttachmentPath) {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "修改稿附件无效，请重新上传"})
+		return
+	}
+	if req.HasOpinion != 0 && req.HasOpinion != 1 {
+		req.HasOpinion = 0
+	}
+	if len([]rune(req.OpinionDetail)) > 5000 || len([]rune(req.ContactName)) > 20 || len([]rune(req.ContactPhone)) > 20 ||
+		len([]rune(req.ReplyDocName)) > 200 || len([]rune(req.AttachmentName)) > 200 {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "填写内容过长"})
+		return
 	}
 
 	req.ContactName = strings.TrimSpace(req.ContactName)
@@ -993,7 +1111,8 @@ func isDeadlineExpired(deadlineStr string) bool {
 			return time.Now().After(t)
 		}
 	}
-	return false
+	// 无法解析的截止时间一律按已截止处理（失败即关闭），防止非法格式导致永不截止
+	return true
 }
 
 func maskPhoneNumber(phone string) string {
@@ -1010,57 +1129,58 @@ func maskPhoneNumber(phone string) string {
 	return "****"
 }
 
-func resolveFilePath(baseDir, rawPath string) string {
-	rawPath = strings.TrimSpace(rawPath)
-	if rawPath == "" || baseDir == "" {
-		return ""
-	}
-	// 严禁包含反斜杠或冒号（防止跨平台路径混淆或 Windows 绝对路径绕过）
-	if strings.Contains(rawPath, "\\") || strings.Contains(rawPath, ":") {
-		return ""
-	}
-	// 如果是 /api/uploads/{id} 格式，从 attachments 表查出文件真实路径
-	if strings.HasPrefix(rawPath, "/api/uploads/") {
-		attIDStr := strings.TrimPrefix(rawPath, "/api/uploads/")
-		if id, err := strconv.ParseInt(attIDStr, 10, 64); err == nil && id > 0 {
-			var actualPath string
-			if err := database.DB.QueryRow("SELECT file_path FROM attachments WHERE id=?", id).Scan(&actualPath); err == nil {
-				rawPath = actualPath
-			}
-		}
-	}
-
-	cleanBase, err := filepath.Abs(baseDir)
-	if err != nil {
-		cleanBase = filepath.Clean(baseDir)
-	}
-
-	var candidate string
-	if strings.HasPrefix(rawPath, "/uploads/") {
-		candidate = filepath.Join(cleanBase, strings.TrimPrefix(rawPath, "/uploads/"))
-	} else if filepath.IsAbs(rawPath) {
-		// 严禁直接返回任意绝对路径！
-		candidate = rawPath
-	} else {
-		candidate = filepath.Join(cleanBase, rawPath)
-	}
-
-	cleanTarget := filepath.Clean(candidate)
-	absTarget, err := filepath.Abs(cleanTarget)
-	if err != nil {
-		return ""
-	}
-
-	// 强校验解析后的路径在 baseDir 目录之内，若越界或包含 .. 必须拒绝返回空字符串
-	rel, err := filepath.Rel(cleanBase, absTarget)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || strings.Contains(rel, "..") || rel == "." {
-		return ""
-	}
-
-	return absTarget
-}
-
 func sanitizeFileName(name string) string {
 	r := strings.NewReplacer("/", "_", "\\", "_", ":", "_", "*", "_", "?", "_", "\"", "_", "<", "_", ">", "_", "|", "_", " ", "_")
 	return r.Replace(name)
+}
+
+// maxSolicitUploadsPerUnit 单个征求事项每个单位最多上传文件数（防刷爆磁盘）
+const maxSolicitUploadsPerUnit = 20
+
+// solicitUnitDir 公开回函存放目录（相对上传目录）：solicits/{征求ID}/{单位摘要}
+func solicitUnitDir(solicitID int64, unit string) string {
+	sum := sha256.Sum256([]byte(unit))
+	return fmt.Sprintf("solicits/%d/%s", solicitID, hex.EncodeToString(sum[:8]))
+}
+
+// validSolicitUploadRef 校验公开反馈引用的文件属于本征求事项本单位目录，且真实存在
+func validSolicitUploadRef(cfg *config.Config, solicitID int64, unit, ref string) bool {
+	prefix := "/uploads/" + solicitUnitDir(solicitID, unit) + "/"
+	if !strings.HasPrefix(ref, prefix) {
+		return false
+	}
+	name := strings.TrimPrefix(ref, prefix)
+	if name == "" || strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
+		return false
+	}
+	abs := resolveFilePath(cfg.Upload.Dir, ref)
+	return abs != "" && fileExists(abs)
+}
+
+// unitInList 判断单位是否在换行分隔的单位清单中
+func unitInList(unitsRaw, unit string) bool {
+	if unit == "" {
+		return false
+	}
+	for _, u := range strings.Split(unitsRaw, "\n") {
+		if strings.TrimSpace(u) == unit {
+			return true
+		}
+	}
+	return false
+}
+
+// countFiles 统计目录下文件数（目录不存在返回 0）
+func countFiles(dir string) int {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, e := range entries {
+		if !e.IsDir() {
+			n++
+		}
+	}
+	return n
 }

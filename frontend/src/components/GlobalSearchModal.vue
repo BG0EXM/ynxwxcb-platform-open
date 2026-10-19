@@ -256,6 +256,7 @@
 
 <script setup>
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
+import { useAuthStore } from '../store/auth'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import request from '../utils/request'
@@ -268,7 +269,10 @@ const loading = ref(false)
 const inputRef = ref(null)
 const listContainerRef = ref(null)
 const activeFlatIndex = ref(0)
+const authStore = useAuthStore()
 let debounceTimer = null
+// 请求序号：只采纳最后一次检索的结果，防止慢的旧请求覆盖新结果
+let searchSeq = 0
 
 const isMac = ref(typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform))
 
@@ -346,8 +350,18 @@ const clearKeyword = () => {
 }
 
 // 初始化默认推荐
+// 快捷导航对应的功能权限（无权限的入口不展示）
+const quickNavPerms = {
+  '/incoming': 'incoming.view', '/contacts': 'contact.view', '/attendance': 'attendance.view', '/duty': 'duty.view',
+  '/calendar': 'calendar.view', '/vehicles': 'vehicle.view', '/meetings': 'meeting.manage', '/study': 'study.view'
+}
+const canSeeNav = (path) => {
+  const perm = quickNavPerms[path]
+  return !perm || authStore.hasPerm(perm)
+}
+
 const initDefaultResults = () => {
-  navResults.value = defaultQuickNavs.map(item => ({ ...item }))
+  navResults.value = defaultQuickNavs.filter(item => canSeeNav(item.path)).map(item => ({ ...item }))
   contactResults.value = []
   incomingResults.value = []
   studyResults.value = []
@@ -360,6 +374,7 @@ const handleInput = () => {
   clearTimeout(debounceTimer)
   const query = keyword.value.trim()
   if (!query) {
+    searchSeq++
     loading.value = false
     initDefaultResults()
     return
@@ -373,11 +388,13 @@ const handleInput = () => {
 
 // 执行联合检索
 const executeSearch = async (query) => {
+  const seq = ++searchSeq
   try {
     const res = await request.get('/global-search', { params: { q: query } })
+    if (seq !== searchSeq) return
     const items = Array.isArray(res) ? res : (res?.list || [])
 
-    navResults.value = items.filter(i => i.type === 'nav')
+    navResults.value = items.filter(i => i.type === 'nav' && canSeeNav(i.path))
     contactResults.value = items.filter(i => i.type === 'contact')
     incomingResults.value = items.filter(i => i.type === 'incoming')
     studyResults.value = items.filter(i => i.type === 'study')
@@ -388,7 +405,7 @@ const executeSearch = async (query) => {
   } catch (err) {
     console.error('全局速查请求失败', err)
   } finally {
-    loading.value = false
+    if (seq === searchSeq) loading.value = false
   }
 }
 
@@ -519,6 +536,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleGlobalShortcut)
+  clearTimeout(debounceTimer)
 })
 
 defineExpose({
@@ -551,7 +569,7 @@ defineExpose({
 
 .search-icon {
   font-size: 20px;
-  color: var(--yx-brand, #9e1b1e);
+  color: var(--yx-brand, var(--yx-brand));
   flex-shrink: 0;
 }
 
@@ -560,13 +578,13 @@ defineExpose({
   border: none;
   outline: none;
   font-size: 16px;
-  color: var(--yx-text-1, #1f2329);
+  color: var(--yx-text-1, var(--yx-text-1));
   background: transparent;
   padding: 0;
 }
 
 .search-native-input::placeholder {
-  color: var(--yx-text-4, #8a94a0);
+  color: var(--yx-text-4, var(--yx-text-4));
   font-size: 15px;
 }
 
@@ -578,14 +596,14 @@ defineExpose({
 }
 
 .search-loading-icon {
-  color: var(--yx-brand, #9e1b1e);
+  color: var(--yx-brand, var(--yx-brand));
   font-size: 18px;
 }
 
 .clear-btn {
   background: none;
   border: none;
-  color: var(--yx-text-4, #8a94a0);
+  color: var(--yx-text-4, var(--yx-text-4));
   cursor: pointer;
   padding: 2px;
   display: flex;
@@ -594,7 +612,7 @@ defineExpose({
 }
 
 .clear-btn:hover {
-  color: var(--yx-text-2, #4e5969);
+  color: var(--yx-text-2, var(--yx-text-2));
 }
 
 .shortcut-tag {
@@ -608,9 +626,9 @@ defineExpose({
   padding: 2px 6px;
   font-size: 11px;
   font-family: var(--yx-font-mono, monospace);
-  color: var(--yx-text-3, #6b7785);
+  color: var(--yx-text-3, var(--yx-text-3));
   background: #f2f3f5;
-  border: 1px solid #dcdfe5;
+  border: 1px solid var(--yx-border);
   border-radius: 4px;
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.05);
 }
@@ -632,12 +650,12 @@ defineExpose({
   justify-content: center;
   padding: 40px 20px;
   gap: 12px;
-  color: var(--yx-text-3, #6b7785);
+  color: var(--yx-text-3, var(--yx-text-3));
   font-size: 14px;
 }
 
 .search-status-box.empty {
-  color: var(--yx-text-2, #4e5969);
+  color: var(--yx-text-2, var(--yx-text-2));
 }
 
 .empty-icon {
@@ -648,12 +666,12 @@ defineExpose({
 .empty-text {
   font-size: 15px;
   font-weight: 500;
-  color: var(--yx-text-1, #1f2329);
+  color: var(--yx-text-1, var(--yx-text-1));
 }
 
 .empty-hint {
   font-size: 13px;
-  color: var(--yx-text-3, #6b7785);
+  color: var(--yx-text-3, var(--yx-text-3));
 }
 
 /* 分组结构 */
@@ -675,20 +693,20 @@ defineExpose({
   padding: 6px 8px;
   font-size: 12px;
   font-weight: 600;
-  color: var(--yx-text-3, #6b7785);
+  color: var(--yx-text-3, var(--yx-text-3));
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
 .group-icon {
   font-size: 13px;
-  color: var(--yx-brand, #9e1b1e);
+  color: var(--yx-brand, var(--yx-brand));
 }
 
 .group-count {
   margin-left: auto;
   font-size: 11px;
-  color: var(--yx-text-4, #8a94a0);
+  color: var(--yx-text-4, var(--yx-text-4));
   background: #ebedf0;
   padding: 1px 6px;
   border-radius: 10px;
@@ -737,7 +755,7 @@ defineExpose({
 
 .nav-icon {
   background: #f0f4fa;
-  color: var(--yx-ink-2, #24406e);
+  color: var(--yx-ink-2, var(--yx-ink-2));
 }
 
 .contact-icon {
@@ -752,7 +770,7 @@ defineExpose({
 
 .doc-icon {
   background: #faecec;
-  color: var(--yx-brand, #9e1b1e);
+  color: var(--yx-brand, var(--yx-brand));
 }
 
 .study-icon {
@@ -777,7 +795,7 @@ defineExpose({
 .item-title {
   font-size: 14.5px;
   font-weight: 500;
-  color: var(--yx-text-1, #1f2329);
+  color: var(--yx-text-1, var(--yx-text-1));
   display: flex;
   align-items: center;
   gap: 8px;
@@ -792,7 +810,7 @@ defineExpose({
 
 .item-desc {
   font-size: 12.5px;
-  color: var(--yx-text-3, #6b7785);
+  color: var(--yx-text-3, var(--yx-text-3));
   display: flex;
   align-items: center;
   gap: 10px;
@@ -811,7 +829,7 @@ defineExpose({
 
 .nav-badge {
   background: #eef2f8;
-  color: #24406e;
+  color: var(--yx-ink-2);
 }
 
 .dept-badge {
@@ -827,11 +845,11 @@ defineExpose({
 }
 
 .doc-from {
-  color: var(--yx-text-2, #4e5969);
+  color: var(--yx-text-2, var(--yx-text-2));
 }
 
 .doc-no {
-  color: var(--yx-brand, #9e1b1e);
+  color: var(--yx-brand, var(--yx-brand));
   background: #fff1f0;
   padding: 0 4px;
   border-radius: 3px;
@@ -861,12 +879,12 @@ defineExpose({
 }
 
 .meeting-time {
-  color: var(--yx-brand, #9e1b1e);
+  color: var(--yx-brand, var(--yx-brand));
   font-weight: 500;
 }
 
 .meeting-loc {
-  color: var(--yx-text-2, #4e5969);
+  color: var(--yx-text-2, var(--yx-text-2));
 }
 
 /* 右侧操作按钮 */
@@ -879,7 +897,7 @@ defineExpose({
 
 .enter-hint {
   font-size: 12px;
-  color: var(--yx-text-4, #8a94a0);
+  color: var(--yx-text-4, var(--yx-text-4));
   display: flex;
   align-items: center;
   gap: 4px;
@@ -890,7 +908,7 @@ defineExpose({
 .result-item:hover .enter-hint,
 .result-item.is-active .enter-hint {
   opacity: 1;
-  color: var(--yx-brand, #9e1b1e);
+  color: var(--yx-brand, var(--yx-brand));
 }
 
 .contact-actions {
@@ -943,7 +961,7 @@ defineExpose({
   background: #f5f6f8;
   border-top: 1px solid rgba(220, 223, 229, 0.7);
   font-size: 12px;
-  color: var(--yx-text-3, #6b7785);
+  color: var(--yx-text-3, var(--yx-text-3));
 }
 
 .footer-tips {
@@ -963,16 +981,16 @@ defineExpose({
   padding: 1px 5px;
   font-size: 11px;
   font-family: var(--yx-font-mono, monospace);
-  color: var(--yx-text-2, #4e5969);
+  color: var(--yx-text-2, var(--yx-text-2));
   background: #ffffff;
-  border: 1px solid #dcdfe5;
+  border: 1px solid var(--yx-border);
   border-radius: 3px;
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
 }
 
 .footer-platform-info {
   font-size: 12px;
-  color: var(--yx-gold, #b8925a);
+  color: var(--yx-gold, var(--yx-gold));
 }
 
 :deep(.highlight-kw) {

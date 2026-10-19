@@ -1,9 +1,7 @@
 package router
 
 import (
-	"fmt"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,20 +29,20 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	// 登录按 IP 限流（防爆破）
 	mux.Handle("POST /api/auth/login", middleware.RateLimit(20, time.Minute)(handlers.Login(cfg)))
 	// 会务公开报名（匿名，无需登录）——按 IP 限流（防刷）
-	mux.Handle("GET /api/public/meetings/{id}", middleware.RateLimit(120, time.Minute)(http.HandlerFunc(handlers.PublicMeeting)))
-	mux.Handle("POST /api/public/meetings/{id}/register", middleware.RateLimit(30, time.Minute)(http.HandlerFunc(handlers.PublicRegisterMeeting)))
-	mux.Handle("POST /api/public/meetings/{id}/remove", middleware.RateLimit(30, time.Minute)(http.HandlerFunc(handlers.PublicRemoveAttendee)))
-	mux.Handle("POST /api/public/meetings/{id}/cancel", middleware.RateLimit(30, time.Minute)(http.HandlerFunc(handlers.PublicCancelMeetingRegister)))
+	mux.Handle("GET /api/public/meetings/{token}", middleware.RateLimit(120, time.Minute)(http.HandlerFunc(handlers.PublicMeeting)))
+	mux.Handle("POST /api/public/meetings/{token}/register", middleware.RateLimit(30, time.Minute)(http.HandlerFunc(handlers.PublicRegisterMeeting)))
+	mux.Handle("POST /api/public/meetings/{token}/remove", middleware.RateLimit(30, time.Minute)(http.HandlerFunc(handlers.PublicRemoveAttendee)))
+	mux.Handle("POST /api/public/meetings/{token}/cancel", middleware.RateLimit(30, time.Minute)(http.HandlerFunc(handlers.PublicCancelMeetingRegister)))
 	// 征求意见公开填报与文件下载（匿名，无需登录）——按 IP 限流（防刷）
-	mux.Handle("GET /api/public/solicits/{id}", middleware.RateLimit(120, time.Minute)(http.HandlerFunc(handlers.PublicSolicit)))
-	mux.Handle("GET /api/public/solicits/{id}/file", middleware.RateLimit(120, time.Minute)(handlers.PublicServeSolicitFile(cfg)))
-	mux.Handle("POST /api/public/solicits/{id}/upload", middleware.RateLimit(30, time.Minute)(handlers.PublicSolicitUpload(cfg)))
-	mux.Handle("POST /api/public/solicits/{id}/feedback", middleware.RateLimit(30, time.Minute)(http.HandlerFunc(handlers.PublicSubmitFeedback)))
+	mux.Handle("GET /api/public/solicits/{token}", middleware.RateLimit(120, time.Minute)(http.HandlerFunc(handlers.PublicSolicit)))
+	mux.Handle("GET /api/public/solicits/{token}/file", middleware.RateLimit(120, time.Minute)(handlers.PublicServeSolicitFile(cfg)))
+	mux.Handle("POST /api/public/solicits/{token}/upload", middleware.RateLimit(30, time.Minute)(handlers.PublicSolicitUpload(cfg)))
+	mux.Handle("POST /api/public/solicits/{token}/feedback", middleware.RateLimit(30, time.Minute)(handlers.PublicSubmitFeedback(cfg)))
 
 	// 材料下发公开查收与文件下载（匿名，无需登录）——按 IP 限流（防刷）
-	mux.Handle("GET /api/public/dispatches/{id}", middleware.RateLimit(120, time.Minute)(http.HandlerFunc(handlers.PublicDispatch)))
-	mux.Handle("GET /api/public/dispatches/{id}/file", middleware.RateLimit(120, time.Minute)(handlers.PublicServeDispatchFile(cfg)))
-	mux.Handle("POST /api/public/dispatches/{id}/receipt", middleware.RateLimit(30, time.Minute)(http.HandlerFunc(handlers.PublicConfirmDispatchReceipt)))
+	mux.Handle("GET /api/public/dispatches/{token}", middleware.RateLimit(120, time.Minute)(http.HandlerFunc(handlers.PublicDispatch)))
+	mux.Handle("GET /api/public/dispatches/{token}/file", middleware.RateLimit(120, time.Minute)(handlers.PublicServeDispatchFile(cfg)))
+	mux.Handle("POST /api/public/dispatches/{token}/receipt", middleware.RateLimit(30, time.Minute)(http.HandlerFunc(handlers.PublicConfirmDispatchReceipt)))
 
 
 	// ---- 认证 ----
@@ -241,82 +239,13 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("GET /api/export/weekly-summaries", perm("weekly.export", handlers.ExportWeeklySummaries))
 
 	// 上传文件受控直读服务（仅已登录认证用户可访问，收敛未鉴权下载漏洞）
-	mux.Handle("GET /uploads/", authOnly(uploadFileHandler{uploadDir: cfg.Upload.Dir}.ServeHTTP))
+	mux.Handle("GET /uploads/", authOnly(handlers.ServeUploadFile(cfg)))
 
 	// 静态文件服务（前端构建产物）+ SPA 回退
 	staticDir := "static"
 	mux.Handle("GET /", spaHandler{staticDir: staticDir})
 
 	return mux
-}
-
-// uploadFileHandler 提供 /uploads/ 目录下的文件安全访问与流式展示
-type uploadFileHandler struct {
-	uploadDir string
-}
-
-func (h uploadFileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// 路径清理与防穿越
-	rel := strings.TrimPrefix(r.URL.Path, "/uploads/")
-	cleanRel := filepath.Clean(rel)
-	if strings.HasPrefix(cleanRel, "..") || strings.HasPrefix(cleanRel, "/") {
-		http.NotFound(w, r)
-		return
-	}
-
-	roleCode, _ := r.Context().Value(middleware.ContextRoleCode).(string)
-	// 敏感业务子目录防护：如 solicits 目录包含各单位内部红头盖章公函，需管理员或征求意见管理权限
-	if strings.HasPrefix(cleanRel, "solicits/") || strings.HasPrefix(cleanRel, "solicits"+string(filepath.Separator)) {
-		if roleCode != "admin" && !middleware.HasPermission(roleCode, "solicit.manage") {
-			middleware.JSON(w, http.StatusForbidden, map[string]string{"error": "无权访问此敏感公函附件"})
-			return
-		}
-	}
-
-	fullPath := filepath.Join(h.uploadDir, cleanRel)
-	absUpload, _ := filepath.Abs(h.uploadDir)
-	absFull, _ := filepath.Abs(fullPath)
-	if absFull != absUpload && !strings.HasPrefix(absFull, absUpload+string(os.PathSeparator)) {
-		http.NotFound(w, r)
-		return
-	}
-
-	info, err := os.Stat(fullPath)
-	if err != nil || info.IsDir() {
-		http.NotFound(w, r)
-		return
-	}
-
-	ext := strings.ToLower(filepath.Ext(fullPath))
-	fileName := filepath.Base(fullPath)
-	if idx := strings.Index(fileName, "_"); idx > 0 && idx < len(fileName)-1 {
-		fileName = fileName[idx+1:]
-	}
-
-	w.Header().Set("X-Frame-Options", "SAMEORIGIN")
-
-	switch ext {
-	case ".pdf":
-		w.Header().Set("Content-Type", "application/pdf")
-		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q; filename*=UTF-8''%s", fileName, url.PathEscape(fileName)))
-	case ".jpg", ".jpeg":
-		w.Header().Set("Content-Type", "image/jpeg")
-		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q; filename*=UTF-8''%s", fileName, url.PathEscape(fileName)))
-	case ".png":
-		w.Header().Set("Content-Type", "image/png")
-		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q; filename*=UTF-8''%s", fileName, url.PathEscape(fileName)))
-	case ".docx":
-		w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q; filename*=UTF-8''%s", fileName, url.PathEscape(fileName)))
-	case ".doc":
-		w.Header().Set("Content-Type", "application/msword")
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q; filename*=UTF-8''%s", fileName, url.PathEscape(fileName)))
-	default:
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q; filename*=UTF-8''%s", fileName, url.PathEscape(fileName)))
-	}
-
-	http.ServeFile(w, r, fullPath)
 }
 
 // spaHandler 支持 history 路由的静态文件服务

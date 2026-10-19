@@ -1,6 +1,7 @@
 package secrecy
 
 import (
+	"bytes"
 	"os"
 	"testing"
 )
@@ -142,5 +143,33 @@ func TestTraditionalChineseMatch(t *testing.T) {
 			t.Fatalf("Expected violation for text %q, but got not violated", text)
 		}
 		t.Logf("Passed: %s -> %s (%s)", text, res.Rule, res.Category)
+	}
+}
+
+// 保密法学习类文件名不得误判；含真实密级标识的仍须拦截
+func TestCheckFilename_StudyWhitelist(t *testing.T) {
+	for _, ok := range []string{"保守国家秘密法学习.pdf", "2026年保密教育培训课件.pptx", "保密知识测试题.docx"} {
+		if res := checkFilename(ok); res.Violated {
+			t.Errorf("学习类文件名被误判: %s (%s)", ok, res.Detail)
+		}
+	}
+	for _, bad := range []string{"保守国家秘密法学习（机密★）.pdf", "关于XX的工作秘密.docx", "秘密★1年 通知.pdf", "内部资料汇编.pdf"} {
+		if res := checkFilename(bad); !res.Violated {
+			t.Errorf("含密级标识的文件名应被拦截: %s", bad)
+		}
+	}
+}
+
+// 损坏/无法解析的 Word 文档必须拒绝；压缩格式不做原始字节兜底匹配
+func TestCheckFileSecrecy_UnreadableAndCompressed(t *testing.T) {
+	res, _ := CheckFileSecrecy("报告.docx", bytes.NewReader([]byte("not a zip file at all")))
+	if !res.Unreadable {
+		t.Fatal("无法解析的 docx 应标记为无法检测并拒绝")
+	}
+	// 伪造的 zip 原始字节中恰好含有“秘密”的 UTF-16 编码，不应误判
+	data := append([]byte("PK\x03\x04"), []byte{0xd8, 0x79, 0xc6, 0x5b}...)
+	res, _ = CheckFileSecrecy("照片.zip", bytes.NewReader(data))
+	if res.Violated {
+		t.Fatalf("压缩包原始字节不应触发兜底误判: %+v", res)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"ynxwxcb-platform/internal/database"
 	"ynxwxcb-platform/internal/middleware"
@@ -48,7 +49,7 @@ func TestResolveFilePath_Security(t *testing.T) {
 
 // 2. 测试 PublicSubmitFeedback 参数严格校验
 func TestPublicSubmitFeedback_PathValidation(t *testing.T) {
-	_, cleanup := setupTestEnv(t)
+	cfg, cleanup := setupTestEnv(t)
 	defer cleanup()
 
 	database.DB.Exec(`INSERT INTO solicits (id, title, doc_no, deadline, units, content, pdf_path, pdf_name, created_by)
@@ -58,9 +59,9 @@ func TestPublicSubmitFeedback_PathValidation(t *testing.T) {
 	{
 		body := `{"unit":"测试单位A","reply_doc_path":"/uploads/solicits/../secret.pdf","contact_name":"张三","contact_phone":"13800000000"}`
 		req := httptest.NewRequest("POST", "/api/public/solicits/101/feedback", bytes.NewBufferString(body))
-		req.SetPathValue("id", "101")
+		req.SetPathValue("token", testToken(t, "solicits", "101"))
 		rec := httptest.NewRecorder()
-		PublicSubmitFeedback(rec, req)
+		PublicSubmitFeedback(cfg)(rec, req)
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("期望 400 拦截穿越路径，实际状态码: %d", rec.Code)
 		}
@@ -70,9 +71,9 @@ func TestPublicSubmitFeedback_PathValidation(t *testing.T) {
 	{
 		body := `{"unit":"测试单位A","reply_doc_path":"/etc/passwd","contact_name":"张三","contact_phone":"13800000000"}`
 		req := httptest.NewRequest("POST", "/api/public/solicits/101/feedback", bytes.NewBufferString(body))
-		req.SetPathValue("id", "101")
+		req.SetPathValue("token", testToken(t, "solicits", "101"))
 		rec := httptest.NewRecorder()
-		PublicSubmitFeedback(rec, req)
+		PublicSubmitFeedback(cfg)(rec, req)
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("期望 400 拦截非 solicits 目录路径，实际状态码: %d", rec.Code)
 		}
@@ -82,21 +83,33 @@ func TestPublicSubmitFeedback_PathValidation(t *testing.T) {
 	{
 		body := `{"unit":"测试单位A","reply_doc_path":"/uploads/solicits/ok.pdf","attachment_path":"/uploads/solicits/../evil.docx","contact_name":"张三","contact_phone":"13800000000"}`
 		req := httptest.NewRequest("POST", "/api/public/solicits/101/feedback", bytes.NewBufferString(body))
-		req.SetPathValue("id", "101")
+		req.SetPathValue("token", testToken(t, "solicits", "101"))
 		rec := httptest.NewRecorder()
-		PublicSubmitFeedback(rec, req)
+		PublicSubmitFeedback(cfg)(rec, req)
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("期望 400 拦截附件穿越路径，实际状态码: %d", rec.Code)
 		}
 	}
 
-	// 测试用例 D: 合法提交
+	// 测试用例 D: 引用其他单位目录或不存在的文件应被拒绝；引用本单位目录下真实文件方可提交
 	{
 		body := `{"unit":"测试单位A","reply_doc_path":"/uploads/solicits/2026/10/ok.pdf","reply_doc_name":"公函.pdf","contact_name":"张三","contact_phone":"13912345678"}`
 		req := httptest.NewRequest("POST", "/api/public/solicits/101/feedback", bytes.NewBufferString(body))
-		req.SetPathValue("id", "101")
+		req.SetPathValue("token", testToken(t, "solicits", "101"))
 		rec := httptest.NewRecorder()
-		PublicSubmitFeedback(rec, req)
+		PublicSubmitFeedback(cfg)(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("引用非本单位目录文件应被拒绝，实际: %d", rec.Code)
+		}
+	}
+	{
+		okRef := "/uploads/" + solicitUnitDir(101, "测试单位A") + "/1_ok.pdf"
+		writeOldFile(t, resolveFilePath(cfg.Upload.Dir, okRef))
+		body := `{"unit":"测试单位A","reply_doc_path":"` + okRef + `","reply_doc_name":"公函.pdf","contact_name":"张三","contact_phone":"13912345678"}`
+		req := httptest.NewRequest("POST", "/api/public/solicits/101/feedback", bytes.NewBufferString(body))
+		req.SetPathValue("token", testToken(t, "solicits", "101"))
+		rec := httptest.NewRecorder()
+		PublicSubmitFeedback(cfg)(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("合法参数期望 200，实际状态码: %d, body: %s", rec.Code, rec.Body.String())
 		}
@@ -114,7 +127,7 @@ func TestPublicSolicit_PrivacyMasking(t *testing.T) {
 		VALUES (102, '单位A', 0, '', '/uploads/solicits/2026/10/secret_stamp.pdf', '单位A红头回函.pdf', '/uploads/solicits/2026/10/edit.docx', '修改.docx', '李干事', '13912345678', datetime('now'), datetime('now'))`)
 
 	req := httptest.NewRequest("GET", "/api/public/solicits/102?unit=单位A", nil)
-	req.SetPathValue("id", "102")
+	req.SetPathValue("token", testToken(t, "solicits", "102"))
 	rec := httptest.NewRecorder()
 	PublicSolicit(rec, req)
 
@@ -208,8 +221,12 @@ func TestAttendance_DeleteLeaveRecord_Permissions(t *testing.T) {
 
 	database.DB.Exec(`INSERT INTO leave_records (id, user_id, leave_type, start_date, end_date, days, status)
 		VALUES (1, 1, 'annual', '2026-10-10', '2026-10-10', 1, 1)`)
+	today := time.Now().Format("2006-01-02")
 	database.DB.Exec(`INSERT INTO leave_records (id, user_id, leave_type, start_date, end_date, days, status)
-		VALUES (2, 2, 'annual', '2026-10-11', '2026-10-11', 1, 1)`)
+		VALUES (2, 2, 'annual', ?, ?, 1, 1)`, today, today)
+	pastMonth := time.Now().AddDate(0, -1, 0).Format("2006-01") + "-05"
+	database.DB.Exec(`INSERT INTO leave_records (id, user_id, leave_type, start_date, end_date, days, status)
+		VALUES (3, 2, 'sick', ?, ?, 1, 1)`, pastMonth, pastMonth)
 
 	// 测试 A: staff (user_id=2) 尝试删除 admin (user_id=1) 的记录 -> 必须 403 Forbidden
 	{
@@ -232,6 +249,26 @@ func TestAttendance_DeleteLeaveRecord_Permissions(t *testing.T) {
 		DeleteLeaveRecord(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("所有者删除自己记录应当允许，实际状态码: %d", rec.Code)
+		}
+	}
+
+	// 测试 C: 过去月份的请假，普通用户不得删除，管理员可以
+	{
+		req := httptest.NewRequest("DELETE", "/api/leave-records/3", nil)
+		req.SetPathValue("id", "3")
+		req = reqWithContext(req, 2, "staff1", "staff", "李干事")
+		rec := httptest.NewRecorder()
+		DeleteLeaveRecord(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("普通用户删除过去月份请假应被 403 拦截，实际: %d", rec.Code)
+		}
+		req = httptest.NewRequest("DELETE", "/api/leave-records/3", nil)
+		req.SetPathValue("id", "3")
+		req = reqWithContext(req, 1, "admin", "admin", "系统管理员")
+		rec = httptest.NewRecorder()
+		DeleteLeaveRecord(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("管理员删除过去月份请假应允许，实际: %d", rec.Code)
 		}
 	}
 }

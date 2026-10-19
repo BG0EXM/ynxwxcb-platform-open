@@ -1,7 +1,15 @@
 # 伊宁县委宣传部部务工作平台 - 部署文档（Nginx）
 
-> 适用版本：**V1.7.1** · 更新日期：**2026-10-11**  
+> 适用版本：**V1.8.0** · 更新日期：**2026-10-19**  
 > 服务器配置：Debian / Ubuntu (2C / 2G) · HTTPS 公网访问（支持 IPv6）
+
+## 升级到 V1.8.0 必读
+- 数据库自动升级到 v20，升级前务必先执行 `deploy/backup.sh` 备份。
+- 会务、征求意见、材料下发的公开链接改为随机令牌，**升级前发出的旧链接全部失效**，正在进行的事项需要在后台重新“复制链接”或“一键通知”。
+- 乡镇通讯员（reporter）角色默认收回“征求意见管理 / 材料下发管理”权限，如确有需要，可在权限管理中手动开启。
+- `config.json` 的 `admin.password` 改为只在管理员账号不存在时生效，不再每次启动覆盖界面上改过的密码；找回密码需临时设置 `admin.force_reset: true`。
+- 前置 nginx/Caddy 时，请设置 `server.trust_proxy: true`、`server.host: "127.0.0.1"`，并更新 nginx 配置中的 `X-Forwarded-For`。
+- 只要服务器上的 `config.json` 里仍有 `admin.password`，升级后第一次启动不会再改动管理员密码，这是预期行为。
 
 ## 〇、系统组成与服务端可选增强组件
 
@@ -34,10 +42,14 @@ sudo apt install -y tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-chi-tra po
 /opt/ynxwxcb/
 ├── ynxwxcb-server          # 主程序（可执行文件）
 ├── static/               # 前端页面文件夹（与主程序同级）
-├── config.json           # 配置文件
-├── backup.sh             # 备份脚本
-└── data/                 # 运行时自动生成（数据库/上传文件）
+├── config.json           # 配置文件（由 config.json.example 复制修改，root:ynxwxcb 640）
+├── config.json.example   # 配置模板
+├── backup.sh             # 备份脚本（也可放在 deploy/backup.sh，脚本自动识别应用目录）
+├── restore.sh            # 恢复脚本（同上）
+└── data/                 # 运行时自动生成（数据库/上传文件），唯一允许服务写入的目录
 ```
+
+> 使用 `deploy/release.sh` 生成的发布包已包含以上除 `config.json`、`data/` 外的全部文件（含 `static/`），解压到 `/opt/ynxwxcb/` 即可；发布包**不含**真实 `config.json`。
 
 ## 二、两种部署方式
 
@@ -63,6 +75,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ynxwxcb-server ./cmd/server
 把这两样放进同一目录（如 `/opt/ynxwxcb/`）：
 - `ynxwxcb-server`（编译出的文件）
 - `static/`（用仓库 `backend/static/` 里的，整个文件夹复制）
+- `config.json.example`（配置模板，第 4 步要用）
 
 ```bash
 # 在服务器上
@@ -72,17 +85,26 @@ cd /opt/ynxwxcb
 sudo chmod +x ynxwxcb-server
 ```
 
-**第 3 步：创建运行用户（安全加固，可跳过）**
+**第 3 步：创建运行用户并收紧文件归属（安全加固，强烈建议）**
 
 ```bash
 sudo useradd -r -s /usr/sbin/nologin ynxwxcb
-sudo chown -R ynxwxcb:ynxwxcb /opt/ynxwxcb
+# 主程序、static/ 归 root，服务进程只能读不能改（防止被入侵后篡改程序）
+# （不要对整个 /opt/ynxwxcb 递归 chown，否则已有的 data/ 会变成 root 所有，服务无法写库）
+sudo chown root:root /opt/ynxwxcb /opt/ynxwxcb/ynxwxcb-server
+sudo chown -R root:root /opt/ynxwxcb/static
+sudo chmod 755 /opt/ynxwxcb /opt/ynxwxcb/ynxwxcb-server
+# 只有 data/ 归运行用户，可写
+sudo install -d -o ynxwxcb -g ynxwxcb -m 750 /opt/ynxwxcb/data
 ```
 
 **第 4 步：配置 config.json**
 
 ```bash
 sudo cp /opt/ynxwxcb/config.json.example /opt/ynxwxcb/config.json
+# config.json 含 JWT 密钥和管理员密码：归 root、组 ynxwxcb 只读，其他用户不可读
+sudo chown root:ynxwxcb /opt/ynxwxcb/config.json
+sudo chmod 640 /opt/ynxwxcb/config.json
 sudo nano /opt/ynxwxcb/config.json
 ```
 
@@ -90,7 +112,14 @@ sudo nano /opt/ynxwxcb/config.json
 - `jwt.secret`：改为随机长字符串（可用 `openssl rand -base64 48` 生成）
 - `admin.username` / `admin.password`：设置管理员账号。**只要 `admin.password` 非空，程序每次启动都会用 config 中的用户名和密码覆盖管理员账号**，改完重启即生效（默认 `admin` / `admin123`）
 
-> `data/` 目录无需手动创建，systemd 服务会在启动前自动创建并设置权限。
+`server` 段两个与反向代理配套的配置项（模板中已按“前置 Nginx/Caddy”填好，一般无需改动）：
+
+| 配置项 | 模板值 | 含义 |
+|---|---|---|
+| `server.host` | `"127.0.0.1"` | 后端监听地址。`127.0.0.1` 表示只接受本机（Nginx/Caddy）转发的请求，外部无法绕过反代直连 8080。**只有不经反代、直接用 IP:8080 访问时**才改为 `"0.0.0.0"` |
+| `server.trust_proxy` | `true` | 是否信任反代传来的客户端 IP（优先取 `X-Real-IP`，其次取 `X-Forwarded-For` 最右一段），用于登录限流和操作日志记录真实 IP。**必须与 `host: 127.0.0.1` 配合使用**；若后端直接暴露在公网，请改为 `false`，否则客户端可伪造 IP 绕过限流 |
+
+> `data/` 目录无需手动创建，systemd 服务会在启动前自动创建并设置归属（`ynxwxcb:ynxwxcb`，权限 750）。
 
 ### 方式 B：在服务器上直接编译（懂行的用，服务器要装 Go）
 
@@ -114,11 +143,18 @@ sudo systemctl enable --now ynxwxcb
 sudo systemctl status ynxwxcb
 ```
 
-> 如果目录不是 `/opt/ynxwxcb`，需修改 `ynxwxcb.service` 里的路径。
+> 如果目录不是 `/opt/ynxwxcb`，需修改 `ynxwxcb.service` 里的路径。使用发布包部署时，服务文件在包根目录：`sudo cp /opt/ynxwxcb/ynxwxcb.service /etc/systemd/system/`。
+
+> **systemd 沙箱说明**：服务启用了 `ProtectSystem=strict`，整个文件系统对服务进程只读，**仅 `/opt/ynxwxcb/data` 可写**；同时启用 `ProtectHome`、`PrivateDevices`、`PrivateTmp`、`NoNewPrivileges`、`RestrictAddressFamilies` 等加固项，新建文件权限 `UMask=0027`。因此：
+> - `config.json` 必须事先创建好（服务无权在只读目录下自动生成默认配置）；
+> - 若 `config.json` 中 `database.path` / `upload.dir` 改到了 `data/` 以外的位置，需同步修改服务文件中的 `ReadWritePaths=`。
 
 ## 四、反向代理 + HTTPS（Nginx）
 
 1. 把 `deploy/nginx/ynxwxcb.conf` 复制到服务器，修改域名和证书路径
+   - 该文件顶部含两个 `map` 块，必须放在被 `http {}` 包含的目录（Debian/Ubuntu 默认的 `sites-available/` 即可）
+   - HTTP/2 写法按 `nginx -v` 版本二选一：低于 1.25.1（Debian 12 / Ubuntu 24.04 及更早自带版本）用默认的 `listen 443 ssl http2;`；1.25.1 及以上可改为 `listen 443 ssl;` + `http2 on;`
+   - 已启用 HSTS（1 年）、`index.html` 及接口 `no-cache`、`/assets/` 长缓存；`X-Real-IP` / `X-Forwarded-For` 均只传 `$remote_addr`，防止伪造 IP
 2. 启用：
 
 ```bash
@@ -144,9 +180,16 @@ sudo ufw enable
 
 系统采用**服务器级全量自动化灾备**，打包完整 SQLite 数据库及全部公文与附件材料（`uploads/`）。
 
+### 0. 前置依赖：sqlite3（必装）
+```bash
+sudo apt install -y sqlite3
+```
+> 备份脚本强制使用 `sqlite3 .backup` 生成**单文件一致性快照**并执行 `PRAGMA integrity_check` 自检；未安装 sqlite3 时脚本会直接报错退出（不会再裸拷正在运行的数据库文件，避免得到不一致的备份）。
+
 ### 1. 手动立即执行备份
 ```bash
 sudo /opt/ynxwxcb/deploy/backup.sh
+# 若脚本放在应用根目录（发布包默认位置）：sudo /opt/ynxwxcb/backup.sh
 ```
 
 ### 2. 配置定时自动化备份（每天凌晨 2:00，保留 14 天）
@@ -156,7 +199,7 @@ sudo crontab -e
 0 2 * * * /opt/ynxwxcb/deploy/backup.sh >> /var/log/ynxwxcb-backup.log 2>&1
 ```
 
-> 备份包存储在独立的 `/opt/ynxwxcb-backup/`，自动保留最近 14 天并带有 SHA256 校验和。**强烈建议定期将此目录同步到离线介质或异地存储。**
+> 备份包存储在独立的 `/opt/ynxwxcb-backup/`（目录权限 700、备份包 600，仅 root 可读——包内含用户密码哈希等敏感数据），自动保留最近 14 天并带有 SHA256 校验和。打包时附件直接从 `data/uploads/` 读取，不占用 `/tmp`；执行前按“数据库 + 附件”实际体积预检磁盘空间。**强烈建议定期将此目录同步到离线介质或异地存储。**
 
 ### 3. 数据灾难恢复（一键恢复或手动恢复）
 
@@ -164,7 +207,9 @@ sudo crontab -e
 ```bash
 sudo /opt/ynxwxcb/deploy/restore.sh /opt/ynxwxcb-backup/ynxwxcb_20261010_020000.tar.gz
 ```
-- 脚本会自动停止服务、为当前数据创建安全兜底副本、写入数据库和附件、修复权限并自动重启服务。
+- 脚本会先校验 SHA256、解包并自检数据库，确认无误后再停止服务、为当前数据创建安全兜底副本（`data.pre_restore_bak_*`）、写入数据库和附件、修复权限（目录 750 / 文件 640）并自动重启服务。
+- 停服后任一步骤失败，脚本会自动从兜底副本回滚 `data/` 并重新拉起服务，不会让业务停在半恢复状态。
+- 系统无 `sha256sum`/`shasum` 或缺少 `.sha256` 文件时只会提示“未校验”，不会误报“校验通过”。
 
 **方式二：手动分步恢复**
 ```bash
@@ -174,10 +219,15 @@ sudo systemctl stop ynxwxcb
 # 2. 解包到临时目录
 mkdir -p /tmp/restore && tar -xzf /opt/ynxwxcb-backup/ynxwxcb_xxx.tar.gz -C /tmp/restore
 
-# 3. 替换数据库与附件
+# 3. 替换数据库与附件（必须先删除旧的 -wal/-shm，否则旧日志会与新库合流损坏数据）
+sudo rm -f /opt/ynxwxcb/data/ynxwxcb.db /opt/ynxwxcb/data/ynxwxcb.db-wal /opt/ynxwxcb/data/ynxwxcb.db-shm
 sudo cp /tmp/restore/ynxwxcb.db /opt/ynxwxcb/data/ynxwxcb.db
-sudo cp -r /tmp/restore/uploads /opt/ynxwxcb/data/
+# 旧版脚本生成的备份包内若含 ynxwxcb.db-wal，需一并复制（-shm 不要复制）
+[ -f /tmp/restore/ynxwxcb.db-wal ] && sudo cp /tmp/restore/ynxwxcb.db-wal /opt/ynxwxcb/data/
+sudo rm -rf /opt/ynxwxcb/data/uploads && sudo cp -r /tmp/restore/uploads /opt/ynxwxcb/data/
 sudo chown -R ynxwxcb:ynxwxcb /opt/ynxwxcb/data
+sudo find /opt/ynxwxcb/data -type d -exec chmod 750 {} +
+sudo find /opt/ynxwxcb/data -type f -exec chmod 640 {} +
 
 # 4. 重启服务
 sudo systemctl start ynxwxcb
@@ -189,11 +239,16 @@ sudo systemctl start ynxwxcb
 # 查看日志
 sudo journalctl -u ynxwxcb -f
 
-# 升级版本（只替换主程序，static 不用动）
-sudo systemctl stop ynxwxcb
-# 上传新 ynxwxcb-server 覆盖 /opt/ynxwxcb/ynxwxcb-server
-sudo chmod +x /opt/ynxwxcb/ynxwxcb-server
-sudo systemctl start ynxwxcb
+# 升级版本（主程序与 static/ 必须一起替换；绝不覆盖 data/ 和 config.json）
+# 前端页面不在主程序内，后端运行时从 /opt/ynxwxcb/static/ 读取，只换主程序会导致新旧前后端不匹配
+sudo /opt/ynxwxcb/deploy/backup.sh          # 1. 升级前先备份（脚本在根目录则用 /opt/ynxwxcb/backup.sh）
+sudo systemctl stop ynxwxcb                  # 2. 停服务
+# 3. 上传新版 ynxwxcb-server 与 static/ 到服务器临时目录（如 /tmp/upgrade/），然后：
+sudo install -o root -g root -m 755 /tmp/upgrade/ynxwxcb-server /opt/ynxwxcb/ynxwxcb-server
+sudo rm -rf /opt/ynxwxcb/static && sudo cp -r /tmp/upgrade/static /opt/ynxwxcb/static
+sudo chown -R root:root /opt/ynxwxcb/static
+sudo systemctl start ynxwxcb                 # 4. 启动并确认
+sudo systemctl status ynxwxcb
 
 # 磁盘检查
 df -h /opt/ynxwxcb

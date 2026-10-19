@@ -29,7 +29,7 @@
           <el-input v-model="pwdForm.confirm" type="password" show-password />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" @click="changePwd">确认修改</el-button>
+          <el-button type="primary" :loading="saving" @click="changePwd">确认修改</el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -37,7 +37,8 @@
 </template>
 
 <script setup>
-import { reactive, computed } from 'vue'
+import { reactive, computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../store/auth'
 import request from '../utils/request'
@@ -46,6 +47,8 @@ import { useMobile } from '../utils/useMobile'
 const { isMobile } = useMobile()
 const authStore = useAuthStore()
 const pwdForm = reactive({ old_password: '', new_password: '', confirm: '' })
+const router = useRouter()
+const saving = ref(false)
 
 const avatarText = computed(() => {
   const name = authStore.user?.real_name || '用户'
@@ -56,19 +59,23 @@ const changePwd = async () => {
   if (!pwdForm.old_password || !pwdForm.new_password) return ElMessage.warning('请填写完整')
   if (pwdForm.new_password.length < 8) return ElMessage.warning('新密码至少8位')
   if (pwdForm.new_password !== pwdForm.confirm) return ElMessage.warning('两次密码不一致')
+  if (saving.value) return
+  saving.value = true
   try {
     await request.post('/auth/change-password', {
       old_password: pwdForm.old_password,
       new_password: pwdForm.new_password
     })
-    ElMessage.success('密码修改成功')
-    // 清除强制改密标记
-    if (authStore.mustChange) {
-      authStore.setMustChange(false)
-      ElMessage.success('密码已更新，现在可以使用全部功能')
-    }
+    // 改密后服务端已使全部旧令牌失效：立即清空本地登录态并回到登录页，避免下一次请求被当作“登录过期”踢出
     Object.assign(pwdForm, { old_password: '', new_password: '', confirm: '' })
-  } catch (e) { console.error(e) }
+    authStore.clearLocal()
+    ElMessage.success('密码修改成功，请使用新密码重新登录')
+    router.replace('/login')
+  } catch (e) {
+    console.error(e)
+  } finally {
+    saving.value = false
+  }
 }
 </script>
 

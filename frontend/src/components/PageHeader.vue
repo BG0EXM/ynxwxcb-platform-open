@@ -40,42 +40,15 @@ defineProps({
 </script>
 
 <style scoped>
+/* 页面标题区：不再做成带阴影和三色条的卡片，直接落在页面底色上，标题左侧一道品牌红竖线 */
 .page-header {
-  margin-bottom: 20px;
-  background: var(--yx-surface);
-  padding: 18px 24px;
-  border-radius: var(--yx-radius);
-  border: 1px solid rgba(220, 223, 229, 0.6);
-  border-bottom: 1px solid var(--el-border-color);
-  box-shadow: 0 4px 18px rgba(19, 26, 38, 0.05);
-  position: relative;
-  overflow: hidden;
-}
-
-.page-header::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: var(--yx-crest-gradient);
-  z-index: 2;
-}
-
-.page-header.with-divider::after {
-  content: '';
-  position: absolute;
-  left: 20px;
-  right: 20px;
-  bottom: 0;
-  height: 1px;
-  background: linear-gradient(90deg, var(--yx-gold-light) 0%, transparent 60%);
+  margin-bottom: 16px;
+  padding: 4px 2px 0;
 }
 
 .page-header-main {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 12px;
@@ -84,7 +57,8 @@ defineProps({
 .page-header-title-wrap {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
+  min-width: 0;
 }
 
 .page-title {
@@ -97,10 +71,12 @@ defineProps({
   align-items: center;
   gap: 10px;
   line-height: 1.3;
+  border-left: 3px solid var(--yx-brand);
+  padding-left: 10px;
 }
 
 .gov-serif {
-  font-family: 'SimSun', 'Songti SC', serif;
+  font-family: var(--yx-font-serif);
 }
 
 .page-tag {
@@ -110,13 +86,13 @@ defineProps({
   font-weight: normal;
   padding: 2px 8px;
   border-radius: 12px;
-  background: var(--yx-brand-bg);
-  color: var(--yx-brand);
-  border: 1px solid rgba(158, 27, 30, 0.2);
+  background: var(--yx-ink-2-bg);
+  color: var(--yx-ink-2);
 }
 
 .page-subtitle {
   margin: 0;
+  padding-left: 13px;
   font-size: var(--yx-fs-xs);
   color: var(--yx-text-3);
   line-height: 1.4;
@@ -131,25 +107,36 @@ defineProps({
 
 .page-header-extra {
   margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px dashed var(--el-border-color-lighter);
 }
 
+/* 手机端：标题区收紧；操作按钮固定在屏幕底部，单手可点 */
 @media (max-width: 768px) {
   .page-header {
-    padding: 12px 14px;
-    margin-bottom: 14px;
+    margin-bottom: 12px;
+    padding-top: 0;
   }
   .page-title {
     font-size: 17px;
   }
-  .page-header-main {
-    flex-direction: column;
-    align-items: flex-start;
+  .page-subtitle {
+    display: none;
   }
   .page-header-actions {
-    width: 100%;
-    justify-content: flex-start;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30;
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+    background: var(--yx-surface);
+    border-top: 1px solid var(--yx-border-soft);
+    box-shadow: 0 -4px 16px rgba(19, 26, 38, 0.06);
+    flex-wrap: nowrap;
+  }
+  .page-header-actions :deep(.el-button:not(.is-circle)) {
+    flex: 1;
+    height: 40px;
+    margin-left: 0;
   }
 }
 </style>

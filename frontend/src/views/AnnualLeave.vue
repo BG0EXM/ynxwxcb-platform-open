@@ -20,6 +20,7 @@
 
       <div class="section-title">{{ year }}年 年休假统计</div>
       <el-table :data="list" stripe v-loading="loading" empty-text="暂无数据">
+        <template #empty><EmptyState description="暂无数据" /></template>
         <el-table-column prop="user_name" label="姓名" width="120" />
         <el-table-column prop="department" label="部门" width="140" />
         <el-table-column label="配置天数" width="110">
@@ -61,7 +62,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="save">保存</el-button>
+        <el-button type="primary" :loading="saveLoading" @click="save">保存</el-button>
       </template>
     </el-drawer>
   </div>
@@ -74,6 +75,7 @@ import request, { exportFile } from '../utils/request'
 import dayjs from 'dayjs'
 import { useAuthStore } from '../store/auth'
 import PageHeader from '../components/PageHeader.vue'
+import EmptyState from '../components/EmptyState.vue'
 
 const authStore = useAuthStore()
 const year = ref(dayjs().format('YYYY'))
@@ -110,7 +112,19 @@ const openEdit = (row) => {
   dialogVisible.value = true
 }
 
-const save = async () => {
+// 防重复提交：保存请求进行中时禁用按钮并忽略重复点击
+const saveLoading = ref(false)
+const save = async (...args) => {
+  if (saveLoading.value) return
+  saveLoading.value = true
+  try {
+    await saveImpl(...args)
+  } finally {
+    saveLoading.value = false
+  }
+}
+
+const saveImpl = async () => {
   if (!form.value.user_id) return ElMessage.warning('请选择人员')
   if (!form.value.year) return ElMessage.warning('请选择年份')
   try {

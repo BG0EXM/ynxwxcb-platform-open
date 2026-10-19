@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -27,6 +28,10 @@ func ListStudyMaterials(w http.ResponseWriter, r *http.Request) {
 	if pageSize <= 0 {
 		pageSize = 10
 	}
+	// 每页最多 100 条（与前端分页选项一致），防止一次请求拉取全表
+	if pageSize > 100 {
+		pageSize = 100
+	}
 	offset := (page - 1) * pageSize
 
 	countQuery := `SELECT COUNT(*) FROM study_materials s WHERE 1=1`
@@ -40,7 +45,10 @@ func ListStudyMaterials(w http.ResponseWriter, r *http.Request) {
 		countArgs = append(countArgs, category)
 	}
 	var total int
-	database.DB.QueryRow(countQuery, countArgs...).Scan(&total)
+	if err := database.DB.QueryRow(countQuery, countArgs...).Scan(&total); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
 
 	query := `SELECT s.id, s.title, s.content, s.category, s.publisher_id, u.real_name, s.read_count, s.created_at, s.updated_at
 		FROM study_materials s LEFT JOIN users u ON s.publisher_id = u.id WHERE 1=1`
@@ -150,7 +158,9 @@ func GetStudyMaterial(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			a.FileName = fileName.String
-			a.FilePath = filePath.String
+			// 不向前端暴露服务器物理路径，统一返回鉴权下载地址
+			_ = filePath
+			a.FilePath = "/api/uploads/" + strconv.FormatInt(a.ID, 10)
 			s.Attachments = append(s.Attachments, a)
 		}
 		if err := rows.Err(); err != nil {
@@ -172,33 +182,50 @@ func DeleteStudyMaterial(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 		var matTitle string
-		database.DB.QueryRow("SELECT title FROM study_materials WHERE id=?", id).Scan(&matTitle)
-
-		// 查出该资料关联的所有附件记录（兼容 owner_type='study' 或默认的 'document'）
-		rows, err := database.DB.Query("SELECT id, file_path FROM attachments WHERE owner_id=? AND (owner_type='study' OR owner_type='document')", id)
-		if err == nil {
-			defer rows.Close()
-			var attIDs []int64
-			for rows.Next() {
-				var attID int64
-				var p sql.NullString
-				if err := rows.Scan(&attID, &p); err == nil {
-					attIDs = append(attIDs, attID)
-					if p.Valid && p.String != "" {
-						SafeRemoveUploadedFile(cfg, p.String)
-					}
-				}
-			}
-			for _, aid := range attIDs {
-				database.DB.Exec("DELETE FROM attachments WHERE id=?", aid)
-			}
+		if err := database.DB.QueryRow("SELECT title FROM study_materials WHERE id=?", id).Scan(&matTitle); err != nil {
+			middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "资料不存在"})
+			return
 		}
 
-		database.DB.Exec("DELETE FROM attachments WHERE owner_id=? AND (owner_type='study' OR owner_type='document')", id)
-		_, err = database.DB.Exec("DELETE FROM study_materials WHERE id=?", id)
+		// 仅收集本资料（owner_type='study'）的附件；严禁匹配 'document'，否则会误删同 ID 收文的附件
+		var filePaths []string
+		rows, err := database.DB.Query("SELECT file_path FROM attachments WHERE owner_id=? AND owner_type='study'", id)
 		if err != nil {
 			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
 			return
+		}
+		for rows.Next() {
+			var p sql.NullString
+			if err := rows.Scan(&p); err == nil && p.Valid && p.String != "" {
+				filePaths = append(filePaths, p.String)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			log.Printf("[查询] 遍历结果失败: %v", err)
+		}
+		rows.Close()
+
+		tx, err := database.DB.Begin()
+		if err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+			return
+		}
+		defer tx.Rollback()
+		if _, err := tx.Exec("DELETE FROM attachments WHERE owner_id=? AND owner_type='study'", id); err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+			return
+		}
+		if _, err := tx.Exec("DELETE FROM study_materials WHERE id=?", id); err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+			return
+		}
+		// 事务提交成功后再物理清理磁盘文件
+		for _, p := range filePaths {
+			deletePhysicalPath(cfg, resolveFilePath(cfg.Upload.Dir, p))
 		}
 		logOperation(r, "公共资料", "删除", "删除公共资料《"+matTitle+"》并物理清理附件")
 		middleware.JSON(w, http.StatusOK, map[string]string{"message": "删除成功"})

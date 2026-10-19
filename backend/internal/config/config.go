@@ -9,8 +9,9 @@ import (
 // Config 应用配置
 type Config struct {
 	Server struct {
+		Host       string `json:"host"` // 监听地址：前置 nginx/Caddy 时建议 127.0.0.1；留空监听全部网卡（兼容旧配置）
 		Port       string `json:"port"`
-		TrustProxy bool   `json:"trust_proxy"` // 是否信任 X-Forwarded-For（前置 Caddy/WAF 时设为 true）
+		TrustProxy bool   `json:"trust_proxy"` // 是否信任反向代理传递的客户端 IP（前置 nginx/Caddy/WAF 时设为 true）
 	} `json:"server"`
 	Database struct {
 		Path string `json:"path"`
@@ -23,8 +24,9 @@ type Config struct {
 		MaxMB int64  `json:"max_mb"`
 	} `json:"upload"`
 	Admin struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
+		Username   string `json:"username"`
+		Password   string `json:"password"`    // 仅在管理员账号不存在时用于创建；已存在时需配合 force_reset 才会重置
+		ForceReset bool   `json:"force_reset"` // 找回管理员密码用：为 true 时启动即用 password 重置，重置后请改回 false
 	} `json:"admin"`
 }
 
@@ -37,7 +39,7 @@ func Default() *Config {
 	c.Upload.Dir = "data/uploads"
 	c.Upload.MaxMB = 50
 	c.Admin.Username = "admin"
-	c.Admin.Password = "admin123"
+	c.Admin.Password = ""
 	return c
 }
 
@@ -66,5 +68,5 @@ func (c *Config) Save(path string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0600)
 }

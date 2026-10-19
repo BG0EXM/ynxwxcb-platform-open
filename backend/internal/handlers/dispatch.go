@@ -4,12 +4,15 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"ynxwxcb-platform/internal/config"
 	"ynxwxcb-platform/internal/database"
@@ -29,13 +32,20 @@ func ListDispatches(w http.ResponseWriter, r *http.Request) {
 	if pageSize <= 0 {
 		pageSize = 10
 	}
+	// 每页最多 100 条（与前端分页选项一致），防止一次请求拉取全表
+	if pageSize > 100 {
+		pageSize = 100
+	}
 	offset := (page - 1) * pageSize
 
 	var total int
-	database.DB.QueryRow("SELECT COUNT(*) FROM dispatches").Scan(&total)
+	if err := database.DB.QueryRow("SELECT COUNT(*) FROM dispatches").Scan(&total); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
 
 	query := `SELECT d.id, d.title, d.doc_no, d.units, d.content,
-			d.pdf_path, d.pdf_name, d.attachment_path, d.attachment_name,
+			d.pdf_path, d.pdf_name, d.attachment_path, d.attachment_name, IFNULL(d.public_token, ''),
 			d.deadline, d.created_by, u.real_name, d.created_at, d.updated_at,
 			COALESCE(COUNT(r.id), 0) AS receipt_count
 		FROM dispatches d
@@ -62,7 +72,7 @@ func ListDispatches(w http.ResponseWriter, r *http.Request) {
 
 		if err := rows.Scan(
 			&d.ID, &d.Title, &docNo, &d.Units, &content,
-			&d.PdfPath, &d.PdfName, &attPath, &attName,
+			&d.PdfPath, &d.PdfName, &attPath, &attName, &d.PublicToken,
 			&deadline, &createdBy, &creator, &createdAt, &updatedAt,
 			&receiptCount,
 		); err != nil {
@@ -95,8 +105,13 @@ func ListDispatches(w http.ResponseWriter, r *http.Request) {
 
 		list = append(list, d)
 	}
+	if err := rows.Err(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
 
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{
+		"summary":   deadlineSummary("dispatches"),
 		"list":      list,
 		"total":     total,
 		"page":      page,
@@ -118,7 +133,7 @@ func GetDispatch(w http.ResponseWriter, r *http.Request) {
 	var createdAt, updatedAt sql.NullTime
 
 	query := `SELECT d.id, d.title, d.doc_no, d.units, d.content,
-			d.pdf_path, d.pdf_name, d.attachment_path, d.attachment_name,
+			d.pdf_path, d.pdf_name, d.attachment_path, d.attachment_name, IFNULL(d.public_token, ''),
 			d.deadline, d.created_by, u.real_name, d.created_at, d.updated_at
 		FROM dispatches d
 		LEFT JOIN users u ON d.created_by = u.id
@@ -126,7 +141,7 @@ func GetDispatch(w http.ResponseWriter, r *http.Request) {
 
 	err := database.DB.QueryRow(query, id).Scan(
 		&d.ID, &d.Title, &docNo, &d.Units, &content,
-		&d.PdfPath, &d.PdfName, &attPath, &attName,
+		&d.PdfPath, &d.PdfName, &attPath, &attName, &d.PublicToken,
 		&deadline, &createdBy, &creator, &createdAt, &updatedAt,
 	)
 	if err != nil {
@@ -174,6 +189,10 @@ func GetDispatch(w http.ResponseWriter, r *http.Request) {
 				receipts = append(receipts, rc)
 				receiptedUnitMap[strings.TrimSpace(rc.Unit)] = true
 			}
+		}
+		if err := receiptRows.Err(); err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+			return
 		}
 	}
 
@@ -230,19 +249,35 @@ func CreateDispatch(cfg *config.Config) http.HandlerFunc {
 			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请上传正文 PDF 文件"})
 			return
 		}
+		if !validDeadline(req.Deadline) {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "截止时间格式错误，应为 YYYY-MM-DD HH:mm"})
+			return
+		}
+		pdfAtt, msg := checkOwnedUploadRef(r, req.PdfPath, "dispatch", 0)
+		if msg != "" {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+			return
+		}
+		attachAtt, msg := checkOwnedUploadRef(r, req.AttachmentPath, "dispatch", 0)
+		if msg != "" {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+			return
+		}
 
 		userID, _ := r.Context().Value(middleware.ContextUserID).(int64)
 		res, err := database.DB.Exec(
-			`INSERT INTO dispatches (title, doc_no, units, content, pdf_path, pdf_name, attachment_path, attachment_name, deadline, created_by, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-			req.Title, req.DocNo, req.Units, req.Content, req.PdfPath, req.PdfName, req.AttachmentPath, req.AttachmentName, req.Deadline, userID,
+			`INSERT INTO dispatches (title, doc_no, units, content, pdf_path, pdf_name, attachment_path, attachment_name, deadline, created_by, public_token, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+			req.Title, req.DocNo, req.Units, req.Content, req.PdfPath, req.PdfName, req.AttachmentPath, req.AttachmentName, req.Deadline, userID, newPublicToken(),
 		)
 		if err != nil {
-			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "发布材料失败: " + err.Error()})
+			log.Printf("[材料下发] 发布失败: %v", err)
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "发布材料失败"})
 			return
 		}
 
 		newID, _ := res.LastInsertId()
+		bindUploadRefs(newID, pdfAtt, attachAtt)
 		logOperation(r, "材料下发", "发布", fmt.Sprintf("发布材料通知「%s」(ID=%d)", req.Title, newID))
 
 		middleware.JSON(w, http.StatusOK, map[string]interface{}{
@@ -283,6 +318,25 @@ func UpdateDispatch(cfg *config.Config) http.HandlerFunc {
 			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请上传正文 PDF 文件"})
 			return
 		}
+		if !validDeadline(req.Deadline) {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "截止时间格式错误，应为 YYYY-MM-DD HH:mm"})
+			return
+		}
+		var oldPdf, oldAttach sql.NullString
+		if err := database.DB.QueryRow("SELECT pdf_path, attachment_path FROM dispatches WHERE id=?", req.ID).Scan(&oldPdf, &oldAttach); err != nil {
+			middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "材料下发任务不存在"})
+			return
+		}
+		pdfAtt, msg := checkOwnedUploadRef(r, req.PdfPath, "dispatch", req.ID, oldPdf.String, oldAttach.String)
+		if msg != "" {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+			return
+		}
+		attachAtt, msg := checkOwnedUploadRef(r, req.AttachmentPath, "dispatch", req.ID, oldPdf.String, oldAttach.String)
+		if msg != "" {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+			return
+		}
 
 		_, err := database.DB.Exec(
 			`UPDATE dispatches SET
@@ -295,8 +349,16 @@ func UpdateDispatch(cfg *config.Config) http.HandlerFunc {
 			req.Deadline, req.ID,
 		)
 		if err != nil {
-			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "更新材料失败: " + err.Error()})
+			log.Printf("[材料下发] 更新失败: %v", err)
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "更新材料失败"})
 			return
+		}
+		bindUploadRefs(req.ID, pdfAtt, attachAtt)
+		// 被替换下来的旧文件同步物理清理
+		for _, old := range []string{oldPdf.String, oldAttach.String} {
+			if old != "" && old != req.PdfPath && old != strings.TrimSpace(req.AttachmentPath) {
+				SafeRemoveUploadedFile(cfg, old)
+			}
 		}
 
 		logOperation(r, "材料下发", "修改", fmt.Sprintf("修改材料通知「%s」(ID=%d)", req.Title, req.ID))
@@ -422,6 +484,10 @@ func ExportDispatchReceipts(w http.ResponseWriter, r *http.Request) {
 				receiptMap[strings.TrimSpace(rc.Unit)] = rc
 			}
 		}
+		if err := rows.Err(); err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+			return
+		}
 	}
 
 	headers := []string{"序号", "单位名称", "查收状态", "签收经办人", "联系电话", "查收时间", "客户端IP"}
@@ -436,7 +502,7 @@ func ExportDispatchReceipts(w http.ResponseWriter, r *http.Request) {
 		if rc, exists := receiptMap[unit]; exists {
 			rcTimeStr := ""
 			if !rc.ReceivedAt.IsZero() {
-				rcTimeStr = rc.ReceivedAt.Format("2006/01/02 15:04:05")
+				rcTimeStr = rc.ReceivedAt.In(time.Local).Format("2006/01/02 15:04:05")
 			}
 			data = append(data, []interface{}{
 				idx, unit, "已查收", rc.ReceiverName, rc.ReceiverPhone, rcTimeStr, rc.IP,
@@ -456,7 +522,10 @@ func ExportDispatchReceipts(w http.ResponseWriter, r *http.Request) {
 
 // PublicDispatch 公开端加载材料信息（匿名免密）
 func PublicDispatch(w http.ResponseWriter, r *http.Request) {
-	id := pathID(r)
+	id, ok := publicID(w, r, "dispatches")
+	if !ok {
+		return
+	}
 	if id == 0 {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "参数错误"})
 		return
@@ -503,22 +572,9 @@ func PublicDispatch(w http.ResponseWriter, r *http.Request) {
 
 	// 若前端传递了 ?unit=xxx，回查该单位是否已查收
 	queryUnit := strings.TrimSpace(r.URL.Query().Get("unit"))
-	var currentReceipt *models.DispatchReceipt
+	var currentReceipt map[string]interface{}
 	if queryUnit != "" {
-		var rc models.DispatchReceipt
-		var ip sql.NullString
-		var rcTime sql.NullTime
-		err := database.DB.QueryRow(
-			`SELECT id, dispatch_id, unit, receiver_name, receiver_phone, read_count, ip, received_at
-			 FROM dispatch_receipts WHERE dispatch_id = ? AND unit = ?`, id, queryUnit).
-			Scan(&rc.ID, &rc.DispatchID, &rc.Unit, &rc.ReceiverName, &rc.ReceiverPhone, &rc.ReadCount, &ip, &rcTime)
-		if err == nil {
-			rc.IP = ip.String
-			if rcTime.Valid {
-				rc.ReceivedAt = rcTime.Time
-			}
-			currentReceipt = &rc
-		}
+		currentReceipt = publicReceiptView(id, queryUnit)
 	}
 
 	// 返回数据，隐藏具体内部存储全路径，仅保留下载/预览标志
@@ -544,7 +600,10 @@ func PublicDispatch(w http.ResponseWriter, r *http.Request) {
 // PublicServeDispatchFile 公开受控读取正文 PDF 或配套附件（在线预览与下载）
 func PublicServeDispatchFile(cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := pathID(r)
+		id, ok := publicID(w, r, "dispatches")
+		if !ok {
+			return
+		}
 		fileType := r.URL.Query().Get("type") // "pdf" 或 "attachment"
 		mode := r.URL.Query().Get("mode")     // "inline" (内嵌查看) 或 "download" (下载)
 
@@ -611,7 +670,10 @@ func PublicServeDispatchFile(cfg *config.Config) http.HandlerFunc {
 
 // PublicConfirmDispatchReceipt 公开确认查收接口
 func PublicConfirmDispatchReceipt(w http.ResponseWriter, r *http.Request) {
-	id := pathID(r)
+	id, ok := publicID(w, r, "dispatches")
+	if !ok {
+		return
+	}
 	if id == 0 {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "参数错误"})
 		return
@@ -641,6 +703,14 @@ func PublicConfirmDispatchReceipt(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.ReceiverPhone == "" {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请填写经办人联系电话"})
+		return
+	}
+	if !phonePattern.MatchString(req.ReceiverPhone) {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "联系电话格式不正确"})
+		return
+	}
+	if len([]rune(req.ReceiverName)) > 20 || len([]rune(req.Unit)) > 100 {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "填写内容过长"})
 		return
 	}
 
@@ -673,38 +743,59 @@ func PublicConfirmDispatchReceipt(w http.ResponseWriter, r *http.Request) {
 
 	ip := clientIP(r)
 
-	// 插入或更新查收记录
+	// 首次查收登记实名存证；重复查收只累加次数，严禁覆盖首位经办人、电话、IP 与查收时间
 	_, err = database.DB.Exec(
 		`INSERT INTO dispatch_receipts (dispatch_id, unit, receiver_name, receiver_phone, read_count, ip, received_at)
 		 VALUES (?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP)
 		 ON CONFLICT(dispatch_id, unit) DO UPDATE SET
-			receiver_name = excluded.receiver_name,
-			receiver_phone = excluded.receiver_phone,
-			read_count = dispatch_receipts.read_count + 1,
-			ip = excluded.ip,
-			received_at = CURRENT_TIMESTAMP`,
+			read_count = dispatch_receipts.read_count + 1`,
 		id, req.Unit, req.ReceiverName, req.ReceiverPhone, ip,
 	)
 	if err != nil {
-		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查收登记失败: " + err.Error()})
+		log.Printf("[材料下发] 查收登记失败: %v", err)
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查收登记失败，请稍后重试"})
 		return
-	}
-
-	// 查询返回最新的查收记录
-	var rc models.DispatchReceipt
-	var ipNull sql.NullString
-	var rcTime sql.NullTime
-	database.DB.QueryRow(
-		`SELECT id, dispatch_id, unit, receiver_name, receiver_phone, read_count, ip, received_at
-		 FROM dispatch_receipts WHERE dispatch_id = ? AND unit = ?`, id, req.Unit).
-		Scan(&rc.ID, &rc.DispatchID, &rc.Unit, &rc.ReceiverName, &rc.ReceiverPhone, &rc.ReadCount, &ipNull, &rcTime)
-	rc.IP = ipNull.String
-	if rcTime.Valid {
-		rc.ReceivedAt = rcTime.Time
 	}
 
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{
 		"message": "查收成功",
-		"receipt": rc,
+		"receipt": publicReceiptView(id, req.Unit),
 	})
+}
+
+// phonePattern 联系电话：手机号或带区号座机
+var phonePattern = regexp.MustCompile(`^(1\d{10}|0\d{2,3}-?\d{7,8}(-\d{1,6})?)$`)
+
+// maskName 姓名脱敏：仅保留首字
+func maskName(name string) string {
+	runes := []rune(strings.TrimSpace(name))
+	if len(runes) == 0 {
+		return ""
+	}
+	return string(runes[0]) + strings.Repeat("*", len(runes)-1)
+}
+
+// publicReceiptView 公开端查收记录视图：姓名与电话脱敏，不返回 IP（未查收返回 nil）
+func publicReceiptView(dispatchID int64, unit string) map[string]interface{} {
+	var name, phone string
+	var readCount int
+	var rcTime sql.NullTime
+	err := database.DB.QueryRow(
+		`SELECT receiver_name, receiver_phone, read_count, received_at
+		 FROM dispatch_receipts WHERE dispatch_id = ? AND unit = ?`, dispatchID, unit).
+		Scan(&name, &phone, &readCount, &rcTime)
+	if err != nil {
+		return nil
+	}
+	v := map[string]interface{}{
+		"unit":           unit,
+		"received":       true,
+		"receiver_name":  maskName(name),
+		"receiver_phone": maskPhoneNumber(phone),
+		"read_count":     readCount,
+	}
+	if rcTime.Valid {
+		v["received_at"] = rcTime.Time
+	}
+	return v
 }

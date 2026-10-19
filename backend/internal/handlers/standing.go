@@ -21,18 +21,18 @@ func ListStandingCommitteeEvents(w http.ResponseWriter, r *http.Request) {
 	where := ` WHERE 1=1`
 	args := []interface{}{}
 	if year != "" {
-		where += ` AND e.event_date LIKE ?`
-		args = append(args, year+"%")
+		where += ` AND e.event_date GLOB ?`
+		args = append(args, year+"*")
 	}
 	if month != "" {
-		where += ` AND e.event_date LIKE ?`
-		args = append(args, month+"%")
+		where += ` AND e.event_date GLOB ?`
+		args = append(args, month+"*")
 	}
 
 	query := `SELECT e.id, e.event_date, e.title, e.created_by,
 			u.real_name, e.created_at, e.updated_at
 		FROM standing_committee_events e
-		LEFT JOIN users u ON e.created_by = u.id` + where + ` ORDER BY e.event_date DESC, e.id DESC`
+		LEFT JOIN users u ON e.created_by = u.id` + where + ` ORDER BY e.event_date DESC, e.id DESC LIMIT 2000`
 	rows, err := database.DB.Query(query, args...)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
@@ -159,12 +159,12 @@ func ExportStandingCommitteeEvents(w http.ResponseWriter, r *http.Request) {
 	where := ` WHERE 1=1`
 	args := []interface{}{}
 	if year != "" {
-		where += ` AND e.event_date LIKE ?`
-		args = append(args, year+"%")
+		where += ` AND e.event_date GLOB ?`
+		args = append(args, year+"*")
 	}
 	if month != "" {
-		where += ` AND e.event_date LIKE ?`
-		args = append(args, month+"%")
+		where += ` AND e.event_date GLOB ?`
+		args = append(args, month+"*")
 	}
 	query := `SELECT e.event_date, e.title
 		FROM standing_committee_events e` + where + ` ORDER BY e.event_date, e.id LIMIT 10000`

@@ -435,7 +435,7 @@
           <span class="footer-org font-serif">中共伊宁县委宣传部</span>
           <span class="crest-dot"></span>
         </div>
-        <div class="footer-system">部务工作平台 · 数字化会务服务终端 V1.7.1</div>
+        <div class="footer-system">部务工作平台 · 数字化会务服务终端 V1.8.0</div>
         <div class="footer-beian">
           <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">[滇ICP备XXXXXXXX号-X]</a>
           <span class="sep">|</span>
@@ -486,6 +486,16 @@ const editingRegName = ref('')
 const absentReason = ref('')
 
 const meetingId = route.params.id
+
+// 单位编辑凭证：首次报名时由后端签发，保存在本机浏览器；后续修改、移除本单位人员必须携带
+const editTokenKey = (unit) => `mtg_edit_${meetingId}_${unit}`
+const getEditToken = (unit) => {
+  try { return localStorage.getItem(editTokenKey(unit)) || '' } catch (_) { return '' }
+}
+const saveEditToken = (unit, token) => {
+  if (!token) return
+  try { localStorage.setItem(editTokenKey(unit), token) } catch (_) { /* 隐私模式下无法保存，后续修改需联系管理员 */ }
+}
 
 // 格式化时间与日期展示
 const meetingDateTimeText = computed(() => {
@@ -668,7 +678,7 @@ const removeReg = async (rg) => {
   } catch (e) { console.error(e); return }
 
   try {
-    await request.post(`/public/meetings/${meetingId}/remove`, { reg_id: rg.id, unit: form.value.unit })
+    await request.post(`/public/meetings/${meetingId}/remove`, { reg_id: rg.id, unit: form.value.unit, edit_token: getEditToken(form.value.unit) })
     ElMessage.success('已成功移除该席位')
     loadUnitStatus()
   } catch (e) { console.error(e) }
@@ -689,23 +699,29 @@ const savePerson = async () => {
       attendee_title: personForm.value.attendee_title,
       phone: personForm.value.phone,
       not_attend: 0,
-      reg_id: editingRegId.value
+      reg_id: editingRegId.value,
+      edit_token: getEditToken(form.value.unit)
     }
-    await request.post(`/public/meetings/${meetingId}/register`, payload)
+    // 提交前记下“是否在修改”与姓名：刷新单位状态（loadUnitStatus）会改写这两项，不能再据此判断提示文案
+    const wasEditing = !!editingRegId.value
+    const savedName = personForm.value.attendee_name
+    const res = await request.post(`/public/meetings/${meetingId}/register`, payload)
+    saveEditToken(form.value.unit, res?.edit_token)
     await loadUnitStatus()
-    if (editingRegId.value) {
-      showSuccess('席位信息已更新', `「${personForm.value.attendee_name}」同志的信息已成功同步至会务名册。`, '如需再次修改，可在下方席位列表中点击操作。')
+    if (wasEditing) {
+      showSuccess('席位信息已更新', `「${savedName}」同志的信息已成功同步至会务名册。`, '如需再次修改，可在下方席位列表中点击操作。')
     } else if (unitLimit.value === 1) {
-      showSuccess('参会回执确认成功', `已确认「${personForm.value.attendee_name}」同志代表本单位参会，请准时出席。`, '如需变更参会领导或信息，可直接在下方修改后重新提交。')
+      showSuccess('参会回执确认成功', `已确认「${savedName}」同志代表本单位参会，请准时出席。`, '如需变更参会领导或信息，可直接在下方修改后重新提交。')
     } else {
       showSuccess('参会席位已录入', `该单位当前已落实 ${registrations.value.length} 人${remain.value > 0 ? '，尚可补报 ' + remain.value + ' 人' : ''}。`, '如需修改或移除，请在下方已报席位列表中操作。')
     }
-    if (editingRegId.value) {
+    // 每单位限 1 人时，loadUnitStatus 已把表单切换为“修改本单位唯一参会人”，不能再清空
+    if (unitLimit.value !== 1) {
       editingRegId.value = 0
       editingRegName.value = ''
+      personForm.value = { attendee_name: '', attendee_title: '', phone: '' }
+      phonePlaceholder.value = ''
     }
-    personForm.value = { attendee_name: '', attendee_title: '', phone: '' }
-    phonePlaceholder.value = ''
   } catch (e) { console.error(e) } finally {
     submitting.value = false
   }
@@ -722,9 +738,11 @@ const saveAbsent = async () => {
   if (!absentReason.value) return ElMessage.warning('请详细说明不参加原因')
   submitting.value = true
   try {
-    await request.post(`/public/meetings/${meetingId}/register`, {
-      meeting_id: Number(meetingId), unit: form.value.unit, not_attend: 1, reason: absentReason.value
+    const res = await request.post(`/public/meetings/${meetingId}/register`, {
+      meeting_id: Number(meetingId), unit: form.value.unit, not_attend: 1, reason: absentReason.value,
+      edit_token: getEditToken(form.value.unit)
     })
+    saveEditToken(form.value.unit, res?.edit_token)
     await loadUnitStatus()
     notAttend.value = 1
     showSuccess('已提交不参加报备', absentReason.value ? '已记录因故请假原因：' + absentReason.value : '已完成请假报备。', '如后续情况变更需参会，请点击上方「确认参加」后重新录入人员。')
@@ -763,7 +781,7 @@ onMounted(loadMeeting)
 /* 顶部天际线背景区 */
 .skyline-bg {
   position: relative;
-  background: linear-gradient(135deg, #131a26 0%, #1b2433 45%, #7a1417 100%);
+  background: linear-gradient(135deg, var(--yx-ink-dark) 0%, var(--yx-ink) 45%, var(--yx-brand-dark) 100%);
   padding: 32px 20px 110px;
   color: #fff;
   overflow: hidden;
@@ -811,7 +829,7 @@ onMounted(loadMeeting)
   font-size: 17px;
   font-weight: 600;
   letter-spacing: 1.2px;
-  color: #f7ecec;
+  color: var(--yx-brand-bg);
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
@@ -853,7 +871,7 @@ onMounted(loadMeeting)
   height: 4px;
   border-top-left-radius: 14px;
   border-top-right-radius: 14px;
-  background: linear-gradient(90deg, #9e1b1e 0%, #b8925a 50%, #24406e 100%);
+  background: linear-gradient(90deg, var(--yx-brand) 0%, var(--yx-gold) 50%, var(--yx-ink-2) 100%);
 }
 
 /* 状态标签栏 */
@@ -883,7 +901,7 @@ onMounted(loadMeeting)
 
 .status-pill.is-expired {
   background: #fff4e5;
-  color: #b7791f;
+  color: var(--el-color-warning);
   border: 1px solid #ffd8a8;
 }
 
@@ -891,7 +909,7 @@ onMounted(loadMeeting)
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background-color: #2e7d5b;
+  background-color: var(--el-color-success);
   box-shadow: 0 0 0 0 rgba(46, 125, 91, 0.7);
   animation: pulse-ring 1.8s infinite;
 }
@@ -910,13 +928,13 @@ onMounted(loadMeeting)
   border-radius: 20px;
   font-size: 12px;
   background: #f4f6fa;
-  color: #4e5969;
+  color: var(--yx-text-2);
   border: 1px solid #e1e4ea;
 }
 
 .countdown-pill {
   background: #fdf6ec;
-  color: #b8925a;
+  color: var(--yx-gold);
   border-color: #faecd8;
 }
 
@@ -924,7 +942,7 @@ onMounted(loadMeeting)
 .dossier-title {
   font-size: 24px;
   line-height: 1.45;
-  color: #1b2433;
+  color: var(--yx-ink);
   margin: 0 0 22px;
   letter-spacing: 0.6px;
   word-break: break-all;
@@ -966,9 +984,9 @@ onMounted(loadMeeting)
   margin-top: 2px;
 }
 
-.time-icon { background: #fdf2f2; color: #9e1b1e; }
-.place-icon { background: #eef3f9; color: #24406e; }
-.org-icon { background: #fbf6ec; color: #b8925a; }
+.time-icon { background: #fdf2f2; color: var(--yx-brand); }
+.place-icon { background: #eef3f9; color: var(--yx-ink-2); }
+.org-icon { background: #fbf6ec; color: var(--yx-gold); }
 
 .dossier-text {
   display: flex;
@@ -979,7 +997,7 @@ onMounted(loadMeeting)
 
 .dossier-label {
   font-size: 11px;
-  color: #8a94a0;
+  color: var(--yx-text-4);
   margin-bottom: 3px;
   letter-spacing: 0.5px;
 }
@@ -987,7 +1005,7 @@ onMounted(loadMeeting)
 .dossier-val {
   font-size: 14.5px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--yx-text-1);
   line-height: 1.55;
   white-space: normal;
   word-break: break-word;
@@ -998,7 +1016,7 @@ onMounted(loadMeeting)
   font-size: 11px;
   font-weight: 500;
   background: #e9ecf2;
-  color: #4e5969;
+  color: var(--yx-text-2);
   padding: 1px 6px;
   border-radius: 4px;
   margin-left: 6px;
@@ -1013,7 +1031,7 @@ onMounted(loadMeeting)
 .notice-callout {
   background: #fafaf8;
   border: 1px solid #ebe9e3;
-  border-left: 4px solid #b8925a;
+  border-left: 4px solid var(--yx-gold);
   border-radius: 6px;
   padding: 14px 16px;
   margin-bottom: 24px;
@@ -1032,7 +1050,7 @@ onMounted(loadMeeting)
 
 .callout-body {
   font-size: 13.5px;
-  color: #4e5969;
+  color: var(--yx-text-2);
   line-height: 1.75;
   white-space: pre-wrap;
   word-break: break-all;
@@ -1048,7 +1066,7 @@ onMounted(loadMeeting)
 .divider-line {
   flex: 1;
   height: 1px;
-  background: linear-gradient(90deg, transparent, #dcdfe5, transparent);
+  background: linear-gradient(90deg, transparent, var(--yx-border), transparent);
 }
 
 .divider-text {
@@ -1056,7 +1074,7 @@ onMounted(loadMeeting)
   font-size: 15px;
   font-weight: 600;
   letter-spacing: 2px;
-  color: #24406e;
+  color: var(--yx-ink-2);
 }
 
 /* 第一步：单位选择卡 */
@@ -1070,7 +1088,7 @@ onMounted(loadMeeting)
 
 .lead-badge {
   display: inline-block;
-  background: #24406e;
+  background: var(--yx-ink-2);
   color: #ffffff;
   font-size: 11px;
   font-weight: 600;
@@ -1083,13 +1101,13 @@ onMounted(loadMeeting)
   font-family: var(--yx-font-serif);
   font-size: 18px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--yx-text-1);
   margin-bottom: 4px;
 }
 
 .lead-desc {
   font-size: 13px;
-  color: #8a94a0;
+  color: var(--yx-text-4);
   margin-bottom: 20px;
 }
 
@@ -1103,7 +1121,7 @@ onMounted(loadMeeting)
 }
 
 .select-search-icon {
-  color: #24406e;
+  color: var(--yx-ink-2);
   font-size: 16px;
 }
 
@@ -1114,7 +1132,7 @@ onMounted(loadMeeting)
   gap: 6px;
   margin-top: 14px;
   font-size: 12px;
-  color: #6b7785;
+  color: var(--yx-text-3);
 }
 
 /* 第二步：单位授牌栏 */
@@ -1131,7 +1149,7 @@ onMounted(loadMeeting)
 
 .honor-tag {
   font-size: 11px;
-  color: #24406e;
+  color: var(--yx-ink-2);
   background: #e0e9f6;
   padding: 2px 8px;
   border-radius: 4px;
@@ -1140,7 +1158,7 @@ onMounted(loadMeeting)
 
 .honor-name {
   font-size: 18px;
-  color: #1b2433;
+  color: var(--yx-ink);
   margin: 6px 0 0;
   letter-spacing: 0.5px;
 }
@@ -1153,7 +1171,7 @@ onMounted(loadMeeting)
 .receipt-dossier {
   background: #ffffff;
   border: 1px solid #b7e1cd;
-  border-left: 4px solid #2e7d5b;
+  border-left: 4px solid var(--el-color-success);
   border-radius: 10px;
   padding: 18px 22px;
   margin-bottom: 22px;
@@ -1173,14 +1191,14 @@ onMounted(loadMeeting)
 .stamp-circle {
   width: 74px;
   height: 74px;
-  border: 2px dashed #2e7d5b;
+  border: 2px dashed var(--el-color-success);
   border-radius: 50%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   transform: rotate(-12deg);
-  color: #2e7d5b;
+  color: var(--el-color-success);
   font-weight: bold;
   font-size: 11px;
 }
@@ -1198,7 +1216,7 @@ onMounted(loadMeeting)
 }
 
 .receipt-badge {
-  background: #2e7d5b;
+  background: var(--el-color-success);
   color: #ffffff;
   font-size: 10.5px;
   padding: 2px 8px;
@@ -1208,18 +1226,18 @@ onMounted(loadMeeting)
 
 .receipt-time {
   font-size: 12px;
-  color: #8a94a0;
+  color: var(--yx-text-4);
 }
 
 .receipt-status-title {
   font-size: 17px;
-  color: #1b2433;
+  color: var(--yx-ink);
   margin: 4px 0;
 }
 
 .receipt-status-desc {
   font-size: 13.5px;
-  color: #4e5969;
+  color: var(--yx-text-2);
   line-height: 1.6;
   margin: 0;
 }
@@ -1230,7 +1248,7 @@ onMounted(loadMeeting)
   gap: 6px;
   margin-top: 10px;
   font-size: 12px;
-  color: #6b7785;
+  color: var(--yx-text-3);
 }
 
 .receipt-quick-actions {
@@ -1254,7 +1272,7 @@ onMounted(loadMeeting)
 .switch-lead {
   font-size: 14px;
   font-weight: 600;
-  color: #24406e;
+  color: var(--yx-ink-2);
 }
 
 .radio-label-inner {
@@ -1295,7 +1313,7 @@ onMounted(loadMeeting)
 
 .notattend-reason {
   font-size: 12.5px;
-  color: #6b7785;
+  color: var(--yx-text-3);
   margin-top: 2px;
 }
 
@@ -1314,16 +1332,16 @@ onMounted(loadMeeting)
 .seats-title {
   font-size: 16px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--yx-text-1);
 }
 
 .seats-count {
-  color: #24406e;
+  color: var(--yx-ink-2);
 }
 
 .seats-quota {
   font-size: 12px;
-  color: #8a94a0;
+  color: var(--yx-text-4);
   background: #f0f2f5;
   padding: 2px 8px;
   border-radius: 4px;
@@ -1348,7 +1366,7 @@ onMounted(loadMeeting)
 }
 
 .seat-card.is-editing {
-  border-color: #b8925a;
+  border-color: var(--yx-gold);
   background: #fdfaf5;
   box-shadow: 0 0 0 2px rgba(184, 146, 90, 0.2);
 }
@@ -1357,7 +1375,7 @@ onMounted(loadMeeting)
   font-size: 12px;
   font-weight: 600;
   background: #eef2f9;
-  color: #24406e;
+  color: var(--yx-ink-2);
   padding: 4px 8px;
   border-radius: 6px;
   margin-right: 14px;
@@ -1375,7 +1393,7 @@ onMounted(loadMeeting)
 .seat-name {
   font-size: 16px;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--yx-text-1);
 }
 
 .seat-meta {
@@ -1386,7 +1404,7 @@ onMounted(loadMeeting)
 
 .seat-title-pill {
   font-size: 12px;
-  color: #4e5969;
+  color: var(--yx-text-2);
   background: #f2f3f5;
   padding: 2px 8px;
   border-radius: 4px;
@@ -1394,7 +1412,7 @@ onMounted(loadMeeting)
 
 .seat-phone {
   font-size: 13px;
-  color: #8a94a0;
+  color: var(--yx-text-4);
 }
 
 .seat-actions {
@@ -1438,14 +1456,14 @@ onMounted(loadMeeting)
 .header-mark {
   width: 4px;
   height: 16px;
-  background: #b8925a;
+  background: var(--yx-gold);
   border-radius: 2px;
 }
 
 .person-card-header h4 {
   margin: 0;
   font-size: 16px;
-  color: #1f2329;
+  color: var(--yx-text-1);
 }
 
 .form-btn-row {
@@ -1456,14 +1474,14 @@ onMounted(loadMeeting)
 
 .submit-action-btn {
   flex: 1;
-  background: linear-gradient(135deg, #24406e 0%, #1b2433 100%);
+  background: linear-gradient(135deg, var(--yx-ink-2) 0%, var(--yx-ink) 100%);
   border: none;
   font-size: 15px;
   letter-spacing: 1px;
 }
 
 .submit-action-btn:hover {
-  background: linear-gradient(135deg, #2f538e 0%, #24406e 100%);
+  background: linear-gradient(135deg, #2f538e 0%, var(--yx-ink-2) 100%);
 }
 
 /* 不参加原因卡 */
@@ -1481,20 +1499,20 @@ onMounted(loadMeeting)
 
 .absent-icon {
   font-size: 24px;
-  color: #c4312b;
+  color: var(--el-color-danger);
   margin-top: 2px;
 }
 
 .absent-card-header h4 {
   margin: 0 0 4px;
   font-size: 16px;
-  color: #c4312b;
+  color: var(--el-color-danger);
 }
 
 .absent-card-header p {
   margin: 0;
   font-size: 13px;
-  color: #6b7785;
+  color: var(--yx-text-3);
   line-height: 1.5;
 }
 
@@ -1540,7 +1558,7 @@ onMounted(loadMeeting)
 .banner-text-col p {
   margin: 0;
   font-size: 13px;
-  color: #6b7785;
+  color: var(--yx-text-3);
 }
 
 /* 加载与错误 */
@@ -1556,7 +1574,7 @@ onMounted(loadMeeting)
   width: 40px;
   height: 40px;
   border: 3px solid #eef2f9;
-  border-top-color: #24406e;
+  border-top-color: var(--yx-ink-2);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   margin: 0 auto 16px;
@@ -1568,14 +1586,14 @@ onMounted(loadMeeting)
 
 .loading-card p {
   font-size: 15px;
-  color: #4e5969;
+  color: var(--yx-text-2);
 }
 
 /* 尊贵页脚 */
 .gov-footer {
   margin-top: 36px;
   text-align: center;
-  color: #6b7785;
+  color: var(--yx-text-3);
   font-size: 12px;
 }
 
@@ -1591,27 +1609,27 @@ onMounted(loadMeeting)
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: #b8925a;
+  background: var(--yx-gold);
 }
 
 .footer-org {
   font-size: 14px;
-  color: #1f2329;
+  color: var(--yx-text-1);
   letter-spacing: 1px;
 }
 
 .footer-system {
-  color: #8a94a0;
+  color: var(--yx-text-4);
   margin-bottom: 8px;
 }
 
 .footer-beian {
-  color: #8a94a0;
+  color: var(--yx-text-4);
   line-height: 1.8;
 }
 
 .footer-beian a {
-  color: #6b7785;
+  color: var(--yx-text-3);
   text-decoration: none;
 }
 
@@ -1621,7 +1639,7 @@ onMounted(loadMeeting)
 }
 
 .ipv6-tag {
-  color: #6b7785;
+  color: var(--yx-text-3);
 }
 
 /* 动效 */

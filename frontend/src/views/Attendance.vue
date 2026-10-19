@@ -147,7 +147,8 @@
             </div>
           </template>
           <el-table :data="list" stripe v-loading="loading" empty-text="该日暂无考勤记录">
-            <el-table-column prop="attend_date" label="日期" width="110" />
+            <template #empty><EmptyState description="该日暂无考勤记录" /></template>
+            <el-table-column prop="attend_date" label="日期" width="128" />
             <el-table-column v-if="authStore.isAdmin" prop="user_name" label="姓名" width="100" />
             <el-table-column label="状态" width="130">
               <template #default="{ row }">
@@ -174,6 +175,7 @@ import request, { exportFile } from '../utils/request'
 import dayjs from 'dayjs'
 import { useAuthStore } from '../store/auth'
 import PageHeader from '../components/PageHeader.vue'
+import EmptyState from '../components/EmptyState.vue'
 
 const authStore = useAuthStore()
 const router = useRouter()

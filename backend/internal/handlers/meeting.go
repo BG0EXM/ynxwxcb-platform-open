@@ -1,7 +1,10 @@
 package handlers
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -26,12 +29,19 @@ func ListMeetings(w http.ResponseWriter, r *http.Request) {
 	if pageSize <= 0 {
 		pageSize = 10
 	}
+	// 每页最多 100 条（与前端分页选项一致），防止一次请求拉取全表
+	if pageSize > 100 {
+		pageSize = 100
+	}
 	offset := (page - 1) * pageSize
 
 	var total int
-	database.DB.QueryRow("SELECT COUNT(*) FROM meetings").Scan(&total)
+	if err := database.DB.QueryRow("SELECT COUNT(*) FROM meetings").Scan(&total); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
 
-	query := `SELECT m.id, m.title, m.meeting_date, m.meeting_time, m.location, m.content, m.units, m.unit_limit,
+	query := `SELECT m.id, m.title, m.meeting_date, m.meeting_time, m.location, m.content, m.units, m.unit_limit, IFNULL(m.public_token, ''),
 			m.created_by, u.real_name, m.created_at, m.updated_at,
 			COALESCE(SUM(CASE WHEN r.not_attend = 0 THEN 1 ELSE 0 END), 0),
 			COALESCE(SUM(CASE WHEN r.not_attend = 1 THEN 1 ELSE 0 END), 0),
@@ -54,7 +64,7 @@ func ListMeetings(w http.ResponseWriter, r *http.Request) {
 		var createdBy sql.NullInt64
 		var createdAt, updatedAt sql.NullTime
 		var regCount, notAttend, confirmedUnits int
-		if err := rows.Scan(&m.ID, &m.Title, &meetingDate, &meetingTime, &location, &content, &units, &m.UnitLimit,
+		if err := rows.Scan(&m.ID, &m.Title, &meetingDate, &meetingTime, &location, &content, &units, &m.UnitLimit, &m.PublicToken,
 			&createdBy, &creator, &createdAt, &updatedAt, &regCount, &notAttend, &confirmedUnits); err != nil {
 			continue
 		}
@@ -80,7 +90,7 @@ func ListMeetings(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
 		return
 	}
-	middleware.JSON(w, http.StatusOK, map[string]interface{}{"list": list, "total": total})
+	middleware.JSON(w, http.StatusOK, map[string]interface{}{"list": list, "total": total, "summary": meetingSummary()})
 }
 
 // CreateMeeting 新增会议（管理员）
@@ -99,6 +109,13 @@ func CreateMeeting(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请选择会议日期（YYYY-MM-DD）"})
 		return
 	}
+	// 会议开始时间即报名截止时间：格式非法会导致截止时间被误判为当天 23:59，必须拦截
+	if req.MeetingTime = strings.TrimSpace(req.MeetingTime); req.MeetingTime != "" {
+		if _, err := time.Parse("15:04", req.MeetingTime); err != nil {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "会议时间格式应为 HH:mm（如 09:30）"})
+			return
+		}
+	}
 	if strings.TrimSpace(req.Units) == "" {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请填写参会单位范围"})
 		return
@@ -108,9 +125,9 @@ func CreateMeeting(w http.ResponseWriter, r *http.Request) {
 	}
 	// 显式指定 id = 当前最大 id + 1，删除会议后 ID 不跳号（复用）；单条语句保证取号原子
 	res, err := database.DB.Exec(
-		`INSERT INTO meetings (id, title, meeting_date, meeting_time, location, content, units, unit_limit, created_by)
-		 SELECT COALESCE(MAX(id), 0) + 1, ?, ?, ?, ?, ?, ?, ?, ? FROM meetings`,
-		req.Title, req.MeetingDate, req.MeetingTime, req.Location, req.Content, req.Units, req.UnitLimit, userID)
+		`INSERT INTO meetings (id, title, meeting_date, meeting_time, location, content, units, unit_limit, created_by, public_token)
+		 SELECT COALESCE(MAX(id), 0) + 1, ?, ?, ?, ?, ?, ?, ?, ?, ? FROM meetings`,
+		req.Title, req.MeetingDate, req.MeetingTime, req.Location, req.Content, req.Units, req.UnitLimit, userID, newPublicToken())
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "创建失败"})
 		return
@@ -138,6 +155,13 @@ func UpdateMeeting(w http.ResponseWriter, r *http.Request) {
 	if !isValidDate(req.MeetingDate) {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请选择会议日期（YYYY-MM-DD）"})
 		return
+	}
+	// 会议开始时间即报名截止时间：格式非法会导致截止时间被误判为当天 23:59，必须拦截
+	if req.MeetingTime = strings.TrimSpace(req.MeetingTime); req.MeetingTime != "" {
+		if _, err := time.Parse("15:04", req.MeetingTime); err != nil {
+			middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "会议时间格式应为 HH:mm（如 09:30）"})
+			return
+		}
 	}
 	if strings.TrimSpace(req.Units) == "" {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请填写参会单位范围"})
@@ -172,6 +196,10 @@ func DeleteMeeting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
+	if _, err := tx.Exec("DELETE FROM meeting_unit_tokens WHERE meeting_id=?", id); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+		return
+	}
 	if _, err := tx.Exec("DELETE FROM meeting_registrations WHERE meeting_id=?", id); err != nil {
 		tx.Rollback()
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
@@ -213,10 +241,10 @@ func GetMeeting(w http.ResponseWriter, r *http.Request) {
 	var createdBy sql.NullInt64
 	var createdAt, updatedAt sql.NullTime
 	err := database.DB.QueryRow(
-		`SELECT m.id, m.title, m.meeting_date, m.meeting_time, m.location, m.content, m.units, m.unit_limit,
+		`SELECT m.id, m.title, m.meeting_date, m.meeting_time, m.location, m.content, m.units, m.unit_limit, IFNULL(m.public_token, ''),
 			m.created_by, u.real_name, m.created_at, m.updated_at
 		FROM meetings m LEFT JOIN users u ON m.created_by = u.id WHERE m.id = ?`, id).
-		Scan(&m.ID, &m.Title, &meetingDate, &meetingTime, &location, &content, &units, &m.UnitLimit,
+		Scan(&m.ID, &m.Title, &meetingDate, &meetingTime, &location, &content, &units, &m.UnitLimit, &m.PublicToken,
 			&createdBy, &creator, &createdAt, &updatedAt)
 	if err == sql.ErrNoRows {
 		middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "会议不存在"})
@@ -304,7 +332,10 @@ func GetMeeting(w http.ResponseWriter, r *http.Request) {
 
 // PublicMeeting 公开会议信息（匿名，供报名页加载）
 func PublicMeeting(w http.ResponseWriter, r *http.Request) {
-	id := pathID(r)
+	id, ok := publicID(w, r, "meetings")
+	if !ok {
+		return
+	}
 	if id == 0 {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "参数错误"})
 		return
@@ -368,6 +399,10 @@ func PublicMeeting(w http.ResponseWriter, r *http.Request) {
 					"id": rgID, "attendee_name": name.String, "attendee_title": title.String, "phone": maskPhone(phone.String),
 				})
 			}
+			if err := rows.Err(); err != nil {
+				middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+				return
+			}
 		}
 	}
 	// 剩余可报 = 上限 - 已参加人数；unit_limit<=0 表示不限制（remain=-1）
@@ -422,7 +457,10 @@ func parseMeetingTime(date, tm string) (time.Time, bool) {
 //
 //	"reg_id":0}   reg_id>0 表示修改某条已有报名
 func PublicRegisterMeeting(w http.ResponseWriter, r *http.Request) {
-	id := pathID(r)
+	id, ok := publicID(w, r, "meetings")
+	if !ok {
+		return
+	}
 	var req struct {
 		MeetingID     int64  `json:"meeting_id"`
 		RegID         int64  `json:"reg_id"`
@@ -432,15 +470,14 @@ func PublicRegisterMeeting(w http.ResponseWriter, r *http.Request) {
 		Phone         string `json:"phone"`
 		NotAttend     int    `json:"not_attend"`
 		Reason        string `json:"reason"`
+		EditToken     string `json:"edit_token"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请求格式错误"})
 		return
 	}
-	meetingID := req.MeetingID
-	if meetingID == 0 {
-		meetingID = id
-	}
+	// 会议 ID 只认公开链接令牌解析结果，严禁请求体自带 meeting_id 绕过令牌
+	meetingID := id
 	if meetingID == 0 {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "参数错误"})
 		return
@@ -481,9 +518,8 @@ func PublicRegisterMeeting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 校验该单位当前报名状态
-	var attendCount, notAll int
+	var attendCount int
 	database.DB.QueryRow("SELECT COUNT(*) FROM meeting_registrations WHERE meeting_id=? AND unit=? AND not_attend=0", meetingID, req.Unit).Scan(&attendCount)
-	database.DB.QueryRow("SELECT COUNT(*) FROM meeting_registrations WHERE meeting_id=? AND unit=? AND not_attend=1", meetingID, req.Unit).Scan(&notAll)
 
 	if req.NotAttend == 1 {
 		if req.Reason == "" {
@@ -501,6 +537,16 @@ func PublicRegisterMeeting(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer tx.Rollback()
+		newToken, msg := meetingUnitEditAuth(tx, meetingID, req.Unit, req.EditToken)
+		if msg != "" {
+			middleware.JSON(w, http.StatusForbidden, map[string]string{"error": msg, "code": "MEETING_EDIT_TOKEN_REQUIRED"})
+			return
+		}
+		// 事务内复核：防止并发时有人刚报名参会人员又被“不参加”整单位清空
+		if !meetingCountTx(tx, w, "SELECT COUNT(*) FROM meeting_registrations WHERE meeting_id=? AND unit=? AND not_attend=0", meetingID, req.Unit, func(n int) bool { return n == 0 },
+			"该单位已报名参会人员，如需变更为不参加请联系会务组管理员") {
+			return
+		}
 		if _, err := tx.Exec("DELETE FROM meeting_registrations WHERE meeting_id=? AND unit=?", meetingID, req.Unit); err != nil {
 			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "提交失败"})
 			return
@@ -515,7 +561,7 @@ func PublicRegisterMeeting(w http.ResponseWriter, r *http.Request) {
 			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "提交失败"})
 			return
 		}
-		middleware.JSON(w, http.StatusOK, map[string]string{"message": "已确认不参加"})
+		middleware.JSON(w, http.StatusOK, map[string]string{"message": "已确认不参加", "edit_token": newToken})
 		return
 	}
 	// 参加：
@@ -535,17 +581,36 @@ func PublicRegisterMeeting(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.RegID > 0 {
-		// 修改已有报名（手机号留空则保留原号码）
+		// 修改已有报名（手机号留空则保留原号码），必须持有本单位首次报名时下发的编辑凭证
+		tx, err := database.DB.Begin()
+		if err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "修改失败"})
+			return
+		}
+		defer tx.Rollback()
+		if _, msg := meetingUnitEditAuth(tx, meetingID, req.Unit, req.EditToken); msg != "" {
+			middleware.JSON(w, http.StatusForbidden, map[string]string{"error": msg, "code": "MEETING_EDIT_TOKEN_REQUIRED"})
+			return
+		}
+		var res sql.Result
 		if keepPhone {
-			_, err = database.DB.Exec(
+			res, err = tx.Exec(
 				`UPDATE meeting_registrations SET attendee_name=?, attendee_title=? WHERE id=? AND meeting_id=? AND unit=?`,
 				req.AttendeeName, req.AttendeeTitle, req.RegID, meetingID, req.Unit)
 		} else {
-			_, err = database.DB.Exec(
+			res, err = tx.Exec(
 				`UPDATE meeting_registrations SET attendee_name=?, attendee_title=?, phone=? WHERE id=? AND meeting_id=? AND unit=?`,
 				req.AttendeeName, req.AttendeeTitle, req.Phone, req.RegID, meetingID, req.Unit)
 		}
 		if err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "修改失败"})
+			return
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "报名记录不存在"})
+			return
+		}
+		if err := tx.Commit(); err != nil {
 			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "修改失败"})
 			return
 		}
@@ -561,6 +626,13 @@ func PublicRegisterMeeting(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
+	// 本单位已有报名（或已领取编辑凭证）时，继续增补/替换人员必须持有编辑凭证；首次报名则签发新凭证
+	newToken, msg := meetingUnitEditAuth(tx, meetingID, req.Unit, req.EditToken)
+	if msg != "" {
+		middleware.JSON(w, http.StatusForbidden, map[string]string{"error": msg, "code": "MEETING_EDIT_TOKEN_REQUIRED"})
+		return
+	}
+
 	// 事务内重新核验当前人数，防止并发超额
 	var curAttendCount int
 	if err := tx.QueryRow("SELECT COUNT(*) FROM meeting_registrations WHERE meeting_id=? AND unit=? AND not_attend=0", meetingID, req.Unit).Scan(&curAttendCount); err != nil {
@@ -572,11 +644,10 @@ func PublicRegisterMeeting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if notAll > 0 {
-		if _, err := tx.Exec("DELETE FROM meeting_registrations WHERE meeting_id=? AND unit=? AND not_attend=1", meetingID, req.Unit); err != nil {
-			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "报名失败"})
-			return
-		}
+	// 改为参加：清除本单位原“不参加”记录（事务内执行，无需事务外预读）
+	if _, err := tx.Exec("DELETE FROM meeting_registrations WHERE meeting_id=? AND unit=? AND not_attend=1", meetingID, req.Unit); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "报名失败"})
+		return
 	}
 	if unitLimit == 1 && curAttendCount >= 1 {
 		if _, err := tx.Exec("DELETE FROM meeting_registrations WHERE meeting_id=? AND unit=? AND not_attend=0", meetingID, req.Unit); err != nil {
@@ -594,21 +665,26 @@ func PublicRegisterMeeting(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "报名失败"})
 		return
 	}
-	middleware.JSON(w, http.StatusOK, map[string]string{"message": "报名成功"})
+	middleware.JSON(w, http.StatusOK, map[string]string{"message": "报名成功", "edit_token": newToken})
 }
 
 // PublicRemoveAttendee 移除某条参会报名（匿名，仅同单位可操作）
 // body: {"reg_id":123}
 func PublicRemoveAttendee(w http.ResponseWriter, r *http.Request) {
-	id := pathID(r)
+	id, ok := publicID(w, r, "meetings")
+	if !ok {
+		return
+	}
 	var req struct {
-		RegID int64  `json:"reg_id"`
-		Unit  string `json:"unit"`
+		RegID     int64  `json:"reg_id"`
+		Unit      string `json:"unit"`
+		EditToken string `json:"edit_token"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请求格式错误"})
 		return
 	}
+	req.Unit = strings.TrimSpace(req.Unit)
 	if req.RegID == 0 {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "参数错误"})
 		return
@@ -636,7 +712,22 @@ func PublicRemoveAttendee(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := database.DB.Exec("DELETE FROM meeting_registrations WHERE id=? AND meeting_id=? AND unit=? AND not_attend=0", req.RegID, id, req.Unit)
+	tx, err := database.DB.Begin()
+	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "操作失败"})
+		return
+	}
+	defer tx.Rollback()
+	if _, msg := meetingUnitEditAuth(tx, id, req.Unit, req.EditToken); msg != "" {
+		middleware.JSON(w, http.StatusForbidden, map[string]string{"error": msg, "code": "MEETING_EDIT_TOKEN_REQUIRED"})
+		return
+	}
+	// 事务内复核：并发移除时不得把单位人数减到 0
+	if !meetingCountTx(tx, w, "SELECT COUNT(*) FROM meeting_registrations WHERE meeting_id=? AND unit=? AND not_attend=0", id, req.Unit, func(n int) bool { return n > 1 },
+		"该单位仅余一名参会人员，不可直接移除；如需更换人员请直接点击修改，如需取消参会请联系会务组管理员") {
+		return
+	}
+	res, err := tx.Exec("DELETE FROM meeting_registrations WHERE id=? AND meeting_id=? AND unit=? AND not_attend=0", req.RegID, id, req.Unit)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "操作失败"})
 		return
@@ -645,24 +736,33 @@ func PublicRemoveAttendee(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "记录不存在"})
 		return
 	}
+	if err := tx.Commit(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "操作失败"})
+		return
+	}
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "已移除"})
 }
 
 // PublicCancelMeetingRegister 取消报名（匿名，反悔机会）
 // body: {"unit":"xx"}
 func PublicCancelMeetingRegister(w http.ResponseWriter, r *http.Request) {
-	id := pathID(r)
+	id, ok := publicID(w, r, "meetings")
+	if !ok {
+		return
+	}
 	if id == 0 {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "参数错误"})
 		return
 	}
 	var req struct {
-		Unit string `json:"unit"`
+		Unit      string `json:"unit"`
+		EditToken string `json:"edit_token"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "请求格式错误"})
 		return
 	}
+	req.Unit = strings.TrimSpace(req.Unit)
 	if req.Unit == "" {
 		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": "缺少单位"})
 		return
@@ -690,13 +790,31 @@ func PublicCancelMeetingRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := database.DB.Exec("DELETE FROM meeting_registrations WHERE meeting_id=? AND unit=?", id, req.Unit)
+	tx, err := database.DB.Begin()
+	if err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "取消失败"})
+		return
+	}
+	defer tx.Rollback()
+	if _, msg := meetingUnitEditAuth(tx, id, req.Unit, req.EditToken); msg != "" {
+		middleware.JSON(w, http.StatusForbidden, map[string]string{"error": msg, "code": "MEETING_EDIT_TOKEN_REQUIRED"})
+		return
+	}
+	if !meetingCountTx(tx, w, "SELECT COUNT(*) FROM meeting_registrations WHERE meeting_id=? AND unit=? AND not_attend=0", id, req.Unit, func(n int) bool { return n == 0 },
+		"该单位已提交参会人员名单，如需全员取消请联系会务组管理员") {
+		return
+	}
+	res, err := tx.Exec("DELETE FROM meeting_registrations WHERE meeting_id=? AND unit=?", id, req.Unit)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "取消失败"})
 		return
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "该单位没有报名记录"})
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "取消失败"})
 		return
 	}
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "已取消"})
@@ -757,6 +875,10 @@ func ExportMeetingRegistration(w http.ResponseWriter, r *http.Request) {
 				notAttend: na,
 				reason:    strings.TrimSpace(reason.String),
 			})
+		}
+		if err := regRows.Err(); err != nil {
+			middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+			return
 		}
 	}
 
@@ -886,6 +1008,7 @@ func AdminDeleteMeetingRegistration(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "席位记录不存在"})
 		return
 	}
+	releaseMeetingUnitTokenIfEmpty(id)
 	logOperation(r, "会务管理", "删除", "管理员移除会议参会人席位")
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "已移除该参会席位"})
 }
@@ -928,7 +1051,7 @@ func AdminChangeUnitToAbsent(w http.ResponseWriter, r *http.Request) {
 	// 插入一条整体不参加记录
 	_, err = tx.Exec(`INSERT INTO meeting_registrations 
 		(meeting_id, unit, attendee_name, attendee_title, phone, not_attend, reason, created_at)
-		VALUES (?, ?, '', '', '', 1, ?, datetime('now','localtime'))`, id, req.Unit, reason)
+		VALUES (?, ?, '', '', '', 1, ?, CURRENT_TIMESTAMP)`, id, req.Unit, reason)
 	if err != nil {
 		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "记录请假信息失败"})
 		return
@@ -967,6 +1090,8 @@ func AdminResetUnitRegistration(w http.ResponseWriter, r *http.Request) {
 		middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "该单位未找到报名记录"})
 		return
 	}
+	// 管理员重置后释放该单位编辑凭证，允许单位重新首次报名
+	database.DB.Exec("DELETE FROM meeting_unit_tokens WHERE meeting_id=? AND unit=?", id, req.Unit)
 	logOperation(r, "会务管理", "修改", fmt.Sprintf("管理员重置【%s】报名状态为待确认", req.Unit))
 	middleware.JSON(w, http.StatusOK, map[string]string{"message": "已重置该单位报名状态，现已恢复为待确认"})
 }
@@ -996,4 +1121,58 @@ func maskPhone(p string) string {
 		return ""
 	}
 	return "****"
+}
+
+// meetingUnitEditAuth 公开报名的单位编辑凭证校验（须在写事务内调用）：
+//   - 本单位已领取凭证：必须提交匹配的凭证；
+//   - 本单位无凭证但已有报名记录（升级前的历史报名）：公开端不得修改，须联系管理员；
+//   - 首次报名：签发新凭证并写入，返回给前端保存在报名人浏览器中。
+//
+// 返回新签发的凭证（非首次为空）与拒绝原因（放行时为空）。
+func meetingUnitEditAuth(tx *sql.Tx, meetingID int64, unit, provided string) (string, string) {
+	var hash string
+	err := tx.QueryRow("SELECT token_hash FROM meeting_unit_tokens WHERE meeting_id=? AND unit=?", meetingID, unit).Scan(&hash)
+	if err == nil {
+		sum := sha256.Sum256([]byte(strings.TrimSpace(provided)))
+		if provided == "" || subtle.ConstantTimeCompare([]byte(hex.EncodeToString(sum[:])), []byte(hash)) != 1 {
+			return "", "本单位已完成报名，仅限首次报名的手机或电脑修改；如需调整请联系会务组管理员"
+		}
+		return "", ""
+	}
+	if err != sql.ErrNoRows {
+		return "", "系统繁忙，请稍后重试"
+	}
+	var existing int
+	if err := tx.QueryRow("SELECT COUNT(*) FROM meeting_registrations WHERE meeting_id=? AND unit=?", meetingID, unit).Scan(&existing); err != nil {
+		return "", "系统繁忙，请稍后重试"
+	}
+	if existing > 0 {
+		return "", "本单位已完成报名，如需调整请联系会务组管理员"
+	}
+	token := newPublicToken()
+	sum := sha256.Sum256([]byte(token))
+	if _, err := tx.Exec("INSERT INTO meeting_unit_tokens (meeting_id, unit, token_hash) VALUES (?, ?, ?)", meetingID, unit, hex.EncodeToString(sum[:])); err != nil {
+		return "", "系统繁忙，请稍后重试"
+	}
+	return token, ""
+}
+
+// releaseMeetingUnitTokenIfEmpty 管理员移除席位后，若某单位已无任何报名记录则释放其编辑凭证
+func releaseMeetingUnitTokenIfEmpty(meetingID int64) {
+	database.DB.Exec(`DELETE FROM meeting_unit_tokens WHERE meeting_id=? AND NOT EXISTS (
+		SELECT 1 FROM meeting_registrations r WHERE r.meeting_id=meeting_unit_tokens.meeting_id AND r.unit=meeting_unit_tokens.unit)`, meetingID)
+}
+
+// meetingCountTx 在事务内统计并校验人数条件；不满足时写出 400（查询失败写出 500）并返回 false
+func meetingCountTx(tx *sql.Tx, w http.ResponseWriter, query string, meetingID int64, unit string, ok func(int) bool, failMsg string) bool {
+	var n int
+	if err := tx.QueryRow(query, meetingID, unit).Scan(&n); err != nil {
+		middleware.JSON(w, http.StatusInternalServerError, map[string]string{"error": "系统繁忙，请稍后重试"})
+		return false
+	}
+	if !ok(n) {
+		middleware.JSON(w, http.StatusBadRequest, map[string]string{"error": failMsg})
+		return false
+	}
+	return true
 }

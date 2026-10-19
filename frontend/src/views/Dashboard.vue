@@ -93,7 +93,7 @@
     <el-row :gutter="12" class="mt-20">
       <el-col :xs="12" :sm="12" :md="6" v-for="c in statCards" :key="c.label">
         <div 
-          class="stat-box yx-card-crest" 
+          class="stat-box" 
           :class="{ 'is-clickable': !!c.path }"
           @click="c.path && $router.push(c.path)"
         >
@@ -140,6 +140,7 @@
               empty-text="暂无收文记录"
               class="incoming-table"
             >
+              <template #empty><EmptyState description="暂无收文记录" /></template>
               <el-table-column prop="status" label="状态" width="90">
                 <template #default="{ row }">
                   <status-dot 
@@ -155,7 +156,7 @@
                   />
                 </template>
               </el-table-column>
-              <el-table-column prop="received_date" label="收文日期" width="115" />
+              <el-table-column prop="received_date" label="收文日期" width="128" />
               <el-table-column prop="from_unit" label="来文单位" width="140" show-overflow-tooltip />
               <el-table-column prop="title" label="文件标题" min-width="200" show-overflow-tooltip>
                 <template #default="{ row }">
@@ -341,6 +342,8 @@
 import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '../store/auth'
 import request from '../utils/request'
+import EmptyState from '../components/EmptyState.vue'
+import { fetchDashboardStats } from '../utils/dashboardStats'
 import dayjs from 'dayjs'
 import StatusDot from '../components/StatusDot.vue'
 import TrendChart from '../components/TrendChart.vue'
@@ -478,7 +481,8 @@ const quickActions = computed(() => {
 
 onMounted(async () => {
   try {
-    const res = await request.get('/dashboard-stats')
+    if (!authStore.hasPerm('dashboard.view')) return
+    const res = await fetchDashboardStats()
     stats.value = res
     latestIncoming.value = res.latest_incoming || []
     weekDuty.value = res.week_duty || []
@@ -498,7 +502,7 @@ onMounted(async () => {
 
 /* ===== 1. 顶部庄重红色渐变横幅 ===== */
 .welcome-banner {
-  background: linear-gradient(135deg, #131a26 0%, #1b2433 45%, #7a1417 100%);
+  background: linear-gradient(135deg, var(--yx-ink-dark) 0%, var(--yx-ink) 45%, var(--yx-brand-dark) 100%);
   border-radius: var(--yx-radius);
   position: relative;
   overflow: hidden;
@@ -661,16 +665,7 @@ onMounted(async () => {
   overflow: hidden;
 }
 
-.stat-box::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3.5px;
-  background: var(--yx-crest-gradient);
-  z-index: 2;
-}
+/* 统计卡片不再加三色顶条，保持细边框简洁 */
 
 .stat-box.is-clickable {
   cursor: pointer;
@@ -746,16 +741,7 @@ onMounted(async () => {
   margin-bottom: 24px;
 }
 
-.gov-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 4px;
-  background: linear-gradient(90deg, #9e1b1e, #e53935);
-  z-index: 2;
-}
+/* 面板不再加红色顶条，标题左侧竖线已足够标识 */
 
 .gov-card .panel-header {
   padding: 16px 24px;
@@ -792,7 +778,7 @@ onMounted(async () => {
 .panel-title-bar {
   width: 4px;
   height: 18px;
-  background: linear-gradient(180deg, #e53935, #9e1b1e);
+  background: linear-gradient(180deg, #e53935, var(--yx-brand));
   border-radius: 2px;
 }
 

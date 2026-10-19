@@ -33,8 +33,8 @@
       <el-table :data="tasks" stripe size="small" v-loading="loading">
         <el-table-column prop="department_name" label="科室" width="120" />
         <el-table-column prop="title" label="工作内容" min-width="180" show-overflow-tooltip />
-        <el-table-column prop="start_date" label="开始日期" width="110" />
-        <el-table-column prop="end_date" label="结束日期" width="110" />
+        <el-table-column prop="start_date" label="开始日期" width="128" />
+        <el-table-column prop="end_date" label="结束日期" width="128" />
         <el-table-column prop="created_name" label="录入人" width="90" />
         <el-table-column label="操作" width="140" fixed="right">
           <template #default="{ row }">
@@ -111,7 +111,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="save">保存</el-button>
+        <el-button type="primary" :loading="saveLoading" @click="save">保存</el-button>
       </template>
     </el-drawer>
   </div>
@@ -272,7 +272,19 @@ const openEdit = (row) => {
   dialogVisible.value = true
 }
 
-const save = async () => {
+// 防重复提交：保存请求进行中时禁用按钮并忽略重复点击
+const saveLoading = ref(false)
+const save = async (...args) => {
+  if (saveLoading.value) return
+  saveLoading.value = true
+  try {
+    await saveImpl(...args)
+  } finally {
+    saveLoading.value = false
+  }
+}
+
+const saveImpl = async () => {
   if (authStore.isAdmin && !form.value.department_id) return ElMessage.warning('请选择科室')
   if (!form.value.title) return ElMessage.warning('请输入工作内容')
   if (!form.value.start_date) return ElMessage.warning('请选择开始日期')

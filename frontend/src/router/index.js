@@ -199,6 +199,13 @@ const routes = [
         meta: { title: '个人中心', icon: 'Setting' }
       }
     ]
+  },
+  // 未匹配的地址显示 404 页面（此前为空白页）
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'not-found',
+    component: () => import('../views/NotFound.vue'),
+    meta: { title: '页面不存在' }
   }
 ]
 
@@ -207,8 +214,9 @@ const router = createRouter({
   routes
 })
 
-// 公开路径（无需登录）
+// 公开路径（无需登录）；末尾带斜杠，避免误匹配后台 /meetings、/solicits、/dispatches
 const publicPaths = ['/login', '/meeting/', '/meeting-register/', '/solicit/', '/solicit-feedback/', '/dispatch/', '/dispatch-receipt/']
+export const isPublicPath = (path = '') => publicPaths.some(p => path.startsWith(p))
 
 // 路由 → 所需权限点（无权限则隐藏菜单并友好提示）
 const routePerms = {
@@ -269,7 +277,7 @@ router.beforeEach((to, from, next) => {
         return
       }
     }
-    document.title = to.meta.title ? `${to.meta.title} - 伊宁县委宣传部部务工作平台 V1.7.1` : '伊宁县委宣传部部务工作平台 V1.7.1'
+    document.title = to.meta.title ? `${to.meta.title} - 伊宁县委宣传部部务工作平台 V1.8.0` : '伊宁县委宣传部部务工作平台 V1.8.0'
     next()
   }
 })

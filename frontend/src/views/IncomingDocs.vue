@@ -13,6 +13,8 @@
       </template>
     </page-header>
 
+    <StatStrip :items="statItems" />
+
     <!-- 筛选工具栏 -->
     <el-card shadow="never" class="gov-card">
       <div class="filter-bar">
@@ -99,8 +101,27 @@
         </transition>
       </div>
 
+      <!-- 手机端：卡片列表 -->
+      <MobileCardList v-if="isMobile" class="mt-16" :data="list" :loading="loading" empty-text="暂无符合条件的收文记录" @row-click="openDetail">
+        <template #title="{ row }">{{ row.title }}</template>
+        <template #tag="{ row }">
+          <el-tag :class="['status-tag', 'status-doc-' + (row.status || 1)]" effect="plain" size="small">{{ statusNames[row.status] || '待登记' }}</el-tag>
+        </template>
+        <template #meta="{ row }">
+          <span>{{ row.receive_no }}</span>
+          <span>{{ row.received_date }}</span>
+          <span>{{ row.from_unit }}</span>
+          <span v-if="row.need_return === 1 && row.returned !== 1" style="color: var(--el-color-danger)">需清退</span>
+        </template>
+        <template #actions="{ row }">
+          <el-button link type="primary" @click="openDetail(row)">办理</el-button>
+          <el-button v-if="authStore.hasPerm('incoming.manage')" link type="primary" @click="openStatusDialog(row)">办理/归档</el-button>
+          <el-button link type="primary" @click="handleRowCommand('print', row)">打印呈批单</el-button>
+        </template>
+      </MobileCardList>
+
       <!-- 表格数据区 -->
-      <el-table size="large" 
+      <el-table size="large" v-else
         :data="list" 
         v-loading="loading" 
         empty-text="暂无收文记录" 
@@ -112,7 +133,7 @@
         </template>
 
         <el-table-column prop="receive_no" label="收文编号" width="125" />
-        <el-table-column prop="received_date" label="收文日期" width="105" />
+        <el-table-column prop="received_date" label="收文日期" width="128" />
         <el-table-column prop="from_unit" label="来文单位" width="140" show-overflow-tooltip />
         <el-table-column prop="from_doc_no" label="来文字号" width="140" show-overflow-tooltip />
         <el-table-column prop="doc_no" label="文件编号" width="120" show-overflow-tooltip />
@@ -425,7 +446,7 @@
       <template #footer>
         <div class="drawer-footer-wrap">
           <el-button @click="drawerVisible = false">取消</el-button>
-          <el-button type="primary" @click="save">保存公文</el-button>
+          <el-button type="primary" :loading="saveLoading" @click="save">保存公文</el-button>
         </div>
       </template>
     </el-drawer>
@@ -610,11 +631,14 @@
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import dayjs from 'dayjs'
 import request, { exportFile } from '../utils/request'
 import { useAuthStore } from '../store/auth'
 import PageHeader from '../components/PageHeader.vue'
 import StatusDot from '../components/StatusDot.vue'
 import EmptyState from '../components/EmptyState.vue'
+import MobileCardList from '../components/MobileCardList.vue'
+import StatStrip from '../components/StatStrip.vue'
 import { useMobile } from '../utils/useMobile'
 
 const { isMobile } = useMobile()
@@ -628,6 +652,26 @@ const departments = ref([])
 const page = ref(1)
 const pageSize = 20
 const total = ref(0)
+// 顶部统计（后端按全量口径返回，不随分页变化）
+const summary = ref({})
+const statItems = computed(() => [
+  { label: '收文总数', value: summary.value.total, unit: '份', onClick: () => filterStatus('') },
+  { label: '在办', value: summary.value.pending, unit: '份', tone: 'primary' },
+  { label: '已办结', value: summary.value.done, unit: '份', onClick: () => filterStatus(5) },
+  { label: '待清退', value: summary.value.need_return, unit: '份', tone: summary.value.need_return ? 'danger' : '', onClick: () => filterNeedReturn() }
+])
+
+// 顶部统计卡片点击即按该口径筛选
+const filterStatus = (st) => {
+  query.status = st
+  reloadFirstPage()
+}
+const filterNeedReturn = () => {
+  query.need_return = 1
+  query.returned = 0
+  showAdvanced.value = true
+  reloadFirstPage()
+}
 const query = reactive({ 
   keyword: '', 
   status: '', 
@@ -727,6 +771,7 @@ const loadData = async () => {
     const res = await request.get('/incoming-docs', { params })
     list.value = res.list || []
     total.value = res.total || 0
+    summary.value = res.summary || {}
   } catch (e) { console.error(e) } finally {
     loading.value = false
   }
@@ -760,7 +805,7 @@ const openCreate = () => {
   editId.value = 0
   const nowYear = new Date().getFullYear().toString()
   Object.assign(form, {
-    receive_no: '', received_date: new Date().toISOString().slice(0, 10), from_unit: '',
+    receive_no: '', received_date: dayjs().format('YYYY-MM-DD'), from_unit: '',
     from_doc_no: '', doc_no: '', title: '',
     copies: 1, secret_level: '非密', urgency: '一般', suggest: '', leader_comment: '', processing: '',
     return_date: '', returned: 0, need_return: 0, status: 1,
@@ -786,7 +831,19 @@ const openEdit = (row) => {
   drawerVisible.value = true
 }
 
-const save = async () => {
+// 防重复提交：保存请求进行中时禁用按钮并忽略重复点击
+const saveLoading = ref(false)
+const save = async (...args) => {
+  if (saveLoading.value) return
+  saveLoading.value = true
+  try {
+    await saveImpl(...args)
+  } finally {
+    saveLoading.value = false
+  }
+}
+
+const saveImpl = async () => {
   if (!form.title) return ElMessage.warning('请输入文件标题')
   if (!form.from_unit) return ElMessage.warning('请输入来文单位')
   try {

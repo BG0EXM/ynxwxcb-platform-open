@@ -19,5 +19,6 @@ frontend/dist/
 Thumbs.db
 
 # 内部工作流与开发指令（严禁上传 GitHub）
-AGENTS.md
-agents.md
+CLAUDE.md
+claude.md
+.claude/

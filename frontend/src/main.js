@@ -1,6 +1,6 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import * as ElementPlusIconsVue from '@element-plus/icons-vue'
+import { usedIcons } from './utils/icons'
 import dayjs from 'dayjs'
 import 'dayjs/locale/zh-cn'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -15,7 +15,7 @@ dayjs.locale('zh-cn')
 
 const app = createApp(App)
 
-for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+for (const [key, component] of Object.entries(usedIcons)) {
   app.component(key, component)
 }
 

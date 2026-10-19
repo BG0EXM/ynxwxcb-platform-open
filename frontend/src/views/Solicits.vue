@@ -12,8 +12,34 @@
       </template>
     </page-header>
 
+    <StatStrip :items="statItems" />
+
     <el-card shadow="never" class="gov-card">
-      <el-table :data="list" v-loading="loading" size="large">
+      <MobileCardList v-if="isMobile" :data="list" :loading="loading" empty-text="暂无征求意见任务" @row-click="openDetail">
+        <template #title="{ row }">{{ row.title }}</template>
+        <template #tag="{ row }"><el-tag size="small" :type="isExpired(row.deadline) ? 'info' : 'success'" effect="light">{{ isExpired(row.deadline) ? '已截止' : '征集中' }}</el-tag></template>
+        <template #meta="{ row }">
+          <span v-if="row.doc_no">{{ row.doc_no }}</span>
+          <span>截止 {{ row.deadline }}</span>
+          <span>已反馈 {{ row.feedback_count || 0 }} / {{ row.total_units || 0 }}</span>
+        </template>
+        <template #actions="{ row }">
+          <el-button link type="primary" @click="openDetail(row)">反馈台账</el-button>
+          <el-button link type="primary" @click="notifySolicit(row)">一键通知</el-button>
+          <el-dropdown @command="(cmd) => handleRowCommand(cmd, row)" trigger="click">
+            <el-button link type="primary">更多</el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="copy_url">复制链接</el-dropdown-item>
+                <el-dropdown-item command="export">导出汇总表</el-dropdown-item>
+                <el-dropdown-item command="edit">编辑</el-dropdown-item>
+                <el-dropdown-item command="delete" class="text-danger-item">删除</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </template>
+      </MobileCardList>
+      <el-table v-else :data="list" v-loading="loading" size="large">
         <template #empty>
           <empty-state description="暂无正在征集意见的文件或材料" />
         </template>
@@ -51,7 +77,7 @@
                 :percentage="calcPct(row.feedback_count, row.total_units)" 
                 :stroke-width="6" 
                 :show-text="false"
-                :color="isExpired(row.deadline) ? '#909399' : '#b22222'"
+                :color="isExpired(row.deadline) ? '#909399' : '#24406e'"
               />
             </div>
           </template>
@@ -380,11 +406,13 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import request, { exportFile, downloadFile } from '../utils/request'
+import request, { exportFile, downloadFile, openAuthFile } from '../utils/request'
 import dayjs from 'dayjs'
 import PageHeader from '../components/PageHeader.vue'
+import MobileCardList from '../components/MobileCardList.vue'
+import StatStrip from '../components/StatStrip.vue'
 import EmptyState from '../components/EmptyState.vue'
 import { useMobile } from '../utils/useMobile'
 import { validateUploadFileSecrecy, handleSecrecyUploadError } from '../utils/secrecyGuard'
@@ -393,6 +421,13 @@ const { isMobile } = useMobile()
 
 const list = ref([])
 const total = ref(0)
+// 顶部统计（后端按全量口径返回，不随分页变化）
+const summary = ref({})
+const statItems = computed(() => [
+  { label: '征求任务', value: summary.value.total, unit: '项' },
+  { label: '征集中', value: summary.value.active, unit: '项', tone: 'primary' },
+  { label: '已截止', value: summary.value.expired, unit: '项' }
+])
 const page = ref(1)
 const pageSize = ref(10)
 const loading = ref(false)
@@ -442,9 +477,11 @@ const loadData = async () => {
     })
     list.value = res.list || []
     total.value = res.total || 0
+    summary.value = res.summary || {}
   } catch (e) {
     console.error(e)
-    ElMessage.error('加载征求意见列表失败')
+    // 请求类错误已由拦截器统一提示，仅非请求异常才在此提示，避免同一错误弹两次
+    if (!e?.isAxiosError) ElMessage.error('加载征求意见列表失败')
   } finally {
     loading.value = false
   }
@@ -514,7 +551,8 @@ const uploadPdfFile = async (options) => {
   } catch (err) {
     if (!handleSecrecyUploadError(err, file, { isPublic: false })) {
       const errMsg = err.response?.data?.error || err.message || '上传失败，请检查文件大小或网络'
-      ElMessage.error(errMsg)
+      // 请求类错误已由拦截器统一提示，仅非请求异常才在此提示，避免同一错误弹两次
+      if (!err?.isAxiosError) ElMessage.error(errMsg)
     }
   } finally {
     uploadPdfLoading.value = false
@@ -550,7 +588,8 @@ const uploadWordFile = async (options) => {
   } catch (err) {
     if (!handleSecrecyUploadError(err, file, { isPublic: false })) {
       const errMsg = err.response?.data?.error || err.message || '上传失败，请检查文件大小或网络'
-      ElMessage.error(errMsg)
+      // 请求类错误已由拦截器统一提示，仅非请求异常才在此提示，避免同一错误弹两次
+      if (!err?.isAxiosError) ElMessage.error(errMsg)
     }
   } finally {
     uploadWordLoading.value = false
@@ -567,13 +606,9 @@ const removeWord = () => {
   form.value.word_name = ''
 }
 
-const previewPdf = (path) => {
-  window.open(path, '_blank')
-}
+const previewPdf = (path) => openAuthFile(path)
 
-const openFile = (path) => {
-  window.open(path, '_blank')
-}
+const openFile = (path) => openAuthFile(path)
 
 // 预设单位名单
 const presets = {
@@ -626,7 +661,8 @@ const save = async () => {
       loadData()
     } catch (e) {
       console.error(e)
-      ElMessage.error(e.response?.data?.error || '保存失败')
+      // 请求类错误已由拦截器统一提示，仅非请求异常才在此提示，避免同一错误弹两次
+      if (!e?.isAxiosError) ElMessage.error(e.response?.data?.error || '保存失败')
     } finally {
       saving.value = false
     }
@@ -647,13 +683,14 @@ const openDetail = async (row) => {
     detailVisible.value = true
   } catch (e) {
     console.error(e)
-    ElMessage.error('加载台账详情失败')
+    // 请求类错误已由拦截器统一提示，仅非请求异常才在此提示，避免同一错误弹两次
+    if (!e?.isAxiosError) ElMessage.error('加载台账详情失败')
   }
 }
 
 // 一键通知：生成微信工作群规范公文征求意见格式（去掉“场”字与无用落款）
 const notifySolicit = (row) => {
-  const url = `${window.location.origin}/solicit/${row.id}`
+  const url = `${window.location.origin}/solicit/${row.public_token}`
   const docNoText = row.doc_no ? `（${row.doc_no}）` : ''
   const deadlineText = row.deadline ? `【反馈截止时间】${row.deadline}\n` : ''
 
@@ -677,7 +714,7 @@ const notifySolicit = (row) => {
 }
 
 const copyLink = (row) => {
-  const url = `${window.location.origin}/solicit/${row.id}`
+  const url = `${window.location.origin}/solicit/${row.public_token}`
   navigator.clipboard.writeText(url)
     .then(() => ElMessage.success('征求意见纯链接已复制到剪贴板'))
     .catch(() => {
@@ -719,7 +756,8 @@ const handleRowCommand = async (cmd, row) => {
     } catch (e) {
       if (e !== 'cancel') {
         console.error(e)
-        ElMessage.error('删除失败')
+        // 请求类错误已由拦截器统一提示，仅非请求异常才在此提示，避免同一错误弹两次
+        if (!e?.isAxiosError) ElMessage.error('删除失败')
       }
     }
   }
@@ -742,7 +780,8 @@ const handleResetUnit = async (row) => {
   } catch (e) {
     if (e !== 'cancel') {
       console.error(e)
-      ElMessage.error('重置失败')
+      // 请求类错误已由拦截器统一提示，仅非请求异常才在此提示，避免同一错误弹两次
+      if (!e?.isAxiosError) ElMessage.error('重置失败')
     }
   }
 }
@@ -756,7 +795,7 @@ const copyUrgeList = () => {
     text += `${i + 1}. ${u}\n`
   })
   text += `\n请上述单位主要负责同志高度重视，尽快于截止时间（${detailSolicit.value.deadline}）前点击以下链接反馈：\n`
-  text += `${window.location.origin}/solicit/${detailSolicit.value.id}`
+  text += `${window.location.origin}/solicit/${detailSolicit.value.public_token}`
 
   navigator.clipboard.writeText(text)
     .then(() => ElMessage.success('已复制微信催报名单至剪贴板，可直接发送微信群'))

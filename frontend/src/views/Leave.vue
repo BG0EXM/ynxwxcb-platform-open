@@ -33,10 +33,10 @@
       </template>
 
       <el-row :gutter="12">
-        <el-col :xs="12" :sm="6" :md="3" v-for="c in statItems" :key="c.key">
-          <div class="stat-item" :style="{ borderTop: '3px solid ' + c.color }">
+        <el-col :xs="12" :sm="6" :md="3" v-for="c in visibleStatItems" :key="c.key">
+          <div class="stat-item" :class="{ 'is-zero': !Number(c.days) }">
             <div class="stat-num tabular-nums">{{ c.days }}</div>
-            <div class="stat-label">{{ c.label }}（{{ c.count }}次）</div>
+            <div class="stat-label"><span class="stat-dot" :style="{ background: c.color }"></span>{{ c.label }}（{{ c.count }}次）</div>
           </div>
         </el-col>
         <el-col :xs="12" :sm="6" :md="3">
@@ -86,7 +86,26 @@
         </div>
       </div>
 
-      <el-table :data="list" v-loading="loading" class="mt-12" size="large">
+      <MobileCardList v-if="isMobile" class="mt-12" :data="list" :loading="loading" empty-text="暂无请假报备记录">
+        <template #title="{ row }">{{ authStore.isAdmin ? row.user_name : (leaveTypeNames[row.leave_type] || row.leave_type) }}</template>
+        <template #tag="{ row }">
+          <el-tag size="small" effect="light" disable-transitions :style="leaveTagStyle(row.leave_type)">{{ leaveTypeNames[row.leave_type] || row.leave_type }}</el-tag>
+        </template>
+        <template #meta="{ row }">
+          <span>{{ row.start_date }}{{ row.end_date && row.end_date !== row.start_date ? ' 至 ' + row.end_date : '' }}</span>
+          <span>{{ row.days }} 天</span>
+          <span v-if="row.reason">{{ row.reason }}</span>
+        </template>
+        <template #actions="{ row }">
+          <el-button link type="primary" @click="openPrint(row)">打印假条</el-button>
+          <template v-if="authStore.hasPerm('leave.manage') && canModify(row)">
+            <el-button link type="primary" @click="handleRowCommand('edit', row)">修改</el-button>
+            <el-button v-if="authStore.hasPerm('leave.delete')" link type="danger" @click="handleRowCommand('delete', row)">删除</el-button>
+          </template>
+          <span v-else-if="authStore.hasPerm('leave.manage') && row.user_id === authStore.user?.id" class="locked-tip">已锁定（过去月份）</span>
+        </template>
+      </MobileCardList>
+      <el-table v-else :data="list" v-loading="loading" class="mt-12" size="large">
         <template #empty>
           <empty-state description="暂无请假报备记录" />
         </template>
@@ -95,14 +114,14 @@
         
         <el-table-column label="假期类型" width="110">
           <template #default="{ row }">
-            <el-tag size="small" effect="plain" :color="statColors[row.leave_type] ? `${statColors[row.leave_type]}15` : ''">
+            <el-tag size="small" effect="light" disable-transitions :style="leaveTagStyle(row.leave_type)">
               {{ leaveTypeNames[row.leave_type] || row.leave_type }}
             </el-tag>
           </template>
         </el-table-column>
 
-        <el-table-column prop="start_date" label="起始日期" width="115" />
-        <el-table-column prop="end_date" label="结束日期" width="115" />
+        <el-table-column prop="start_date" label="起始日期" width="128" />
+        <el-table-column prop="end_date" label="结束日期" width="128" />
         
         <el-table-column prop="days" label="休假天数" width="100" align="center">
           <template #default="{ row }">
@@ -118,7 +137,7 @@
               <el-button link type="primary" @click="openPrint(row)">打印假条</el-button>
               
               <el-dropdown 
-                v-if="authStore.hasPerm('leave.manage') && (authStore.isAdmin || row.user_id === authStore.user?.id)"
+                v-if="authStore.hasPerm('leave.manage') && canModify(row)"
                 @command="(cmd) => handleRowCommand(cmd, row)" 
                 trigger="click"
               >
@@ -140,6 +159,13 @@
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
+              <el-tooltip
+                v-else-if="authStore.hasPerm('leave.manage') && row.user_id === authStore.user?.id"
+                content="过去月份的请假已计入考勤统计，如需修改或删除请联系管理员"
+                placement="top"
+              >
+                <span class="locked-tip">已锁定</span>
+              </el-tooltip>
             </div>
           </template>
         </el-table-column>
@@ -200,7 +226,7 @@
               </el-col>
               <el-col :xs="24" :sm="12">
                 <el-form-item label="结束日期" prop="end_date">
-                  <el-date-picker v-model="form.end_date" type="date" value-format="YYYY-MM-DD" style="width:100%" @change="calcDays" />
+                  <el-date-picker v-model="form.end_date" type="date" value-format="YYYY-MM-DD" style="width:100%" :disabled-date="d => form.start_date && dayjs(d).format('YYYY-MM-DD') < form.start_date" @change="calcDays" />
                 </el-form-item>
               </el-col>
             </el-row>
@@ -260,12 +286,22 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import request, { exportFile } from '../utils/request'
+import { useMobile } from '../utils/useMobile'
 import dayjs from 'dayjs'
 import { useAuthStore } from '../store/auth'
 import PageHeader from '../components/PageHeader.vue'
+import MobileCardList from '../components/MobileCardList.vue'
 import EmptyState from '../components/EmptyState.vue'
 
 const authStore = useAuthStore()
+const { isMobile } = useMobile()
+
+// 与后端口径一致：普通用户只能修改/删除本月及以后的本人请假，过去月份仅管理员可操作
+const canModify = (row) => {
+  if (authStore.isAdmin) return true
+  if (row.user_id !== authStore.user?.id) return false
+  return String(row.start_date || '').slice(0, 10) >= dayjs().startOf('month').format('YYYY-MM-DD')
+}
 const list = ref([])
 const loading = ref(false)
 const page = ref(1)
@@ -288,6 +324,7 @@ const rules = reactive({
   end_date: [{ 
     validator: (rule, value, callback) => {
       if (form.duration_type === 'day' && !value) callback(new Error('请选择结束日期'))
+      else if (value && form.start_date && value < form.start_date) callback(new Error('结束日期不能早于开始日期'))
       else callback()
     }, trigger: 'change' 
   }],
@@ -296,6 +333,12 @@ const rules = reactive({
     { max: 200, message: '事由不超过 200 个字符', trigger: 'blur' }
   ]
 })
+
+// 假期类型标签：同色系浅底 + 同色深字（此前浅色底配主题红字，几乎看不清）
+const leaveTagStyle = (type) => {
+  const c = statColors[type] || '#6b7785'
+  return { color: c, background: `${c}14`, borderColor: `${c}33` }
+}
 
 const leaveTypeNames = {
   annual: '年休假', sick: '病假', personal: '事假', marriage: '婚假',
@@ -310,6 +353,8 @@ const statColors = {
 }
 
 const statItems = ref([])
+// 手机端只显示有天数的假期类型，避免 11 个格子占满一屏、列表要滑很久才看得到
+const visibleStatItems = computed(() => (isMobile.value ? statItems.value.filter(c => Number(c.days) > 0) : statItems.value))
 
 const loadStats = async () => {
   try {
@@ -577,8 +622,8 @@ onMounted(() => {
 }
 
 .stat-item.total-item {
-  border-top: 3px solid var(--yx-brand);
-  background: var(--yx-brand-bg);
+  background: var(--yx-ink-2-bg);
+  border-color: var(--el-color-primary-light-8);
 }
 
 .stat-num {
@@ -651,5 +696,23 @@ onMounted(() => {
 }
 .ml-8 {
   margin-left: 8px;
+}
+.locked-tip {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--el-text-color-placeholder);
+  cursor: help;
+}
+.stat-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: 1px;
+}
+/* 未使用的假期类型弱化显示，让有数据的类型更醒目 */
+.stat-item.is-zero .stat-num {
+  color: var(--yx-text-4);
 }
 </style>

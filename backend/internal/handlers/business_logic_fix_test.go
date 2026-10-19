@@ -94,9 +94,9 @@ func TestBusinessLogicFixes(t *testing.T) {
 	// 测试项 3: 公车报备状态校验与时段冲突拦截
 	// -------------------------------------------------------------
 	t.Run("公车停用状态与时段冲突拦截", func(t *testing.T) {
-		// 插入一辆可用车辆(id=10, status=1)和一辆维修中车辆(id=11, status=2)
+		// 插入一辆可用车辆(id=10, status=1)和一辆维修中车辆(id=11, status=3；口径 1可用 2使用中 3维修中 4已报废)
 		database.DB.Exec("INSERT INTO vehicles (id, plate_no, brand, seats, driver, status) VALUES (10, '新F88888', '大众帕萨特', 5, '张师傅', 1)")
-		database.DB.Exec("INSERT INTO vehicles (id, plate_no, brand, seats, driver, status) VALUES (11, '新F99999', '别克GL8', 7, '王师傅', 2)")
+		database.DB.Exec("INSERT INTO vehicles (id, plate_no, brand, seats, driver, status) VALUES (11, '新F99999', '别克GL8', 7, '王师傅', 3)")
 
 		// 3.1 尝试报备维修中车辆 -> 应拦截
 		applyFail := models.VehicleApply{
@@ -247,7 +247,7 @@ func TestBusinessLogicFixes(t *testing.T) {
 		}
 		data, _ := json.Marshal(receiptBody)
 		req := httptest.NewRequest("POST", fmt.Sprintf("/api/public/dispatches/%d/receipt", dispatchID), bytes.NewReader(data))
-		req.SetPathValue("id", strconv.FormatInt(dispatchID, 10))
+		req.SetPathValue("token", testToken(t, "dispatches", strconv.FormatInt(dispatchID, 10)))
 		rec := httptest.NewRecorder()
 		PublicConfirmDispatchReceipt(rec, req)
 		if rec.Code != http.StatusBadRequest {

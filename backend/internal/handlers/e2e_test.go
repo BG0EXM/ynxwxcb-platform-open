@@ -67,6 +67,29 @@ func setupTestEnv(t *testing.T) (*config.Config, func()) {
 	return cfg, cleanup
 }
 
+// insertTestAttachment 写入一条未关联的测试附件记录，返回 /api/uploads/{id} 引用
+func insertTestAttachment(t *testing.T, ownerType string, uploaderID int64, name string) string {
+	t.Helper()
+	res, err := database.DB.Exec("INSERT INTO attachments (owner_type, owner_id, file_name, file_path, file_size, uploader_id) VALUES (?, 0, ?, ?, 1, ?)",
+		ownerType, name, "2026/10/"+name, uploaderID)
+	if err != nil {
+		t.Fatalf("写入测试附件失败: %v", err)
+	}
+	id, _ := res.LastInsertId()
+	return "/api/uploads/" + strconv.FormatInt(id, 10)
+}
+
+// testToken 返回（必要时补发）测试记录的公开链接令牌
+func testToken(t *testing.T, table, id string) string {
+	t.Helper()
+	database.DB.Exec("UPDATE "+table+" SET public_token=? WHERE id=? AND (public_token IS NULL OR public_token='')", newPublicToken(), id)
+	var tok string
+	if err := database.DB.QueryRow("SELECT public_token FROM "+table+" WHERE id=?", id).Scan(&tok); err != nil {
+		t.Fatalf("读取公开令牌失败: %v", err)
+	}
+	return tok
+}
+
 func reqWithContext(req *http.Request, userID int64, username, roleCode, realName string) *http.Request {
 	ctx := req.Context()
 	ctx = context.WithValue(ctx, middleware.ContextUserID, userID)
@@ -163,13 +186,14 @@ func TestSolicitWorkflowE2E(t *testing.T) {
 	// 步骤 A: 创建征求意见任务
 	var solicitID int64
 	{
+		pdfRef := insertTestAttachment(t, "solicit", 1, "draft.pdf")
 		body := `{
 			"title": "关于开展2026年文化宣传周活动的意见征求",
 			"doc_no": "伊党宣字〔2026〕15号",
 			"deadline": "2026-12-31 18:00",
 			"units": "吉里于孜镇\n愉群翁回族乡\n县教育局",
 			"content": "请各单位认真研读草案并反馈。",
-			"pdf_path": "/uploads/solicits/draft.pdf",
+			"pdf_path": "` + pdfRef + `",
 			"pdf_name": "文化宣传周活动草案.pdf"
 		}`
 		req := httptest.NewRequest("POST", "/api/solicits", bytes.NewBufferString(body))
@@ -196,7 +220,7 @@ func TestSolicitWorkflowE2E(t *testing.T) {
 	// 步骤 B: 公开免密端加载详情
 	{
 		req := httptest.NewRequest("GET", fmt.Sprintf("/api/public/solicits/%d", solicitID), nil)
-		req.SetPathValue("id", strconv.FormatInt(solicitID, 10))
+		req.SetPathValue("token", testToken(t, "solicits", strconv.FormatInt(solicitID, 10)))
 		rec := httptest.NewRecorder()
 		PublicSolicit(rec, req)
 		if rec.Code != http.StatusOK {
@@ -217,13 +241,14 @@ func TestSolicitWorkflowE2E(t *testing.T) {
 	{
 		var b bytes.Buffer
 		w := multipart.NewWriter(&b)
+		w.WriteField("unit", "吉里于孜镇")
 		part, _ := w.CreateFormFile("file", "吉里于孜镇盖章回函.pdf")
 		part.Write([]byte("%PDF-1.4 正常无涉密公文内容，原则同意活动方案。"))
 		w.Close()
 
 		req := httptest.NewRequest("POST", fmt.Sprintf("/api/public/solicits/%d/upload", solicitID), &b)
 		req.Header.Set("Content-Type", w.FormDataContentType())
-		req.SetPathValue("id", strconv.FormatInt(solicitID, 10))
+		req.SetPathValue("token", testToken(t, "solicits", strconv.FormatInt(solicitID, 10)))
 		rec := httptest.NewRecorder()
 		PublicSolicitUpload(cfg)(rec, req)
 		if rec.Code != http.StatusOK {
@@ -246,9 +271,9 @@ func TestSolicitWorkflowE2E(t *testing.T) {
 			"contact_phone": "13912345678"
 		}`, uploadedPath)
 		req := httptest.NewRequest("POST", fmt.Sprintf("/api/public/solicits/%d/feedback", solicitID), bytes.NewBufferString(body))
-		req.SetPathValue("id", strconv.FormatInt(solicitID, 10))
+		req.SetPathValue("token", testToken(t, "solicits", strconv.FormatInt(solicitID, 10)))
 		rec := httptest.NewRecorder()
-		PublicSubmitFeedback(rec, req)
+		PublicSubmitFeedback(cfg)(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("提交反馈失败: %d, %s", rec.Code, rec.Body.String())
 		}
@@ -266,9 +291,9 @@ func TestSolicitWorkflowE2E(t *testing.T) {
 			"contact_phone": "13900000000"
 		}`, uploadedPath)
 		req := httptest.NewRequest("POST", fmt.Sprintf("/api/public/solicits/%d/feedback", solicitID), bytes.NewBufferString(body))
-		req.SetPathValue("id", strconv.FormatInt(solicitID, 10))
+		req.SetPathValue("token", testToken(t, "solicits", strconv.FormatInt(solicitID, 10)))
 		rec := httptest.NewRecorder()
-		PublicSubmitFeedback(rec, req)
+		PublicSubmitFeedback(cfg)(rec, req)
 		if rec.Code != http.StatusForbidden {
 			t.Fatalf("重复提交未触发防篡改锁定，状态码: %d", rec.Code)
 		}
@@ -287,8 +312,26 @@ func TestSolicitWorkflowE2E(t *testing.T) {
 		}
 	}
 
-	// 步骤 G: 重置后再次提交应允许成功
+	// 步骤 G: 重置后（原回函已被物理清理）重新上传并再次提交应允许成功
 	{
+		var b bytes.Buffer
+		mw := multipart.NewWriter(&b)
+		mw.WriteField("unit", "吉里于孜镇")
+		part, _ := mw.CreateFormFile("file", "吉里于孜镇盖章回函.pdf")
+		part.Write([]byte("%PDF-1.4 正常无涉密公文内容，原则同意活动方案。"))
+		mw.Close()
+		up := httptest.NewRequest("POST", "/api/public/solicits/x/upload", &b)
+		up.Header.Set("Content-Type", mw.FormDataContentType())
+		up.SetPathValue("token", testToken(t, "solicits", strconv.FormatInt(solicitID, 10)))
+		upRec := httptest.NewRecorder()
+		PublicSolicitUpload(cfg)(upRec, up)
+		if upRec.Code != http.StatusOK {
+			t.Fatalf("重置后重新上传失败: %d, %s", upRec.Code, upRec.Body.String())
+		}
+		var upRes map[string]interface{}
+		json.Unmarshal(upRec.Body.Bytes(), &upRes)
+		uploadedPath = upRes["file_path"].(string)
+
 		body := fmt.Sprintf(`{
 			"unit": "吉里于孜镇",
 			"has_opinion": 0,
@@ -299,9 +342,9 @@ func TestSolicitWorkflowE2E(t *testing.T) {
 			"contact_phone": "13912345678"
 		}`, uploadedPath)
 		req := httptest.NewRequest("POST", fmt.Sprintf("/api/public/solicits/%d/feedback", solicitID), bytes.NewBufferString(body))
-		req.SetPathValue("id", strconv.FormatInt(solicitID, 10))
+		req.SetPathValue("token", testToken(t, "solicits", strconv.FormatInt(solicitID, 10)))
 		rec := httptest.NewRecorder()
-		PublicSubmitFeedback(rec, req)
+		PublicSubmitFeedback(cfg)(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("重置后重新提交失败: %d, %s", rec.Code, rec.Body.String())
 		}
@@ -316,12 +359,13 @@ func TestDispatchWorkflowE2E(t *testing.T) {
 	// 步骤 A: 创建材料下发任务
 	var dispatchID int64
 	{
+		pdfRef := insertTestAttachment(t, "dispatch", 1, "notice.pdf")
 		body := `{
 			"title": "关于印发《2026年全县精神文明建设要点》的通知",
 			"doc_no": "伊文明办发〔2026〕5号",
 			"units": "吉里于孜镇\n愉群翁回族乡\n县委办",
 			"content": "请各单位查收并贯彻落实。",
-			"pdf_path": "/uploads/dispatches/notice.pdf",
+			"pdf_path": "` + pdfRef + `",
 			"pdf_name": "精神文明建设要点.pdf"
 		}`
 		req := httptest.NewRequest("POST", "/api/dispatches", bytes.NewBufferString(body))
@@ -342,7 +386,7 @@ func TestDispatchWorkflowE2E(t *testing.T) {
 			"receiver_phone": "13888888888"
 		}`
 		req := httptest.NewRequest("POST", fmt.Sprintf("/api/public/dispatches/%d/receipt", dispatchID), bytes.NewBufferString(body))
-		req.SetPathValue("id", strconv.FormatInt(dispatchID, 10))
+		req.SetPathValue("token", testToken(t, "dispatches", strconv.FormatInt(dispatchID, 10)))
 		rec := httptest.NewRecorder()
 		PublicConfirmDispatchReceipt(rec, req)
 		if rec.Code != http.StatusOK {
@@ -358,7 +402,7 @@ func TestDispatchWorkflowE2E(t *testing.T) {
 			"receiver_phone": "13888888888"
 		}`
 		req := httptest.NewRequest("POST", fmt.Sprintf("/api/public/dispatches/%d/receipt", dispatchID), bytes.NewBufferString(body))
-		req.SetPathValue("id", strconv.FormatInt(dispatchID, 10))
+		req.SetPathValue("token", testToken(t, "dispatches", strconv.FormatInt(dispatchID, 10)))
 		rec := httptest.NewRecorder()
 		PublicConfirmDispatchReceipt(rec, req)
 		if rec.Code != http.StatusOK {
@@ -399,7 +443,8 @@ func TestMeetingWorkflowE2E(t *testing.T) {
 		database.DB.QueryRow("SELECT id FROM meetings ORDER BY id DESC LIMIT 1").Scan(&meetingID)
 	}
 
-	// 步骤 B: 第一次公开报名（参加）
+	// 步骤 B: 第一次公开报名（参加），应签发本单位编辑凭证
+	var editToken string
 	{
 		body := `{
 			"unit": "吉里于孜镇",
@@ -409,11 +454,29 @@ func TestMeetingWorkflowE2E(t *testing.T) {
 			"not_attend": 0
 		}`
 		req := httptest.NewRequest("POST", fmt.Sprintf("/api/public/meetings/%d/register", meetingID), bytes.NewBufferString(body))
-		req.SetPathValue("id", strconv.FormatInt(meetingID, 10))
+		req.SetPathValue("token", testToken(t, "meetings", strconv.FormatInt(meetingID, 10)))
 		rec := httptest.NewRecorder()
 		PublicRegisterMeeting(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("会议报名失败: %d, %s", rec.Code, rec.Body.String())
+		}
+		var res map[string]string
+		json.Unmarshal(rec.Body.Bytes(), &res)
+		editToken = res["edit_token"]
+		if len(editToken) != 32 {
+			t.Fatalf("首次报名应签发编辑凭证，实际: %q", editToken)
+		}
+	}
+
+	// 步骤 B2: 他人（无凭证）冒用单位名替换人员，必须被拒绝
+	{
+		body := `{"unit": "吉里于孜镇", "attendee_name": "冒名者", "attendee_title": "x", "phone": "13800000009", "not_attend": 0}`
+		req := httptest.NewRequest("POST", "/api/public/meetings/x/register", bytes.NewBufferString(body))
+		req.SetPathValue("token", testToken(t, "meetings", strconv.FormatInt(meetingID, 10)))
+		rec := httptest.NewRecorder()
+		PublicRegisterMeeting(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("无编辑凭证修改他单位报名应被 403 拦截，实际: %d", rec.Code)
 		}
 	}
 
@@ -425,10 +488,11 @@ func TestMeetingWorkflowE2E(t *testing.T) {
 			"attendee_name": "李副镇长",
 			"attendee_title": "副镇长",
 			"phone": "13800000002",
-			"not_attend": 0
+			"not_attend": 0,
+			"edit_token": "` + editToken + `"
 		}`
 		req := httptest.NewRequest("POST", fmt.Sprintf("/api/public/meetings/%d/register", meetingID), bytes.NewBufferString(body))
-		req.SetPathValue("id", strconv.FormatInt(meetingID, 10))
+		req.SetPathValue("token", testToken(t, "meetings", strconv.FormatInt(meetingID, 10)))
 		rec := httptest.NewRecorder()
 		PublicRegisterMeeting(rec, req)
 		if rec.Code != http.StatusOK {

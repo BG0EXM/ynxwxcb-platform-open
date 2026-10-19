@@ -5,15 +5,13 @@ import (
 	"strings"
 )
 
-// LimitBody 限制请求体大小（防止超大 body 耗内存）；exempt 前缀的路径跳过（如上传接口自行限制）
-func LimitBody(maxBytes int64, exempt ...string) func(http.Handler) http.Handler {
+// LimitBody 限制请求体大小（防止超大 body 耗内存）；exempt 判定为 true 的请求跳过（上传接口自行限制）
+func LimitBody(maxBytes int64, exempt func(r *http.Request) bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			for _, p := range exempt {
-				if strings.HasPrefix(r.URL.Path, p) {
-					next.ServeHTTP(w, r)
-					return
-				}
+			if exempt != nil && exempt(r) {
+				next.ServeHTTP(w, r)
+				return
 			}
 			if r.Body != nil {
 				r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
@@ -39,4 +37,19 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		h.Set("Access-Control-Expose-Headers", "Content-Disposition")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// IsUploadRequest 仅精确匹配两个文件上传接口（POST），其余接口一律受请求体大小限制
+func IsUploadRequest(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+	p := r.URL.Path
+	if p == "/api/uploads" {
+		return true
+	}
+	if strings.HasPrefix(p, "/api/public/solicits/") && strings.HasSuffix(p, "/upload") {
+		return strings.Count(strings.TrimPrefix(p, "/api/public/solicits/"), "/") == 1
+	}
+	return false
 }
