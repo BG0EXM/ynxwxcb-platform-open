@@ -125,3 +125,100 @@ func migrateV20() error {
 	}
 	return nil
 }
+
+// migrateV21 版本21：新增库房物资模块（物资台账、领用单、库存流水、门口扫码设置）
+func migrateV21() error {
+	stmts := []string{
+		// 物资台账：kind=consumable 耗材（领用不归还）/ returnable 可归还物品（借用后归还）
+		`CREATE TABLE IF NOT EXISTS warehouse_items (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			category TEXT DEFAULT '',
+			spec TEXT DEFAULT '',
+			unit TEXT DEFAULT '个',
+			kind TEXT DEFAULT 'consumable',
+			stock INTEGER DEFAULT 0,
+			warn_qty INTEGER DEFAULT 0,
+			location TEXT DEFAULT '',
+			status INTEGER DEFAULT 1,
+			sort INTEGER DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(name, spec)
+		)`,
+		// 领用单：一次扫码提交一张；user_id=0 为名单外“其他人员”
+		`CREATE TABLE IF NOT EXISTS warehouse_slips (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			slip_no TEXT NOT NULL UNIQUE,
+			user_id INTEGER DEFAULT 0,
+			person_name TEXT NOT NULL,
+			department TEXT DEFAULT '',
+			phone TEXT DEFAULT '',
+			is_external INTEGER DEFAULT 0,
+			purpose TEXT DEFAULT '',
+			source TEXT DEFAULT 'public',
+			operator_id INTEGER DEFAULT 0,
+			ip TEXT DEFAULT '',
+			submit_id TEXT DEFAULT '',
+			voided INTEGER DEFAULT 0,
+			void_reason TEXT DEFAULT '',
+			voided_by TEXT DEFAULT '',
+			voided_at DATETIME,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		// 库存流水：qty 为库存变动量（入库/归还/冲回为正，领用/借用为负，盘点可正可负）
+		`CREATE TABLE IF NOT EXISTS warehouse_records (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			item_id INTEGER NOT NULL,
+			slip_id INTEGER DEFAULT 0,
+			kind TEXT NOT NULL,
+			qty INTEGER NOT NULL,
+			stock_after INTEGER DEFAULT 0,
+			borrow_id INTEGER DEFAULT 0,
+			returned_qty INTEGER DEFAULT 0,
+			returned_at DATETIME,
+			user_id INTEGER DEFAULT 0,
+			person_name TEXT DEFAULT '',
+			department TEXT DEFAULT '',
+			operator TEXT DEFAULT '',
+			remark TEXT DEFAULT '',
+			voided INTEGER DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		// 门口二维码设置（单行）
+		`CREATE TABLE IF NOT EXISTS warehouse_settings (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			public_token TEXT NOT NULL,
+			paused INTEGER DEFAULT 0,
+			notice TEXT DEFAULT '',
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		"CREATE UNIQUE INDEX IF NOT EXISTS idx_wh_slips_submit ON warehouse_slips(submit_id) WHERE submit_id <> ''",
+		"CREATE INDEX IF NOT EXISTS idx_wh_slips_user ON warehouse_slips(user_id, created_at)",
+		"CREATE INDEX IF NOT EXISTS idx_wh_slips_created ON warehouse_slips(created_at)",
+		"CREATE INDEX IF NOT EXISTS idx_wh_records_item ON warehouse_records(item_id, created_at)",
+		"CREATE INDEX IF NOT EXISTS idx_wh_records_slip ON warehouse_records(slip_id)",
+		"CREATE INDEX IF NOT EXISTS idx_wh_records_created ON warehouse_records(created_at)",
+		"CREATE INDEX IF NOT EXISTS idx_wh_records_borrow ON warehouse_records(kind, voided, user_id)",
+	}
+	for _, s := range stmts {
+		if _, err := DB.Exec(s); err != nil {
+			return err
+		}
+	}
+
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return err
+	}
+	if _, err := DB.Exec("INSERT OR IGNORE INTO warehouse_settings (id, public_token) VALUES (1, ?)", hex.EncodeToString(b)); err != nil {
+		return err
+	}
+
+	// 新权限点：默认不授予任何角色（管理员旁路可用），由管理员在权限矩阵中授权办公室经办人
+	if _, err := DB.Exec(`INSERT INTO permissions (code, name, module, sort) VALUES ('warehouse.manage', '库房物资管理（物资台账/领用记录/二维码/导出）', '库房物资', 107)
+		ON CONFLICT(code) DO UPDATE SET name=excluded.name, module=excluded.module, sort=excluded.sort`); err != nil {
+		return err
+	}
+	return nil
+}

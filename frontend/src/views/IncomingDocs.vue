@@ -949,6 +949,13 @@ const exportData = async () => {
 }
 
 onMounted(() => {
+  // 工作台待办“查看全部”带筛选条件进入：?status=3 待批示、?need_return=1 待清退
+  if (route.query.status) query.status = Number(route.query.status)
+  if (route.query.need_return) {
+    query.need_return = 1
+    query.returned = 0
+    showAdvanced.value = true
+  }
   loadData()
   loadAssignees()
   loadDepartments()

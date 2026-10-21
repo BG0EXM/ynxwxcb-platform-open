@@ -126,14 +126,37 @@
             <span>{{ todayStr }}</span>
           </div>
 
-          <!-- 待办消息铃铛 -->
-          <el-tooltip content="待办收文提醒" placement="bottom">
-            <div class="header-badge-wrap" @click="$router.push('/incoming')">
-              <el-badge :value="unread" :hidden="!unread" :max="99" class="unread-badge">
-                <el-icon class="header-icon"><Bell /></el-icon>
-              </el-badge>
+          <!-- 今日待办铃铛：汇总收文、征求意见、材料下发、会务、库房等待办 -->
+          <el-popover v-model:visible="todoOpen" trigger="click" placement="bottom-end" :width="isMobile ? 320 : 380"
+            popper-class="todo-popper" @show="loadTodos({ force: true }).catch(() => {})">
+            <template #reference>
+              <div class="header-badge-wrap" title="今日待办">
+                <el-badge :value="todoState.total" :hidden="!todoState.total" :max="99" class="unread-badge">
+                  <el-icon class="header-icon"><Bell /></el-icon>
+                </el-badge>
+              </div>
+            </template>
+            <div class="todo-pop">
+              <div class="todo-pop-head">
+                <b>今日待办</b>
+                <span class="todo-pop-total">{{ todoState.total ? `共 ${todoState.total} 件` : '' }}</span>
+              </div>
+              <div v-if="!todoState.groups.length" class="todo-pop-empty">今天没有待办事项</div>
+              <div v-else class="todo-pop-body">
+                <div v-for="g in todoState.groups" :key="g.key" class="todo-pop-group">
+                  <div class="todo-pop-gname">{{ g.title }}<span>{{ g.total }}</span></div>
+                  <div v-for="it in g.items.slice(0, 3)" :key="g.key + it.id" class="todo-pop-item" :class="'lv-' + it.level"
+                    @click="goTodo(it.link)">
+                    <span class="todo-pop-title">{{ it.title }}</span>
+                    <span class="todo-pop-due">{{ it.due }}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="todo-pop-foot" v-if="authStore.hasPerm('dashboard.view')">
+                <el-button link type="primary" @click="goTodo('/dashboard')">到工作台查看全部</el-button>
+              </div>
             </div>
-          </el-tooltip>
+          </el-popover>
 
           <!-- 用户信息下拉 -->
           <el-dropdown @command="handleCommand" trigger="click">
@@ -171,12 +194,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../store/auth'
 import request from '../utils/request'
-import { fetchDashboardStats } from '../utils/dashboardStats'
+import { todoState, loadTodos } from '../utils/todos'
 import GlobalSearchModal from '../components/GlobalSearchModal.vue'
 
 const route = useRoute()
@@ -222,6 +245,7 @@ const menuGroups = computed(() => {
     hp('meeting.manage') && { path: '/meetings', title: '会务管理', icon: 'OfficeBuilding' },
     hp('solicit.manage') && { path: '/solicits', title: '征求意见', icon: 'EditPen' },
     hp('dispatch.manage') && { path: '/dispatches', title: '材料下发', icon: 'Promotion' },
+    hp('warehouse.manage') && { path: '/supplies', title: '库房物资', icon: 'Box' },
     hp('contact.view') && { path: '/contacts', title: '通讯录', icon: 'Phone' }
   ].filter(Boolean)
   const attendance = [
@@ -274,20 +298,19 @@ const todayStr = computed(() => {
   })
 })
 
-const unread = ref(0)
-
-const loadUnread = async (force = false) => {
-  // 无工作台权限时不请求，避免每次进入页面都弹出无权限提示
-  if (!authStore.hasPerm('dashboard.view')) return
-  try {
-    const res = await fetchDashboardStats({ force })
-    unread.value = res.pending_incoming || 0
-  } catch (e) { console.error(e) }
-}
-
+// 顶栏铃铛：今日待办总数（与工作台“今日待办”共用数据）
+const todoOpen = ref(false)
 const refreshUnread = () => {
-  loadUnread(true)
+  loadTodos({ force: true }).catch(() => {})
 }
+const goTodo = (path) => {
+  todoOpen.value = false
+  router.push(path)
+}
+// 切换页面时顺带刷新角标（60 秒内不重复请求）
+watch(() => route.path, () => {
+  loadTodos().catch(() => {})
+})
 
 let watermarkObserver = null
 let watermarkTimer = null
@@ -396,7 +419,7 @@ const observeWatermark = (div) => {
 
 onMounted(() => {
   authStore.refreshProfile()
-  loadUnread()
+  refreshUnread()
   checkMobile()
   window.addEventListener('resize', checkMobile)
   window.addEventListener('incoming-changed', refreshUnread)
@@ -959,4 +982,45 @@ const handleCommand = (cmd) => {
     overflow-x: hidden;
   }
 }
+</style>
+
+<style>
+/* 铃铛待办弹层（弹层挂在 body 下，需用全局样式） */
+.todo-popper { padding: 0 !important; }
+.todo-pop-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--yx-border-soft);
+  color: var(--yx-text-1);
+}
+.todo-pop-total { font-size: 12px; color: var(--yx-text-3); }
+.todo-pop-empty { padding: 24px 14px; text-align: center; color: var(--yx-text-3); font-size: 13px; }
+.todo-pop-body { max-height: 60vh; overflow-y: auto; padding: 4px 0; }
+.todo-pop-gname {
+  display: flex;
+  gap: 6px;
+  padding: 8px 14px 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--yx-text-2);
+}
+.todo-pop-gname span { color: var(--yx-text-3); font-weight: 500; }
+.todo-pop-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 14px 6px 11px;
+  border-left: 3px solid transparent;
+  font-size: 13px;
+  cursor: pointer;
+}
+.todo-pop-item:hover { background: var(--yx-surface-muted); }
+.todo-pop-item.lv-danger { border-left-color: var(--yx-brand); }
+.todo-pop-item.lv-warning { border-left-color: var(--el-color-warning); }
+.todo-pop-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--yx-text-1); }
+.todo-pop-due { flex: none; font-size: 12px; color: var(--yx-text-3); }
+.todo-pop-item.lv-danger .todo-pop-due { color: var(--yx-brand); }
+.todo-pop-foot { border-top: 1px solid var(--yx-border-soft); padding: 8px 14px; text-align: right; }
 </style>

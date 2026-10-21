@@ -406,7 +406,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request, { exportFile, downloadFile, openAuthFile } from '../utils/request'
 import dayjs from 'dayjs'
@@ -678,6 +679,8 @@ const openDetail = async (row) => {
       ...res.solicit,
       unconfirmed_units: res.unconfirmed_units || []
     }
+    // 从工作台待办、全局搜索按 ID 打开时 row 只有 id，标题以详情接口为准
+    if (res.solicit?.title) detailTitle.value = `反馈台账 — ${res.solicit.title}`
     feedbacks.value = res.feedbacks || []
     unconfirmedUnits.value = res.unconfirmed_units || []
     detailVisible.value = true
@@ -823,8 +826,14 @@ const handleSizeChange = (s) => {
   loadData()
 }
 
+// 支持 /solicits?id=xx 直接打开反馈台账（工作台待办跳转）
+const route = useRoute()
 onMounted(() => {
   loadData()
+  if (route.query.id) openDetail({ id: route.query.id, title: '' })
+})
+watch(() => route.query.id, (id) => {
+  if (id) openDetail({ id, title: '' })
 })
 </script>
 

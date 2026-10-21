@@ -76,3 +76,18 @@ func TestUploads_RouterProtection(t *testing.T) {
 		}
 	}
 }
+
+// 未注册的 /api/ 地址必须返回 JSON 404，不能回退成前端页面（否则浏览器会把页面缓存成接口结果）
+func TestUnknownAPIReturnsJSON404(t *testing.T) {
+	h := spaHandler{staticDir: t.TempDir()}
+	for _, p := range []string{"/api/not-exist", "/api/dashboard/unknown", "/api"} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("GET", p, nil))
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s 期望 404，实际 %d", p, rec.Code)
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "application/json; charset=utf-8" {
+			t.Fatalf("%s 期望返回 JSON，实际 %q", p, ct)
+		}
+	}
+}

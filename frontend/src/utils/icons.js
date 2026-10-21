@@ -2,7 +2,7 @@
 // 此前整包注册 290 余个图标，打入首屏体积；新增图标时请在此处补充。
 import {
   AlarmClock, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Back,
-  Bell, Calendar, Check, CircleCheck, CircleCheckFilled, CircleClose,
+  Bell, Box, Calendar, Check, CircleCheck, CircleCheckFilled, CircleClose,
   Clock, Close, Collection, Compass, CopyDocument, DataAnalysis,
   Delete, Document, DocumentAdd, DocumentChecked, DocumentCopy, DocumentDelete,
   Download, Edit, EditPen, Expand, Files, Fold,
@@ -10,14 +10,14 @@ import {
   List, Loading, Location, Lock, Memo, Odometer,
   OfficeBuilding, Paperclip, Phone, PhoneFilled, Picture, Plus,
   Position, PriceTag, Printer, Promotion, Reading, Refresh,
-  Right, Search, Setting, Sunny, SwitchButton, Tickets,
+  Minus, Right, Search, Setting, Sunny, SwitchButton, Tickets,
   Timer, Upload, UploadFilled, User, UserFilled, Van,
   View, Warning, WarningFilled
 } from '@element-plus/icons-vue'
 
 export const usedIcons = {
   AlarmClock, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Back,
-  Bell, Calendar, Check, CircleCheck, CircleCheckFilled, CircleClose,
+  Bell, Box, Calendar, Check, CircleCheck, CircleCheckFilled, CircleClose,
   Clock, Close, Collection, Compass, CopyDocument, DataAnalysis,
   Delete, Document, DocumentAdd, DocumentChecked, DocumentCopy, DocumentDelete,
   Download, Edit, EditPen, Expand, Files, Fold,
@@ -25,7 +25,7 @@ export const usedIcons = {
   List, Loading, Location, Lock, Memo, Odometer,
   OfficeBuilding, Paperclip, Phone, PhoneFilled, Picture, Plus,
   Position, PriceTag, Printer, Promotion, Reading, Refresh,
-  Right, Search, Setting, Sunny, SwitchButton, Tickets,
+  Minus, Right, Search, Setting, Sunny, SwitchButton, Tickets,
   Timer, Upload, UploadFilled, User, UserFilled, Van,
   View, Warning, WarningFilled
 }

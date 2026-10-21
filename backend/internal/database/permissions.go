@@ -54,6 +54,8 @@ var PermissionCatalog = []Permission{
 	{"solicit.manage", "征求意见管理（发布/查看/导出汇总）", "征求意见", 105},
 	// 材料下发管理
 	{"dispatch.manage", "材料下发管理（发布/查看/导出台账）", "材料下发", 106},
+	// 库房物资管理
+	{"warehouse.manage", "库房物资管理（物资台账/领用记录/二维码/导出）", "库房物资", 107},
 	// 考勤管理
 	{"attendance.mark", "考勤点到", "考勤管理", 110},
 	{"attendance.view", "查看考勤记录", "考勤管理", 111},

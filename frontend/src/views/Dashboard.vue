@@ -89,6 +89,9 @@
       </div>
     </div>
 
+    <!-- 今日待办：各模块当天要处理的事 -->
+    <TodoPanel class="mt-20" />
+
     <!-- 2. 核心指标卡片 -->
     <el-row :gutter="12" class="mt-20">
       <el-col :xs="12" :sm="12" :md="6" v-for="c in statCards" :key="c.label">
@@ -347,6 +350,7 @@ import { fetchDashboardStats } from '../utils/dashboardStats'
 import dayjs from 'dayjs'
 import StatusDot from '../components/StatusDot.vue'
 import TrendChart from '../components/TrendChart.vue'
+import TodoPanel from '../components/TodoPanel.vue'
 
 const authStore = useAuthStore()
 

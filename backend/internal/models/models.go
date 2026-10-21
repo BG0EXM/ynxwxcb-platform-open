@@ -158,22 +158,22 @@ type AnnualLeaveConfig struct {
 
 // Meeting 会议（会务管理）
 type Meeting struct {
-	ID          int64     `json:"id"`
-	PublicToken string `json:"public_token,omitempty"` // 公开链接令牌（仅后台接口返回）
-	Title       string    `json:"title"`
-	MeetingDate string    `json:"meeting_date"`
-	MeetingTime string    `json:"meeting_time"`
-	Location    string    `json:"location"`
-	Content     string    `json:"content"`
-	Units       string    `json:"units"`      // 参会单位范围（逗号分隔，手动填写）
-	UnitLimit   int       `json:"unit_limit"` // 每单位可报人数上限（1=单人）
-	CreatedBy   int64     `json:"created_by"`
-	CreatedName string    `json:"created_name,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	RegCount       int       `json:"reg_count,omitempty"`       // 已报名人数
-	NotAttend      int       `json:"not_attend,omitempty"`      // 不参加人数
-	ConfirmedUnits int       `json:"confirmed_units"`           // 已报名不同单位数
+	ID             int64     `json:"id"`
+	PublicToken    string    `json:"public_token,omitempty"` // 公开链接令牌（仅后台接口返回）
+	Title          string    `json:"title"`
+	MeetingDate    string    `json:"meeting_date"`
+	MeetingTime    string    `json:"meeting_time"`
+	Location       string    `json:"location"`
+	Content        string    `json:"content"`
+	Units          string    `json:"units"`      // 参会单位范围（逗号分隔，手动填写）
+	UnitLimit      int       `json:"unit_limit"` // 每单位可报人数上限（1=单人）
+	CreatedBy      int64     `json:"created_by"`
+	CreatedName    string    `json:"created_name,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	RegCount       int       `json:"reg_count,omitempty"`  // 已报名人数
+	NotAttend      int       `json:"not_attend,omitempty"` // 不参加人数
+	ConfirmedUnits int       `json:"confirmed_units"`      // 已报名不同单位数
 }
 
 // MeetingRegistration 会议参会报名（匿名填写）
@@ -184,7 +184,7 @@ type MeetingRegistration struct {
 	AttendeeName  string    `json:"attendee_name"`
 	AttendeeTitle string    `json:"attendee_title"`
 	Phone         string    `json:"phone"`
-	NotAttend     int       `json:"not_attend"` // 1=不参加
+	NotAttend     int       `json:"not_attend"`   // 1=不参加
 	IsAttending   int       `json:"is_attending"` // 兼容字段: 1=参会, 0=不参加
 	Reason        string    `json:"reason"`
 	CreatedAt     time.Time `json:"created_at"`
@@ -193,16 +193,16 @@ type MeetingRegistration struct {
 // Solicit 征求文件与材料意见
 type Solicit struct {
 	ID            int64     `json:"id"`
-	PublicToken string `json:"public_token,omitempty"` // 公开链接令牌（仅后台接口返回）
+	PublicToken   string    `json:"public_token,omitempty"` // 公开链接令牌（仅后台接口返回）
 	Title         string    `json:"title"`
 	DocNo         string    `json:"doc_no"`
-	Deadline      string    `json:"deadline"`      // 截止时间 YYYY-MM-DD HH:mm
-	Units         string    `json:"units"`         // 征求单位范围（换行分隔）
-	Content       string    `json:"content"`       // 征求意见要求说明
-	PdfPath       string    `json:"pdf_path"`      // 正文 PDF 存储路径
-	PdfName       string    `json:"pdf_name"`      // 正文 PDF 原始名称
-	WordPath      string    `json:"word_path"`     // 配套 Word 存储路径（可选）
-	WordName      string    `json:"word_name"`     // 配套 Word 原始名称（可选）
+	Deadline      string    `json:"deadline"`  // 截止时间 YYYY-MM-DD HH:mm
+	Units         string    `json:"units"`     // 征求单位范围（换行分隔）
+	Content       string    `json:"content"`   // 征求意见要求说明
+	PdfPath       string    `json:"pdf_path"`  // 正文 PDF 存储路径
+	PdfName       string    `json:"pdf_name"`  // 正文 PDF 原始名称
+	WordPath      string    `json:"word_path"` // 配套 Word 存储路径（可选）
+	WordName      string    `json:"word_name"` // 配套 Word 原始名称（可选）
 	CreatedBy     int64     `json:"created_by"`
 	CreatedName   string    `json:"created_name,omitempty"`
 	CreatedAt     time.Time `json:"created_at"`
@@ -233,16 +233,16 @@ type SolicitFeedback struct {
 // Dispatch 官方文件与学习材料下发任务
 type Dispatch struct {
 	ID             int64     `json:"id"`
-	PublicToken string `json:"public_token,omitempty"` // 公开链接令牌（仅后台接口返回）
-	Title          string    `json:"title"`           // 材料标题
-	DocNo          string    `json:"doc_no"`          // 发文字号
-	Units          string    `json:"units"`           // 下发单位范围（换行分隔）
-	Content        string    `json:"content"`         // 学习贯彻/工作要求说明
-	PdfPath        string    `json:"pdf_path"`        // 正文 PDF 存储路径
-	PdfName        string    `json:"pdf_name"`        // 正文 PDF 原始文件名
-	AttachmentPath string    `json:"attachment_path"` // 配套附件存储路径（可选）
-	AttachmentName string    `json:"attachment_name"` // 配套附件原始文件名（可选）
-	Deadline       string    `json:"deadline"`        // 查收截止时间 YYYY-MM-DD HH:mm（可选）
+	PublicToken    string    `json:"public_token,omitempty"` // 公开链接令牌（仅后台接口返回）
+	Title          string    `json:"title"`                  // 材料标题
+	DocNo          string    `json:"doc_no"`                 // 发文字号
+	Units          string    `json:"units"`                  // 下发单位范围（换行分隔）
+	Content        string    `json:"content"`                // 学习贯彻/工作要求说明
+	PdfPath        string    `json:"pdf_path"`               // 正文 PDF 存储路径
+	PdfName        string    `json:"pdf_name"`               // 正文 PDF 原始文件名
+	AttachmentPath string    `json:"attachment_path"`        // 配套附件存储路径（可选）
+	AttachmentName string    `json:"attachment_name"`        // 配套附件原始文件名（可选）
+	Deadline       string    `json:"deadline"`               // 查收截止时间 YYYY-MM-DD HH:mm（可选）
 	CreatedBy      int64     `json:"created_by"`
 	CreatedName    string    `json:"created_name,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
@@ -263,6 +263,50 @@ type DispatchReceipt struct {
 	ReceivedAt    time.Time `json:"received_at"`
 }
 
+// WarehouseItem 库房物资
+type WarehouseItem struct {
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	Category  string    `json:"category"`
+	Spec      string    `json:"spec"`
+	Unit      string    `json:"unit"`
+	Kind      string    `json:"kind"`     // consumable 耗材 / returnable 可归还
+	Stock     int       `json:"stock"`    // 库房现存数量（不含借出未还）
+	WarnQty   int       `json:"warn_qty"` // 低于等于此数量预警，0 为不预警
+	Location  string    `json:"location"`
+	Status    int       `json:"status"` // 1 启用 0 停用
+	Sort      int       `json:"sort"`
+	Borrowed  int       `json:"borrowed"` // 借出未还数量
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// WarehouseRecord 库房出入库流水
+type WarehouseRecord struct {
+	ID          int64     `json:"id"`
+	ItemID      int64     `json:"item_id"`
+	ItemName    string    `json:"item_name"`
+	Spec        string    `json:"spec"`
+	Unit        string    `json:"unit"`
+	Kind        string    `json:"kind"` // in/out/borrow/return/adjust/void
+	Qty         int       `json:"qty"`  // 库存变动量
+	StockAfter  int       `json:"stock_after"`
+	SlipID      int64     `json:"slip_id"`
+	SlipNo      string    `json:"slip_no"`
+	UserID      int64     `json:"user_id"`
+	PersonName  string    `json:"person_name"`
+	Department  string    `json:"department"`
+	Phone       string    `json:"phone"` // 仅名单外其他人员
+	External    bool      `json:"external"`
+	Purpose     string    `json:"purpose"`
+	Source      string    `json:"source"` // public 扫码 / admin 后台补录
+	Operator    string    `json:"operator"`
+	Remark      string    `json:"remark"`
+	Voided      bool      `json:"voided"`
+	VoidReason  string    `json:"void_reason"`
+	ReturnedQty int       `json:"returned_qty"`
+	CreatedAt   time.Time `json:"created_at"`
+}
 
 // Attachment 文件附件
 type Attachment struct {
@@ -292,33 +336,33 @@ type LoginResponse struct {
 
 // IncomingDoc 收文登记（上级来文）
 type IncomingDoc struct {
-	ID            int64               `json:"id"`
-	ReceiveNo     string              `json:"receive_no"`     // 收文编号
-	ReceivedDate  string              `json:"received_date"`  // 收文日期 YYYY-MM-DD
-	FromUnit      string              `json:"from_unit"`      // 来文单位
-	FromDocNo     string              `json:"from_doc_no"`    // 来文字号
-	DocNo         string              `json:"doc_no"`         // 文件编号
-	Title         string              `json:"title"`          // 文件标题
-	Copies        int                 `json:"copies"`         // 份数
-	SecretLevel   string              `json:"secret_level"`   // 密级
-	Urgency       string              `json:"urgency"`        // 紧急程度
-	Suggest       string              `json:"suggest"`        // 拟办意见
-	LeaderComment string              `json:"leader_comment"` // 领导批示
-	Processing    string              `json:"processing"`     // 办理情况
-	ReturnDate    string              `json:"return_date"`    // 退回日期
-	Returned      int                 `json:"returned"`       // 是否已退 1已退 0未退
-	NeedReturn    int                 `json:"need_return"`    // 是否需要退回 1需要 0不需要
-	RegistrarID   int64               `json:"registrar_id"`
-	Registrar     string              `json:"registrar_name,omitempty"`
-	Status         int                 `json:"status"` // 1待登记 2拟办中 3待批示 4办理中 5已办结
-	HandlingStatus string              `json:"handling_status,omitempty"` // 历史废弃字段（已下线）
-	ArchiveBoxNo   string              `json:"archive_box_no"`   // 归档盒号/卷宗号，例如 '2026-宣-01盒'
-	ArchiveYear    string              `json:"archive_year"`     // 归档年度，例如 '2026'
-	AssignedDepartment string          `json:"assigned_department"` // 承办科室
-	HandlingRemarks string             `json:"handling_remarks"`    // 流转与批示备注
-	CreatedAt      time.Time           `json:"created_at"`
-	UpdatedAt     time.Time           `json:"updated_at"`
-	CircList      []CirculationRecord `json:"circulations,omitempty"`
+	ID                 int64               `json:"id"`
+	ReceiveNo          string              `json:"receive_no"`     // 收文编号
+	ReceivedDate       string              `json:"received_date"`  // 收文日期 YYYY-MM-DD
+	FromUnit           string              `json:"from_unit"`      // 来文单位
+	FromDocNo          string              `json:"from_doc_no"`    // 来文字号
+	DocNo              string              `json:"doc_no"`         // 文件编号
+	Title              string              `json:"title"`          // 文件标题
+	Copies             int                 `json:"copies"`         // 份数
+	SecretLevel        string              `json:"secret_level"`   // 密级
+	Urgency            string              `json:"urgency"`        // 紧急程度
+	Suggest            string              `json:"suggest"`        // 拟办意见
+	LeaderComment      string              `json:"leader_comment"` // 领导批示
+	Processing         string              `json:"processing"`     // 办理情况
+	ReturnDate         string              `json:"return_date"`    // 退回日期
+	Returned           int                 `json:"returned"`       // 是否已退 1已退 0未退
+	NeedReturn         int                 `json:"need_return"`    // 是否需要退回 1需要 0不需要
+	RegistrarID        int64               `json:"registrar_id"`
+	Registrar          string              `json:"registrar_name,omitempty"`
+	Status             int                 `json:"status"`                    // 1待登记 2拟办中 3待批示 4办理中 5已办结
+	HandlingStatus     string              `json:"handling_status,omitempty"` // 历史废弃字段（已下线）
+	ArchiveBoxNo       string              `json:"archive_box_no"`            // 归档盒号/卷宗号，例如 '2026-宣-01盒'
+	ArchiveYear        string              `json:"archive_year"`              // 归档年度，例如 '2026'
+	AssignedDepartment string              `json:"assigned_department"`       // 承办科室
+	HandlingRemarks    string              `json:"handling_remarks"`          // 流转与批示备注
+	CreatedAt          time.Time           `json:"created_at"`
+	UpdatedAt          time.Time           `json:"updated_at"`
+	CircList           []CirculationRecord `json:"circulations,omitempty"`
 }
 
 // CirculationRecord 传阅记录

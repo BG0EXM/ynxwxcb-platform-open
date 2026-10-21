@@ -30,6 +30,12 @@ const routes = [
     meta: { title: '公文材料查收' }
   },
   {
+    path: '/warehouse/:token',
+    name: 'warehouse-checkout',
+    component: () => import('../views/WarehouseCheckout.vue'),
+    meta: { title: '库房物资领用' }
+  },
+  {
     path: '/incoming/print/:id',
     name: 'incoming-print',
     component: () => import('../views/IncomingPrint.vue'),
@@ -175,6 +181,12 @@ const routes = [
         meta: { title: '材料下发', icon: 'Promotion' }
       },
       {
+        path: 'supplies',
+        name: 'supplies',
+        component: () => import('../views/Warehouse.vue'),
+        meta: { title: '库房物资', icon: 'Box' }
+      },
+      {
         path: 'users',
         name: 'users',
         component: () => import('../views/Users.vue'),
@@ -214,8 +226,8 @@ const router = createRouter({
   routes
 })
 
-// 公开路径（无需登录）；末尾带斜杠，避免误匹配后台 /meetings、/solicits、/dispatches
-const publicPaths = ['/login', '/meeting/', '/meeting-register/', '/solicit/', '/solicit-feedback/', '/dispatch/', '/dispatch-receipt/']
+// 公开路径（无需登录）；末尾带斜杠，避免误匹配后台 /meetings、/solicits、/dispatches（库房后台为 /supplies）
+const publicPaths = ['/login', '/meeting/', '/meeting-register/', '/solicit/', '/solicit-feedback/', '/dispatch/', '/dispatch-receipt/', '/warehouse/']
 export const isPublicPath = (path = '') => publicPaths.some(p => path.startsWith(p))
 
 // 路由 → 所需权限点（无权限则隐藏菜单并友好提示）
@@ -242,6 +254,7 @@ const routePerms = {
   meetings: 'meeting.manage',
   solicits: 'solicit.manage',
   dispatches: 'dispatch.manage',
+  supplies: 'warehouse.manage',
   users: 'user.manage',
   permissions: 'user.manage',
   'operation-logs': 'oplog.view'
@@ -277,7 +290,7 @@ router.beforeEach((to, from, next) => {
         return
       }
     }
-    document.title = to.meta.title ? `${to.meta.title} - 伊宁县委宣传部部务工作平台 V1.8.0` : '伊宁县委宣传部部务工作平台 V1.8.0'
+    document.title = to.meta.title ? `${to.meta.title} - 伊宁县委宣传部部务工作平台 V1.8.1` : '伊宁县委宣传部部务工作平台 V1.8.1'
     next()
   }
 })

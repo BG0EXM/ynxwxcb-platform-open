@@ -73,6 +73,13 @@ var systemNavMenus = []navMenuItem{
 		Keywords: []string{"公车", "车辆", "用车", "派车", "驾驶员", "车辆台账", "vehicles", "gongche"},
 	},
 	{
+		Title:    "库房物资",
+		Path:     "/supplies",
+		Icon:     "Box",
+		Category: "业务办理",
+		Keywords: []string{"库房", "仓库", "物资", "领用", "借用", "归还", "库存", "耗材", "办公用品", "warehouse", "kufang", "wuzi"},
+	},
+	{
 		Title:    "值守排班",
 		Path:     "/duty",
 		Icon:     "AlarmClock",

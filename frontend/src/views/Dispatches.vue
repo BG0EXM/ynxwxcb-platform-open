@@ -373,7 +373,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CopyDocument, ArrowDown } from '@element-plus/icons-vue'
 import request, { exportFile, openAuthFile } from '../utils/request'
@@ -716,7 +717,10 @@ const openDetail = async (row) => {
     detailTitle.value = `查收台账 - ${row.title}`
     const res = await request.get(`/dispatches/${row.id}`)
     // 以详情接口返回为准（含公开链接令牌；从全局搜索打开时 row 仅有 id）
-    if (res.dispatch) detailDispatch.value = { ...row, ...res.dispatch }
+    if (res.dispatch) {
+      detailDispatch.value = { ...row, ...res.dispatch }
+      detailTitle.value = `查收台账 - ${res.dispatch.title}`
+    }
     detailReceipts.value = res.receipts || []
     detailUnreceipted.value = res.unreceipted_units || []
     detailTotalUnits.value = res.total_units || 0
@@ -770,8 +774,14 @@ const exportReceipts = (row) => {
   exportFile(`/export/dispatches/${row.id}/receipts`, {}, `材料查收台账-${row.title}.xlsx`)
 }
 
+// 支持 /dispatches?id=xx 直接打开查收台账（工作台待办跳转）
+const route = useRoute()
 onMounted(() => {
   loadData()
+  if (route.query.id) openDetail({ id: route.query.id, title: '' })
+})
+watch(() => route.query.id, (id) => {
+  if (id) openDetail({ id, title: '' })
 })
 </script>
 

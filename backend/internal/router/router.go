@@ -43,6 +43,11 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("GET /api/public/dispatches/{token}", middleware.RateLimit(120, time.Minute)(http.HandlerFunc(handlers.PublicDispatch)))
 	mux.Handle("GET /api/public/dispatches/{token}/file", middleware.RateLimit(120, time.Minute)(handlers.PublicServeDispatchFile(cfg)))
 	mux.Handle("POST /api/public/dispatches/{token}/receipt", middleware.RateLimit(30, time.Minute)(http.HandlerFunc(handlers.PublicConfirmDispatchReceipt)))
+	// 库房物资门口二维码扫码领用/归还（匿名，无需登录）——按 IP 限流（防刷）
+	mux.Handle("GET /api/public/warehouse/{token}", middleware.RateLimit(120, time.Minute)(http.HandlerFunc(handlers.PublicWarehouse)))
+	mux.Handle("POST /api/public/warehouse/{token}/checkout", middleware.RateLimit(30, time.Minute)(http.HandlerFunc(handlers.PublicWarehouseCheckout)))
+	mux.Handle("POST /api/public/warehouse/{token}/borrows", middleware.RateLimit(60, time.Minute)(http.HandlerFunc(handlers.PublicWarehouseBorrows)))
+	mux.Handle("POST /api/public/warehouse/{token}/return", middleware.RateLimit(30, time.Minute)(http.HandlerFunc(handlers.PublicWarehouseReturn)))
 
 
 	// ---- 认证 ----
@@ -159,6 +164,27 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("POST /api/dispatches/{id}/reset-unit", perm("dispatch.manage", handlers.ResetUnitDispatchReceipt))
 	mux.Handle("GET /api/export/dispatches/{id}/receipts", perm("dispatch.manage", handlers.ExportDispatchReceipts))
 
+	// ---- 库房物资 ----
+	mux.Handle("GET /api/warehouse/items", perm("warehouse.manage", handlers.ListWarehouseItems))
+	mux.Handle("POST /api/warehouse/items", perm("warehouse.manage", handlers.CreateWarehouseItem))
+	mux.Handle("PUT /api/warehouse/items", perm("warehouse.manage", handlers.UpdateWarehouseItem))
+	mux.Handle("DELETE /api/warehouse/items/{id}", perm("warehouse.manage", handlers.DeleteWarehouseItem))
+	mux.Handle("POST /api/warehouse/items/{id}/stock-in", perm("warehouse.manage", handlers.StockInWarehouseItem))
+	mux.Handle("POST /api/warehouse/items/{id}/adjust", perm("warehouse.manage", handlers.AdjustWarehouseItem))
+	mux.Handle("GET /api/warehouse/records", perm("warehouse.manage", handlers.ListWarehouseRecords))
+	mux.Handle("POST /api/warehouse/slips/{id}/void", perm("warehouse.manage", handlers.VoidWarehouseSlip))
+	mux.Handle("POST /api/warehouse/checkout", perm("warehouse.manage", handlers.AdminWarehouseCheckout))
+	mux.Handle("GET /api/warehouse/people", perm("warehouse.manage", handlers.ListWarehousePeople))
+	mux.Handle("GET /api/warehouse/borrows", perm("warehouse.manage", handlers.ListWarehouseBorrows))
+	mux.Handle("POST /api/warehouse/borrows/{id}/return", perm("warehouse.manage", handlers.AdminReturnWarehouseBorrow))
+	mux.Handle("GET /api/warehouse/stats", perm("warehouse.manage", handlers.WarehouseStats))
+	mux.Handle("GET /api/warehouse/settings", perm("warehouse.manage", handlers.GetWarehouseSettings))
+	mux.Handle("PUT /api/warehouse/settings", perm("warehouse.manage", handlers.UpdateWarehouseSettings))
+	mux.Handle("POST /api/warehouse/settings/reset-token", perm("warehouse.manage", handlers.ResetWarehouseToken))
+	mux.Handle("GET /api/export/warehouse/records", perm("warehouse.manage", handlers.ExportWarehouseRecords))
+	mux.Handle("GET /api/export/warehouse/items", perm("warehouse.manage", handlers.ExportWarehouseItems))
+	mux.Handle("GET /api/export/warehouse/stats", perm("warehouse.manage", handlers.ExportWarehouseStats))
+
 
 	// ---- 考勤 ----
 	mux.Handle("POST /api/attendance/mark", perm("attendance.mark", handlers.MarkAttendance))
@@ -221,6 +247,8 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 
 	// ---- 首页统计 ----
 	mux.Handle("GET /api/dashboard-stats", perm("dashboard.view", handlers.DashboardStats))
+	// 今日待办：登录即可，各类待办在接口内按权限点逐类放行（顶栏铃铛在任何页面都要用）
+	mux.Handle("GET /api/dashboard/todos", authOnly(handlers.DashboardTodos))
 
 	// ---- 数据导出（Excel）----
 	mux.Handle("GET /api/export/vehicle-applies", perm("vehicle.export", handlers.ExportVehicleApplies))
@@ -254,6 +282,13 @@ type spaHandler struct {
 }
 
 func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// 未注册的接口地址一律返回 JSON 404，不能回退成页面：
+	// 否则升级时新前端先于新后端上线，浏览器会把页面 HTML 当作接口结果缓存下来，长时间显示空数据
+	if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") {
+		w.Header().Set("Cache-Control", "no-store")
+		middleware.JSON(w, http.StatusNotFound, map[string]string{"error": "接口不存在，请刷新页面后重试"})
+		return
+	}
 	// 路径穿越防护
 	path := filepath.Clean(r.URL.Path)
 	rel := strings.TrimPrefix(path, string(os.PathSeparator))
@@ -269,5 +304,7 @@ func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, fullPath)
 		return
 	}
+	// 入口页不缓存，升级后用户刷新即可拿到新版前端
+	w.Header().Set("Cache-Control", "no-cache")
 	http.ServeFile(w, r, filepath.Join(h.staticDir, "index.html"))
 }

@@ -745,7 +745,7 @@ func resetAutoIncrement() {
 		"contacts", "duty_schedules", "incoming_docs", "circulation_records",
 		"study_materials", "calendar_tasks", "standing_committee_events",
 		"major_events", "weekly_summaries", "overtime_records", "annual_leave_configs",
-		"meetings", "meeting_registrations", "solicits", "solicit_feedbacks", "dispatches", "dispatch_receipts"}
+		"meetings", "meeting_registrations", "solicits", "solicit_feedbacks", "dispatches", "dispatch_receipts", "warehouse_items"}
 	tx, err := database.DB.Begin()
 	if err != nil {
 		return
