@@ -19,6 +19,10 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	authOnly := func(h http.HandlerFunc) http.Handler {
 		return middleware.Auth(h)
 	}
+	// 仅系统管理员（AI 接口密钥、额度等不可下放）
+	adminOnly := func(h http.HandlerFunc) http.Handler {
+		return middleware.Auth(middleware.RequireRole("admin")(h))
+	}
 	// 需要某权限点
 	perm := func(code string, h http.HandlerFunc) http.Handler {
 		return middleware.Auth(middleware.RequirePerm(code)(h))
@@ -185,6 +189,23 @@ func NewRouter(cfg *config.Config) *http.ServeMux {
 	mux.Handle("GET /api/export/warehouse/items", perm("warehouse.manage", handlers.ExportWarehouseItems))
 	mux.Handle("GET /api/export/warehouse/stats", perm("warehouse.manage", handlers.ExportWarehouseStats))
 
+
+	// ---- AI 写作助手 ----
+	mux.Handle("GET /api/ai/status", perm("ai.use", handlers.AIStatus))
+	mux.Handle("GET /api/ai/prompts", perm("ai.use", handlers.AIListPrompts))
+	mux.Handle("GET /api/ai/usage", perm("ai.use", handlers.AIMyUsage))
+	mux.Handle("POST /api/ai/chat", middleware.RateLimit(60, time.Minute)(perm("ai.use", handlers.AIChat)))
+	mux.Handle("GET /api/ai/admin/settings", adminOnly(handlers.AIAdminGetSettings))
+	mux.Handle("PUT /api/ai/admin/settings", adminOnly(handlers.AIAdminSaveSettings))
+	mux.Handle("POST /api/ai/admin/test", adminOnly(handlers.AIAdminTest))
+	mux.Handle("GET /api/ai/admin/accounts", adminOnly(handlers.AIAdminAccounts))
+	mux.Handle("POST /api/ai/admin/topup", adminOnly(handlers.AIAdminTopup))
+	mux.Handle("GET /api/ai/admin/ledger", adminOnly(handlers.AIAdminLedger))
+	mux.Handle("GET /api/ai/admin/usage", adminOnly(handlers.AIAdminUsage))
+	mux.Handle("GET /api/ai/admin/prompts", adminOnly(handlers.AIAdminListPrompts))
+	mux.Handle("POST /api/ai/admin/prompts", adminOnly(handlers.AIAdminCreatePrompt))
+	mux.Handle("PUT /api/ai/admin/prompts", adminOnly(handlers.AIAdminUpdatePrompt))
+	mux.Handle("DELETE /api/ai/admin/prompts/{id}", adminOnly(handlers.AIAdminDeletePrompt))
 
 	// ---- 考勤 ----
 	mux.Handle("POST /api/attendance/mark", perm("attendance.mark", handlers.MarkAttendance))

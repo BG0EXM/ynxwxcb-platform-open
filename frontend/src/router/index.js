@@ -187,6 +187,18 @@ const routes = [
         meta: { title: '库房物资', icon: 'Box' }
       },
       {
+        path: 'ai',
+        name: 'ai',
+        component: () => import('../views/AiChat.vue'),
+        meta: { title: 'AI 写作助手', icon: 'MagicStick' }
+      },
+      {
+        path: 'ai-admin',
+        name: 'ai-admin',
+        component: () => import('../views/AiAdmin.vue'),
+        meta: { title: 'AI 助手管理', icon: 'Cpu', admin: true }
+      },
+      {
         path: 'users',
         name: 'users',
         component: () => import('../views/Users.vue'),
@@ -255,6 +267,7 @@ const routePerms = {
   solicits: 'solicit.manage',
   dispatches: 'dispatch.manage',
   supplies: 'warehouse.manage',
+  ai: 'ai.use',
   users: 'user.manage',
   permissions: 'user.manage',
   'operation-logs': 'oplog.view'
@@ -275,6 +288,16 @@ router.beforeEach((to, from, next) => {
       next('/profile')
       return
     }
+    // 仅系统管理员可进入的页面（AI 接口密钥、额度等）
+    if (to.meta?.admin && to.name === 'ai-admin') {
+      let u = {}
+      try { u = JSON.parse(localStorage.getItem('user') || '{}') } catch (e) { u = {} }
+      if (u.role_code !== 'admin') {
+        ElMessage.warning('无权限访问该功能')
+        next('/dashboard')
+        return
+      }
+    }
     const needPerm = routePerms[to.name]
     if (needPerm) {
       let user = {}
@@ -290,7 +313,7 @@ router.beforeEach((to, from, next) => {
         return
       }
     }
-    document.title = to.meta.title ? `${to.meta.title} - 伊宁县委宣传部部务工作平台 V1.8.1` : '伊宁县委宣传部部务工作平台 V1.8.1'
+    document.title = to.meta.title ? `${to.meta.title} - 伊宁县委宣传部部务工作平台 V1.8.2` : '伊宁县委宣传部部务工作平台 V1.8.2'
     next()
   }
 })

@@ -636,3 +636,13 @@ var compressedExts = map[string]bool{
 	".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true, ".bmp": true, ".tif": true, ".tiff": true,
 	".pdf": true,
 }
+
+// CheckPromptText 检测用户输入给 AI 助手的文本是否带有国家秘密/工作秘密/内部级标识。
+// 输入是用户自己撰写的文字（与文件名类似），“保密法”“保密教育”等学习宣传类词组先行剔除再匹配，
+// 避免正常拟写保密宣传教育通知时被误阻断。
+func CheckPromptText(text string) ViolationResult {
+	for _, phrase := range filenameWhitelistPhrases {
+		text = strings.ReplaceAll(text, phrase, "")
+	}
+	return matchTextRules(text, "AI对话输入内容")
+}

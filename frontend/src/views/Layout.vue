@@ -257,7 +257,8 @@ const menuGroups = computed(() => {
   const materials = [
     hp('event.view') && { path: '/reports', title: '大事记', icon: 'Collection' },
     hp('weekly.view') && { path: '/weekly', title: '每周工作总结', icon: 'Document' },
-    hp('study.view') && { path: '/study', title: '公共资料', icon: 'Reading' }
+    hp('study.view') && { path: '/study', title: '公共资料', icon: 'Reading' },
+    hp('ai.use') && { path: '/ai', title: 'AI 写作助手', icon: 'MagicStick' }
   ].filter(Boolean)
   const groups = [
     { title: '业务办理', icon: 'FolderOpened', items: business },
@@ -268,6 +269,7 @@ const menuGroups = computed(() => {
     hp('standing.manage') && { path: '/standing', title: '常委管理', icon: 'UserFilled' },
     hp('user.manage') && { path: '/users', title: '用户管理', icon: 'User' },
     hp('user.manage') && { path: '/permissions', title: '权限管理', icon: 'Lock' },
+    authStore.isAdmin && { path: '/ai-admin', title: 'AI 助手管理', icon: 'Cpu' },
     hp('oplog.view') && { path: '/operation-logs', title: '操作日志', icon: 'Files' }
   ].filter(Boolean)
   if (sys.length) {

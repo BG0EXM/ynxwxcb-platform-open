@@ -12,7 +12,7 @@ const request = axios.create({
 
 let isRedirectingToLogin = false
 
-const handleUnauthorized = (error) => {
+export const handleUnauthorized = (error) => {
   const currentPath = router.currentRoute.value?.path || ''
   if (isPublicPath(currentPath)) {
     // 登录页与公开填报页面（/meeting/、/solicit/、/dispatch/ 等），严禁跳转 /login，仅返回 Promise.reject

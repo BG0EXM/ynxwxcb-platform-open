@@ -1,7 +1,15 @@
 # 伊宁县委宣传部部务工作平台 - 部署文档（Nginx）
 
-> 适用版本：**V1.8.1** · 更新日期：**2026-10-21**  
+> 适用版本：**V1.8.2** · 更新日期：**2026-10-23**  
 > 服务器配置：Debian / Ubuntu (2C / 2G) · HTTPS 公网访问（支持 IPv6）
+
+## 升级到 V1.8.2 必读
+- 数据库自动升级到 v22（新增 AI 相关 5 张表），升级前务必先执行 `deploy/backup.sh` 备份。
+- 新增权限点“AI 写作助手”（`ai.use`，共 50 项），**默认不授予任何角色**，升级后由管理员在“权限管理”中勾选；管理员在“系统管理 → AI 助手管理”中选择本地模型或网络接口（如 DeepSeek）、填写密钥与单价、给用户充值记账。AI 功能默认关闭，不使用无需任何配置。
+- **使用网络接口时，服务器必须能访问外网**（如 `api.deepseek.com`）；内网/隔离网部署请改用本地模型（Ollama / vLLM 等，接口地址形如 `http://127.0.0.1:11434/v1`）。
+- API 密钥用 `config.json` 的 `jwt.secret` 派生密钥加密保存，**更换 `jwt.secret` 后需在后台重新填写 API 密钥**。
+- **nginx 反代必须关闭对话接口的缓冲**，否则 AI 回复无法逐字显示、会等全部生成完才出现：`deploy/nginx/ynxwxcb.conf` 已新增 `location = /api/ai/chat` 段（`proxy_buffering off`），已部署的服务器请把该段同步到现有配置后 `nginx -t && systemctl reload nginx`（Caddy 默认即时转发，无需改动）。
+- 严格按下文“升级版本”步骤：先停服务，再一起替换 `ynxwxcb-server` 与 `static/`，最后启动；绝不覆盖 `data/` 与 `config.json`。
 
 ## 升级到 V1.8.1 必读
 - 数据库自动升级到 v21（新增库房物资 4 张表），升级前务必先执行 `deploy/backup.sh` 备份。

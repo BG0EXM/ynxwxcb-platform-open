@@ -49,6 +49,9 @@
         </el-form-item>
         <el-form-item label="重大事项" required>
           <el-input v-model="form.title" type="textarea" :rows="6" placeholder="请输入本日重大事项" />
+          <div class="ai-row">
+            <AiAssist scene="event_polish" label="AI 润色" size="small" :text="() => form.title" tip="把事项改写成简明规范的大事记表述，由您确认后再采用" @apply="(t) => form.title = t" />
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -67,6 +70,7 @@ import dayjs from 'dayjs'
 import { useAuthStore } from '../store/auth'
 import PageHeader from '../components/PageHeader.vue'
 import EmptyState from '../components/EmptyState.vue'
+import AiAssist from '../components/AiAssist.vue'
 
 const authStore = useAuthStore()
 const list = ref([])
@@ -164,6 +168,7 @@ onMounted(() => {
 })</script>
 
 <style scoped>
+.ai-row { width: 100%; margin-top: 6px; }
 .toolbar {
   display: flex;
   justify-content: space-between;

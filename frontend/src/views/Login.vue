@@ -63,7 +63,7 @@
           <span class="footer-sep">|</span>
           <a href="https://beian.mps.gov.cn/#/query/webSearch" target="_blank" rel="noopener">[滇公网安备XXXXXXXXXXXXXXXX号]</a>
         </div>
-        <div class="footer-meta">伊宁县委宣传部部务工作平台 V1.8.1 · 本站支持 IPv6</div>
+        <div class="footer-meta">伊宁县委宣传部部务工作平台 V1.8.2 · 本站支持 IPv6</div>
       </footer>
     </section>
   </div>

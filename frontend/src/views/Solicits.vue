@@ -179,6 +179,9 @@
               :rows="3" 
               placeholder="如：请各单位主要领导审签并加盖公章后，将红头回函扫描件于截止时间前上传反馈。逾期未反馈视为无意见。" 
             />
+            <div class="ai-row">
+              <AiAssist scene="solicit_text" label="AI 拟写说明" size="small" :text="solicitAiText" tip="根据标题、文号、截止时间和已填要求，AI 帮您写一段发给各单位的征求意见说明" @apply="(t) => form.content = t" />
+            </div>
           </el-form-item>
         </div>
 
@@ -299,6 +302,9 @@
       <el-tabs v-model="detailTab" class="mt-12">
         <!-- 标签 1：已反馈列表 -->
         <el-tab-pane :label="`已反馈单位 (${feedbacks.length})`" name="feedbacks">
+          <div class="ai-row" v-if="feedbacks.some(f => f.has_opinion === 1)">
+            <AiAssist scene="solicit_digest" label="AI 汇编意见" size="small" apply-text="复制汇编结果" :text="digestAiText" tip="把各单位提出的修改意见按条款归并、去重，生成一份汇编清单" @apply="copyDigest" />
+          </div>
           <el-table :data="feedbacks" size="large" class="mt-8">
             <template #empty><empty-state description="暂无单位提交反馈" /></template>
             <el-table-column prop="unit" label="单位名称" min-width="160" show-overflow-tooltip />
@@ -415,6 +421,7 @@ import PageHeader from '../components/PageHeader.vue'
 import MobileCardList from '../components/MobileCardList.vue'
 import StatStrip from '../components/StatStrip.vue'
 import EmptyState from '../components/EmptyState.vue'
+import AiAssist from '../components/AiAssist.vue'
 import { useMobile } from '../utils/useMobile'
 import { validateUploadFileSecrecy, handleSecrecyUploadError } from '../utils/secrecyGuard'
 
@@ -458,6 +465,22 @@ const rules = {
 
 const detailVisible = ref(false)
 const detailTitle = ref('')
+// AI 辅助：拟写征求意见说明、汇编各单位意见
+const solicitAiText = () => {
+  const lines = [`文件材料标题：${form.value.title || '（未填）'}`]
+  if (form.value.doc_no) lines.push(`函号/文号：${form.value.doc_no}`)
+  if (form.value.deadline) lines.push(`反馈截止时间：${form.value.deadline}`)
+  if (form.value.content) lines.push(`已有要求：${form.value.content}`)
+  return lines.join('\n')
+}
+const digestAiText = () => {
+  const items = feedbacks.value.filter(f => f.has_opinion === 1)
+  return `文件：${detailSolicit.value?.title || ''}\n\n` + items.map((f, i) => `${i + 1}. 【${f.unit}】${(f.opinion_detail || '（未填写文字说明，见修改稿附件）').trim()}`).join('\n')
+}
+const copyDigest = (text) => {
+  navigator.clipboard.writeText(text).then(() => ElMessage.success('已复制汇编结果，可粘贴到 Word')).catch(() => ElMessage.info('请手动选中复制'))
+}
+
 const detailTab = ref('feedbacks')
 const detailSolicit = ref(null)
 const feedbacks = ref([])
@@ -1155,4 +1178,5 @@ watch(() => route.query.id, (id) => {
   color: #b91c1c;
   font-weight: 700;
 }
+.ai-row { width: 100%; margin-top: 6px; }
 </style>

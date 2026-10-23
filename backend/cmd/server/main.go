@@ -47,6 +47,7 @@ func main() {
 
 	// 初始化 JWT
 	auth.Init(cfg.JWT.Secret)
+	handlers.SetAISecret(cfg.JWT.Secret) // AI 接口密钥加密根密钥
 
 	// 初始化数据库
 	if err := database.Init(cfg.Database.Path); err != nil {

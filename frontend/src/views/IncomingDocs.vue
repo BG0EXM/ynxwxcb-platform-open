@@ -487,6 +487,9 @@
               <el-descriptions-item label="领导批示" :span="2">{{ detail.leader_comment || '—' }}</el-descriptions-item>
               <el-descriptions-item label="办理情况" :span="2">{{ detail.processing || '—' }}</el-descriptions-item>
             </el-descriptions>
+            <div class="ai-row">
+              <AiAssist scene="doc_summary" label="AI 公文摘要" size="small" apply-text="复制摘要" :text="docSummaryText" tip="把公文正文粘贴进去，AI 提炼发文单位、主要事项和办理要求，便于拟办批示" @apply="copySummary" />
+            </div>
 
             <div class="mt-20 print-btn-group">
               <el-button 
@@ -639,6 +642,7 @@ import StatusDot from '../components/StatusDot.vue'
 import EmptyState from '../components/EmptyState.vue'
 import MobileCardList from '../components/MobileCardList.vue'
 import StatStrip from '../components/StatStrip.vue'
+import AiAssist from '../components/AiAssist.vue'
 import { useMobile } from '../utils/useMobile'
 
 const { isMobile } = useMobile()
@@ -653,6 +657,15 @@ const page = ref(1)
 const pageSize = 20
 const total = ref(0)
 // 顶部统计（后端按全量口径返回，不随分页变化）
+// AI 辅助：公文摘要（正文需使用人自行粘贴，不上传原文件）
+const docSummaryText = () => {
+  const d = detail.value || {}
+  return `文件标题：${d.title || ''}\n来文单位：${d.from_unit || ''}\n来文字号：${d.from_doc_no || ''}\n\n【请在下方粘贴公文正文】\n`
+}
+const copySummary = (text) => {
+  navigator.clipboard.writeText(text).then(() => ElMessage.success('已复制摘要，可粘贴到拟办意见')).catch(() => ElMessage.info('请手动选中复制'))
+}
+
 const summary = ref({})
 const statItems = computed(() => [
   { label: '收文总数', value: summary.value.total, unit: '份', onClick: () => filterStatus('') },
@@ -972,6 +985,7 @@ watch(() => route.query.id, (newId) => {
 </script>
 
 <style scoped>
+.ai-row { margin-top: 10px; }
 .filter-bar {
   display: flex;
   flex-direction: column;

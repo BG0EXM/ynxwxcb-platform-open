@@ -54,6 +54,9 @@
         </el-form-item>
         <el-form-item label="重点工作总结" required>
           <el-input v-model="form.content" type="textarea" :rows="6" placeholder="本周重点工作的完成情况、成效及下步计划" />
+          <div class="ai-row">
+            <AiAssist scene="weekly_polish" label="AI 润色" size="small" :text="() => form.content" tip="把写好的本周工作润色得更精炼规范，事实不变，由您确认后再采用" @apply="(t) => form.content = t" />
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -72,6 +75,7 @@ import dayjs from 'dayjs'
 import { useAuthStore } from '../store/auth'
 import PageHeader from '../components/PageHeader.vue'
 import EmptyState from '../components/EmptyState.vue'
+import AiAssist from '../components/AiAssist.vue'
 
 const authStore = useAuthStore()
 const list = ref([])
@@ -192,6 +196,7 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.ai-row { width: 100%; margin-top: 6px; }
 .toolbar {
   display: flex;
   justify-content: space-between;

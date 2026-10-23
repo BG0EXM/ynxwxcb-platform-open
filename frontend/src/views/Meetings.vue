@@ -26,6 +26,7 @@
         <template #actions="{ row }">
           <el-button link type="primary" @click="openDetail(row)">报名台账</el-button>
           <el-button link type="primary" @click="notifyMeeting(row)">一键通知</el-button>
+          <AiAssist scene="meeting_notice" label="AI 润色" link :text="() => buildNoticeText(row)" apply-text="复制润色后的通知" tip="对一键通知的文案做润色，时间、地点、报名链接保持不变" @apply="copyPolishedNotice" />
           <el-dropdown @command="(cmd) => handleRowCommand(cmd, row)" trigger="click">
             <el-button link type="primary">更多</el-button>
             <template #dropdown>
@@ -83,11 +84,12 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="260" fixed="right" align="right">
+        <el-table-column label="操作" width="350" fixed="right" align="right">
           <template #default="{ row }">
             <div class="row-action-wrap">
               <el-button link type="primary" @click="openDetail(row)">报名台账</el-button>
               <el-button link type="primary" @click="notifyMeeting(row)">一键通知会议</el-button>
+              <AiAssist scene="meeting_notice" label="AI 润色" link :text="() => buildNoticeText(row)" apply-text="复制润色后的通知" tip="对一键通知的文案做润色，时间、地点、报名链接保持不变" @apply="copyPolishedNotice" />
               
               <el-dropdown @command="(cmd) => handleRowCommand(cmd, row)" trigger="click">
                 <el-button link type="primary" class="more-link">
@@ -329,6 +331,7 @@ import { CopyDocument } from '@element-plus/icons-vue'
 import request, { exportFile } from '../utils/request'
 import dayjs from 'dayjs'
 import PageHeader from '../components/PageHeader.vue'
+import AiAssist from '../components/AiAssist.vue'
 import MobileCardList from '../components/MobileCardList.vue'
 import StatStrip from '../components/StatStrip.vue'
 import EmptyState from '../components/EmptyState.vue'
@@ -511,7 +514,8 @@ const handleRowCommand = (cmd, row) => {
   else if (cmd === 'delete') removeMeeting(row)
 }
 
-const notifyMeeting = (row) => {
+// 生成会议通知文案（一键通知与 AI 润色共用）
+const buildNoticeText = (row) => {
   const url = `${window.location.origin}/meeting/${row.public_token}`
   const timeDesc = row.meeting_time ? `${row.meeting_date} ${row.meeting_time}` : row.meeting_date
   const unitsArr = (row.units || '').split('\n').map(s => s.trim()).filter(Boolean)
@@ -527,11 +531,24 @@ const notifyMeeting = (row) => {
   }
   text += `【在线报名】请上述参会单位负责同志点击下方链接，及时填报参会人员信息：\n`
   text += `${url}`
+  return text
+}
 
+const notifyMeeting = (row) => {
+  const text = buildNoticeText(row)
   navigator.clipboard.writeText(text).then(() => {
     ElMessage.success('已复制会议通知文案，可直接发送微信工作群')
   }).catch(() => {
     ElMessage.info(`通知文案已生成，请手动复制：\n${text}`)
+  })
+}
+
+// AI 润色后的通知：报名链接以原文为准，润色结果复制到剪贴板
+const copyPolishedNotice = (text) => {
+  navigator.clipboard.writeText(text).then(() => {
+    ElMessage.success('已复制润色后的通知，请核对时间、地点和报名链接后再发送')
+  }).catch(() => {
+    ElMessage.info('请手动选中复制')
   })
 }
 

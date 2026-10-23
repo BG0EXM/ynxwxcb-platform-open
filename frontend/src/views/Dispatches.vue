@@ -174,6 +174,9 @@
               :rows="3" 
               placeholder="如：请各单位认真领会文件精神，结合工作实际抓好贯彻落实。本文件查收即视为签收，无需报送回函。" 
             />
+            <div class="ai-row">
+              <AiAssist scene="dispatch_text" label="AI 拟写说明" size="small" :text="dispatchAiText" tip="根据材料标题、发文字号和已填说明，AI 帮您写一段发给各单位的下发说明" @apply="(t) => form.content = t" />
+            </div>
           </el-form-item>
         </div>
 
@@ -383,6 +386,7 @@ import PageHeader from '../components/PageHeader.vue'
 import MobileCardList from '../components/MobileCardList.vue'
 import StatStrip from '../components/StatStrip.vue'
 import EmptyState from '../components/EmptyState.vue'
+import AiAssist from '../components/AiAssist.vue'
 import { useMobile } from '../utils/useMobile'
 import { validateUploadFileSecrecy, handleSecrecyUploadError } from '../utils/secrecyGuard'
 
@@ -405,6 +409,15 @@ const dialogVisible = ref(false)
 const editId = ref(0)
 const saving = ref(false)
 const formRef = ref(null)
+
+// AI 辅助：拟写材料下发说明
+const dispatchAiText = () => {
+  const lines = [`材料名称：${form.value.title || '（未填）'}`]
+  if (form.value.doc_no) lines.push(`发文字号：${form.value.doc_no}`)
+  if (form.value.deadline) lines.push(`查收截止时间：${form.value.deadline}`)
+  if (form.value.content) lines.push(`已有说明：${form.value.content}`)
+  return lines.join('\n')
+}
 
 const form = ref({
   title: '',
@@ -786,6 +799,7 @@ watch(() => route.query.id, (id) => {
 </script>
 
 <style scoped>
+.ai-row { width: 100%; margin-top: 6px; }
 .dispatches-page {
   padding-bottom: 24px;
 }
